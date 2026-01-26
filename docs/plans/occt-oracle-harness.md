@@ -12,26 +12,26 @@ This plan implements an OCCT oracle test harness for agent-driven geometric kern
 
 ### Decision Log
 
-| Decision | Reasoning Chain |
-|----------|-----------------|
-| cxx over autocxx/bindgen | cxx provides strong type safety at FFI boundary -> agents won't accidentally create memory bugs -> reduced debugging overhead outweighs manual wrapper code cost |
-| Hybrid architecture (cxx + DSL) | Agents need to add tests rapidly without FFI knowledge -> DSL macro abstracts oracle calls -> agents focus on test cases, not plumbing -> fastest iteration speed |
-| Required OCCT for tests | Oracle is ground truth for correctness -> graceful skip would allow bugs to pass CI -> fail-fast ensures no untested code ships |
-| Primitives + Booleans MVP | Booleans are the hardest operation (coincident faces, tangent intersections) -> solving booleans first proves architecture handles hard cases -> primitives are prerequisites for boolean inputs |
-| crates/ location | Solverang is now standalone repo -> crates/ is standard Rust workspace layout -> consistent with atomic_solver structure |
-| Volume + topology comparison | Volume catches gross geometric errors -> topology (face/edge/vertex counts) catches topological bugs -> Hausdorff deferred to M3 as optional enhancement |
-| Test case serialization with rkyv | Zero-copy deserialization matches solverang patterns (see atomic_solver) -> faster test loading than JSON -> binary format prevents accidental test case mutation |
-| Tolerance 1e-6 for volume | OCCT uses double precision internally -> 1e-6 relative error catches meaningful bugs without false positives from floating-point noise -> matches solver_comparison.rs patterns |
+| Decision                          | Reasoning Chain                                                                                                                                                                                  |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| cxx over autocxx/bindgen          | cxx provides strong type safety at FFI boundary -> agents won't accidentally create memory bugs -> reduced debugging overhead outweighs manual wrapper code cost                                 |
+| Hybrid architecture (cxx + DSL)   | Agents need to add tests rapidly without FFI knowledge -> DSL macro abstracts oracle calls -> agents focus on test cases, not plumbing -> fastest iteration speed                                |
+| Required OCCT for tests           | Oracle is ground truth for correctness -> graceful skip would allow bugs to pass CI -> fail-fast ensures no untested code ships                                                                  |
+| Primitives + Booleans MVP         | Booleans are the hardest operation (coincident faces, tangent intersections) -> solving booleans first proves architecture handles hard cases -> primitives are prerequisites for boolean inputs |
+| crates/ location                  | Solverang is now standalone repo -> crates/ is standard Rust workspace layout -> consistent with solverang structure                                                                             |
+| Volume + topology comparison      | Volume catches gross geometric errors -> topology (face/edge/vertex counts) catches topological bugs -> Hausdorff deferred to M3 as optional enhancement                                         |
+| Test case serialization with rkyv | Zero-copy deserialization matches solverang patterns (see solverang) -> faster test loading than JSON -> binary format prevents accidental test case mutation                                    |
+| Tolerance 1e-6 for volume         | OCCT uses double precision internally -> 1e-6 relative error catches meaningful bugs without false positives from floating-point noise -> matches solver_comparison.rs patterns                  |
 
 ### Rejected Alternatives
 
-| Alternative | Why Rejected |
-|-------------|--------------|
-| bindgen raw bindings | Unsafe everywhere, no type safety at FFI boundary, agents would create memory bugs |
-| autocxx | Learning curve + magic behavior, harder to debug FFI issues, cxx provides sufficient coverage |
-| Feature-flagged optional OCCT | Would allow untested code paths, defeats purpose of oracle-based development |
-| JSON test serialization | Slower than rkyv, human-editable (mutation risk), doesn't match codebase patterns |
-| Exact numeric comparison | Impossible across FFI boundary due to floating-point representation differences |
+| Alternative                   | Why Rejected                                                                                  |
+| ----------------------------- | --------------------------------------------------------------------------------------------- |
+| bindgen raw bindings          | Unsafe everywhere, no type safety at FFI boundary, agents would create memory bugs            |
+| autocxx                       | Learning curve + magic behavior, harder to debug FFI issues, cxx provides sufficient coverage |
+| Feature-flagged optional OCCT | Would allow untested code paths, defeats purpose of oracle-based development                  |
+| JSON test serialization       | Slower than rkyv, human-editable (mutation risk), doesn't match codebase patterns             |
+| Exact numeric comparison      | Impossible across FFI boundary due to floating-point representation differences               |
 
 ### Constraints & Assumptions
 
@@ -43,13 +43,13 @@ This plan implements an OCCT oracle test harness for agent-driven geometric kern
 
 ### Known Risks
 
-| Risk | Mitigation | Anchor |
-|------|------------|--------|
-| OCCT not installed in CI | Docker image with OCCT pre-installed, fail build if headers missing | build.rs:L1-20 (will add) |
-| FFI memory leaks | cxx UniquePtr wraps all OCCT objects, Drop handles cleanup | types.rs design |
-| OCCT API changes between versions | Pin to OCCT 7.7, version check in build.rs | build.rs:L25-35 (will add) |
-| Comparison false positives | Start with loose tolerance (1e-6), tighten based on empirical data | metrics.rs design |
-| Complex OCCT build setup | Provide Dockerfile and setup script | docs/SETUP.md (M4) |
+| Risk                              | Mitigation                                                          | Anchor                     |
+| --------------------------------- | ------------------------------------------------------------------- | -------------------------- |
+| OCCT not installed in CI          | Docker image with OCCT pre-installed, fail build if headers missing | build.rs:L1-20 (will add)  |
+| FFI memory leaks                  | cxx UniquePtr wraps all OCCT objects, Drop handles cleanup          | types.rs design            |
+| OCCT API changes between versions | Pin to OCCT 7.7, version check in build.rs                          | build.rs:L25-35 (will add) |
+| Comparison false positives        | Start with loose tolerance (1e-6), tighten based on empirical data  | metrics.rs design          |
+| Complex OCCT build setup          | Provide Dockerfile and setup script                                 | docs/SETUP.md (M4)         |
 
 ## Invisible Knowledge
 
