@@ -1,0 +1,61 @@
+[package]
+name = "solverang"
+version = "0.1.0"
+edition = "2021"
+description = "Domain-agnostic numerical solver for nonlinear systems and least-squares problems"
+license = "Apache-2.0"
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = ["std", "macros", "geometry", "jit", "nist", "sparse", "parallel"]
+std = []
+parallel = ["rayon"]
+sparse = ["faer"]
+geometry = []
+macros = ["solverang_macros"]
+jit = ["cranelift", "cranelift-jit", "cranelift-module", "cranelift-native"]
+nist = []                                                                    # NIST StRD nonlinear regression test problems
+
+[dependencies]
+# Linear algebra - version 0.34 is required for levenberg-marquardt compatibility
+nalgebra = "0.34"
+
+# Levenberg-Marquardt solver
+levenberg-marquardt = "0.15"
+
+# Error handling
+thiserror = "2.0"
+
+# Optional: parallel solving
+rayon = { version = "1.10", optional = true }
+
+# Optional: sparse matrices
+faer = { version = "0.22", optional = true }
+
+# Optional: automatic Jacobian generation via symbolic differentiation
+solverang_macros = { path = "../solverang_macros", optional = true }
+
+# Optional: JIT compilation with Cranelift
+cranelift = { version = "0.116", optional = true }
+cranelift-jit = { version = "0.116", optional = true }
+cranelift-module = { version = "0.116", optional = true }
+cranelift-native = { version = "0.116", optional = true }
+
+[dev-dependencies]
+proptest = "1.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "scaling"
+harness = false
+
+[[bench]]
+name = "comprehensive"
+harness = false
+
+[[bench]]
+name = "nist_benchmarks"
+harness = false
+required-features = ["nist"]
