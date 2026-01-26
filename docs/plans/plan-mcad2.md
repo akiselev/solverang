@@ -59,11 +59,11 @@ Benefits:
 
 ### 3. Constraint Solver Integration
 
-Sketch profiles flow directly from our `atomic_solver` constraint system:
+Sketch profiles flow directly from our `solverang` constraint system:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    atomic_solver                             │
+│                    solverang                             │
 │                                                              │
 │  Constraints: [Horizontal, Distance=50, Tangent, ...]       │
 │                          │                                   │
@@ -77,7 +77,7 @@ Sketch profiles flow directly from our `atomic_solver` constraint system:
                            │
                            ▼ Solved 2D Points
 ┌─────────────────────────────────────────────────────────────┐
-│                   atomic_geometry                            │
+│                   solverang_geometry                            │
 │                                                              │
 │  Profile Extraction: Closed loops → NURBS curves            │
 │                          │                                   │
@@ -85,7 +85,7 @@ Sketch profiles flow directly from our `atomic_solver` constraint system:
                            │
                            ▼ NURBS Profiles
 ┌─────────────────────────────────────────────────────────────┐
-│                   atomic_features                            │
+│                   solverang_features                            │
 │                                                              │
 │  Extrude/Revolve/Sweep → B-rep Solid                        │
 │                                                              │
@@ -103,7 +103,7 @@ B-rep topology is notoriously error-prone in C++ kernels. Rust's ownership model
 
 ## 6-Layer Architecture
 
-### Layer 1: Geometric Primitives (`atomic_geometry`)
+### Layer 1: Geometric Primitives (`solverang_geometry`)
 
 **Purpose**: NURBS curves and surfaces, fundamental geometric types.
 
@@ -137,32 +137,32 @@ pub struct NurbsSurface {
 
 #### Core Operations
 
-| Operation | Complexity | Notes |
-|-----------|------------|-------|
-| Curve point evaluation | O(p) | p = degree, using de Boor's algorithm |
-| Surface point evaluation | O(p_u * p_v) | Tensor product evaluation |
-| Curve derivative | O(p) | First/second derivatives needed for tangent/curvature |
-| Surface normal | O(p_u * p_v) | Cross product of partial derivatives |
-| Curve/curve intersection | O(n log n) | Bezier clipping or subdivision |
-| Curve/surface intersection | O(n * m) | The hard problem - iteration required |
+| Operation                  | Complexity   | Notes                                                 |
+| -------------------------- | ------------ | ----------------------------------------------------- |
+| Curve point evaluation     | O(p)         | p = degree, using de Boor's algorithm                 |
+| Surface point evaluation   | O(p_u * p_v) | Tensor product evaluation                             |
+| Curve derivative           | O(p)         | First/second derivatives needed for tangent/curvature |
+| Surface normal             | O(p_u * p_v) | Cross product of partial derivatives                  |
+| Curve/curve intersection   | O(n log n)   | Bezier clipping or subdivision                        |
+| Curve/surface intersection | O(n * m)     | The hard problem - iteration required                 |
 
 #### Crate Evaluation: `curvo`
 
 The `curvo` crate provides NURBS functionality. Evaluation criteria:
 
-| Criteria | curvo | Custom Implementation |
-|----------|-------|----------------------|
-| Basic evaluation | Good | Equal effort |
-| Derivatives | Good | Equal effort |
-| Intersection | Limited | Custom needed for SSI robustness |
-| Event sourcing integration | No | Full control |
-| Performance | Unknown | Optimizable |
+| Criteria                   | curvo   | Custom Implementation            |
+| -------------------------- | ------- | -------------------------------- |
+| Basic evaluation           | Good    | Equal effort                     |
+| Derivatives                | Good    | Equal effort                     |
+| Intersection               | Limited | Custom needed for SSI robustness |
+| Event sourcing integration | No      | Full control                     |
+| Performance                | Unknown | Optimizable                      |
 
 **Recommendation**: Start with `curvo` for basic NURBS, implement custom surface-surface intersection (SSI) since that's the critical path for boolean operations.
 
 ---
 
-### Layer 2: B-rep Topology (`atomic_topology`)
+### Layer 2: B-rep Topology (`solverang_topology`)
 
 **Purpose**: Represent solid models as boundary faces with topological connectivity.
 
@@ -222,14 +222,14 @@ pub enum Orientation { Forward, Reversed }
 
 Euler operators maintain topological validity through atomic operations:
 
-| Operator | Effect | DOF Change |
-|----------|--------|------------|
-| `mvfs` | Make Vertex, Face, Shell | +1V, +1F, +1S |
-| `mev` | Make Edge, Vertex | +1E, +1V |
-| `mef` | Make Edge, Face | +1E, +1F |
-| `kef` | Kill Edge, Face | -1E, -1F |
-| `kemr` | Kill Edge, Make Ring | -1E, +1L |
-| `mekr` | Make Edge, Kill Ring | +1E, -1L |
+| Operator | Effect                   | DOF Change    |
+| -------- | ------------------------ | ------------- |
+| `mvfs`   | Make Vertex, Face, Shell | +1V, +1F, +1S |
+| `mev`    | Make Edge, Vertex        | +1E, +1V      |
+| `mef`    | Make Edge, Face          | +1E, +1F      |
+| `kef`    | Kill Edge, Face          | -1E, -1F      |
+| `kemr`   | Kill Edge, Make Ring     | -1E, +1L      |
+| `mekr`   | Make Edge, Kill Ring     | +1E, -1L      |
 
 Euler-Poincare formula for validation:
 ```
@@ -267,7 +267,7 @@ impl Solid {
 
 ---
 
-### Layer 3: Boolean Operations (`atomic_boolean`)
+### Layer 3: Boolean Operations (`solverang_boolean`)
 
 **Purpose**: Union, subtract, intersect operations on B-rep solids.
 
@@ -311,13 +311,13 @@ This is the most challenging layer due to:
 
 SSI strategies by surface type:
 
-| Surface A | Surface B | Method |
-|-----------|-----------|--------|
-| Plane | Plane | Analytical (line or coincident) |
-| Plane | Cylinder | Analytical (line, ellipse, or parabola) |
-| Plane | NURBS | Marching + subdivision |
-| Cylinder | Cylinder | Analytical or numerical |
-| NURBS | NURBS | Marching squares + refinement |
+| Surface A | Surface B | Method                                  |
+| --------- | --------- | --------------------------------------- |
+| Plane     | Plane     | Analytical (line or coincident)         |
+| Plane     | Cylinder  | Analytical (line, ellipse, or parabola) |
+| Plane     | NURBS     | Marching + subdivision                  |
+| Cylinder  | Cylinder  | Analytical or numerical                 |
+| NURBS     | NURBS     | Marching squares + refinement           |
 
 **Robustness Strategy**:
 1. Use interval arithmetic for critical decisions
@@ -367,7 +367,7 @@ impl Face {
 
 ---
 
-### Layer 4: Feature Modeling (`atomic_features`)
+### Layer 4: Feature Modeling (`solverang_features`)
 
 **Purpose**: Parametric features that generate/modify B-rep geometry.
 
@@ -484,7 +484,7 @@ pub struct Profile {
 
 ---
 
-### Layer 5: Geometric Queries (`atomic_query`)
+### Layer 5: Geometric Queries (`solverang_query`)
 
 **Purpose**: Spatial indexing and geometric queries for user interaction and algorithms.
 
@@ -525,14 +525,14 @@ impl BVH<FaceId> {
 
 #### Query Operations
 
-| Query | Use Case | Implementation |
-|-------|----------|----------------|
-| Point-in-solid | Determine if point is inside solid | Ray cast + odd/even crossing |
-| Closest point | Snap to geometry | BVH + Newton iteration on surfaces |
-| Ray cast | Picking in 3D view | BVH + ray-surface intersection |
-| Interference check | Assembly validation | BVH + SAT or GJK |
-| Minimum distance | Collision detection | BVH + distance field |
-| Mass properties | Engineering calculations | Numeric integration over faces |
+| Query              | Use Case                           | Implementation                     |
+| ------------------ | ---------------------------------- | ---------------------------------- |
+| Point-in-solid     | Determine if point is inside solid | Ray cast + odd/even crossing       |
+| Closest point      | Snap to geometry                   | BVH + Newton iteration on surfaces |
+| Ray cast           | Picking in 3D view                 | BVH + ray-surface intersection     |
+| Interference check | Assembly validation                | BVH + SAT or GJK                   |
+| Minimum distance   | Collision detection                | BVH + distance field               |
+| Mass properties    | Engineering calculations           | Numeric integration over faces     |
 
 ```rust
 pub trait GeometricQueries {
@@ -554,7 +554,7 @@ pub struct MassProperties {
 
 ---
 
-### Layer 6: Serialization & I/O (`atomic_step`)
+### Layer 6: Serialization & I/O (`solverang_step`)
 
 **Purpose**: STEP file import/export for interoperability.
 
@@ -633,13 +633,13 @@ Test suites are critical for AI agent development. Each test provides:
 
 **Purpose**: Validate numerical solver accuracy with certified solutions.
 
-| Dataset | Variables | Residual Sum of Squares (certified) | Use For |
-|---------|-----------|-------------------------------------|---------|
-| Misra1a | 2 | 1.2455138894E-01 | Constraint solver |
-| Chwirut2 | 3 | 5.1304802941E+02 | NURBS fitting |
-| Hahn1 | 7 | 1.5324382854E+00 | Complex systems |
-| MGH17 | 5 | 5.4648946975E-05 | High precision |
-| Lanczos3 | 6 | 1.6117193594E-08 | Numerical stability |
+| Dataset  | Variables | Residual Sum of Squares (certified) | Use For             |
+| -------- | --------- | ----------------------------------- | ------------------- |
+| Misra1a  | 2         | 1.2455138894E-01                    | Constraint solver   |
+| Chwirut2 | 3         | 5.1304802941E+02                    | NURBS fitting       |
+| Hahn1    | 7         | 1.5324382854E+00                    | Complex systems     |
+| MGH17    | 5         | 5.4648946975E-05                    | High precision      |
+| Lanczos3 | 6         | 1.6117193594E-08                    | Numerical stability |
 
 **Test Structure**:
 ```rust
@@ -663,13 +663,13 @@ fn nist_strd_misra1a() {
 
 **Purpose**: Validate STEP import/export correctness.
 
-| Test Category | Description | Pass Criteria |
-|---------------|-------------|---------------|
-| AP203 syntax | File structure | Parser accepts all valid files |
-| Geometry roundtrip | Export → import → compare | Volume difference < 0.1% |
-| Topology preservation | Edge/face counts | Exact match |
-| Product structure | Assembly hierarchy | Correct parent-child |
-| PMI data | GD&T annotations | Semantic preservation |
+| Test Category         | Description               | Pass Criteria                  |
+| --------------------- | ------------------------- | ------------------------------ |
+| AP203 syntax          | File structure            | Parser accepts all valid files |
+| Geometry roundtrip    | Export → import → compare | Volume difference < 0.1%       |
+| Topology preservation | Edge/face counts          | Exact match                    |
+| Product structure     | Assembly hierarchy        | Correct parent-child           |
+| PMI data              | GD&T annotations          | Semantic preservation          |
 
 **Test Structure**:
 ```rust
@@ -709,12 +709,12 @@ Models include:
 
 **Source**: https://dev.opencascade.org/doc/overview/html/occt_dev_guides__tests.html
 
-| Category | Test Count | Description |
-|----------|------------|-------------|
-| `boolean` | 500+ | Union, cut, common operations |
-| `fillet` | 200+ | Edge rounding |
-| `offset` | 100+ | Shell offset |
-| `heal` | 150+ | Geometry repair |
+| Category  | Test Count | Description                   |
+| --------- | ---------- | ----------------------------- |
+| `boolean` | 500+       | Union, cut, common operations |
+| `fillet`  | 200+       | Edge rounding                 |
+| `offset`  | 100+       | Shell offset                  |
+| `heal`    | 150+       | Geometry repair               |
 
 **Usage**: Download OCCT test data, convert to our format, verify same results.
 
@@ -724,11 +724,11 @@ Models include:
 
 **Purpose**: 1 million CAD models for robustness testing.
 
-| Subset | Models | Complexity |
-|--------|--------|------------|
-| Simple | 100K | < 100 faces |
-| Medium | 500K | 100-1000 faces |
-| Complex | 400K | > 1000 faces |
+| Subset  | Models | Complexity     |
+| ------- | ------ | -------------- |
+| Simple  | 100K   | < 100 faces    |
+| Medium  | 500K   | 100-1000 faces |
+| Complex | 400K   | > 1000 faces   |
 
 **Test Structure**:
 ```rust
@@ -772,20 +772,20 @@ Selected test cases:
 
 These are the performance targets that AI agents should verify during implementation:
 
-| Operation | Target | Measurement Method | Notes |
-|-----------|--------|-------------------|-------|
-| NURBS curve evaluation | < 1 μs | `criterion` benchmark | Single point, degree 3 |
-| NURBS surface evaluation | < 10 μs | `criterion` benchmark | Single point, bicubic |
-| B-rep topology validation | < 10 ms | `criterion` benchmark | 10,000 elements |
-| Boolean union (simple) | < 50 ms | `criterion` benchmark | 100 faces each |
-| Boolean union (complex) | < 500 ms | `criterion` benchmark | 5,000 faces each |
-| Sketch solve (simple) | < 5 ms | `criterion` benchmark | 10 constraints |
-| Sketch solve (complex) | < 50 ms | `criterion` benchmark | 50 constraints |
-| Feature regeneration | < 200 ms | End-to-end | 5-feature chain |
-| STEP export | < 1 s | `criterion` benchmark | 10,000 faces |
-| STEP import | < 2 s | `criterion` benchmark | 10,000 faces |
-| Ray cast query | < 1 ms | `criterion` benchmark | 10,000 faces, BVH |
-| Closest point query | < 5 ms | `criterion` benchmark | 10,000 faces |
+| Operation                 | Target   | Measurement Method    | Notes                  |
+| ------------------------- | -------- | --------------------- | ---------------------- |
+| NURBS curve evaluation    | < 1 μs   | `criterion` benchmark | Single point, degree 3 |
+| NURBS surface evaluation  | < 10 μs  | `criterion` benchmark | Single point, bicubic  |
+| B-rep topology validation | < 10 ms  | `criterion` benchmark | 10,000 elements        |
+| Boolean union (simple)    | < 50 ms  | `criterion` benchmark | 100 faces each         |
+| Boolean union (complex)   | < 500 ms | `criterion` benchmark | 5,000 faces each       |
+| Sketch solve (simple)     | < 5 ms   | `criterion` benchmark | 10 constraints         |
+| Sketch solve (complex)    | < 50 ms  | `criterion` benchmark | 50 constraints         |
+| Feature regeneration      | < 200 ms | End-to-end            | 5-feature chain        |
+| STEP export               | < 1 s    | `criterion` benchmark | 10,000 faces           |
+| STEP import               | < 2 s    | `criterion` benchmark | 10,000 faces           |
+| Ray cast query            | < 1 ms   | `criterion` benchmark | 10,000 faces, BVH      |
+| Closest point query       | < 5 ms   | `criterion` benchmark | 10,000 faces           |
 
 **Benchmark Infrastructure**:
 ```rust
@@ -897,7 +897,7 @@ tests/
 
 ## Integration Points
 
-### With `atomic_solver` (Constraint Solving)
+### With `solverang` (Constraint Solving)
 
 ```rust
 // Sketch constraints flow to geometry through solved positions
@@ -958,7 +958,7 @@ impl FeatureDDIntegration {
 }
 ```
 
-### With `atomic_store` (Event Sourcing)
+### With `solverang_store` (Event Sourcing)
 
 ```rust
 // Geometric operations as domain events
@@ -1014,7 +1014,7 @@ impl GeometryAggregate {
 - [ ] Surface trimming representation
 - [ ] Performance benchmarks (< 10 μs per point)
 
-**Deliverable**: `atomic_geometry` crate passing all NIST numerical tests.
+**Deliverable**: `solverang_geometry` crate passing all NIST numerical tests.
 
 ### Phase 2: B-rep Topology (4 weeks)
 
@@ -1033,7 +1033,7 @@ impl GeometryAggregate {
 - [ ] Orientation consistency
 - [ ] Test suite for topology invariants
 
-**Deliverable**: `atomic_topology` crate with 100% Euler operator coverage.
+**Deliverable**: `solverang_topology` crate with 100% Euler operator coverage.
 
 ### Phase 3: Boolean Operations (6 weeks)
 
@@ -1059,7 +1059,7 @@ impl GeometryAggregate {
 - [ ] Result validation
 - [ ] OpenCASCADE boolean test suite
 
-**Deliverable**: `atomic_boolean` crate passing 90%+ of OCCT boolean tests.
+**Deliverable**: `solverang_boolean` crate passing 90%+ of OCCT boolean tests.
 
 ### Phase 4: Feature Modeling (4 weeks)
 
@@ -1077,7 +1077,7 @@ impl GeometryAggregate {
 - [ ] Feature boolean operations
 - [ ] DD-based feature tree integration
 
-**Deliverable**: `atomic_features` crate with working extrude/revolve.
+**Deliverable**: `solverang_features` crate with working extrude/revolve.
 
 ### Phase 5: Advanced Features (4 weeks)
 
@@ -1095,7 +1095,7 @@ impl GeometryAggregate {
 - [ ] Chamfer (distance × distance, distance × angle)
 - [ ] Chain selection for fillets
 
-**Deliverable**: `atomic_features` crate with full feature palette.
+**Deliverable**: `solverang_features` crate with full feature palette.
 
 **Note**: Fillet is a known hard problem. Start with simple cases (tangent blend surfaces) and handle complex vertex blends incrementally.
 
@@ -1116,7 +1116,7 @@ impl GeometryAggregate {
 - [ ] Healing (gap closing, face stitching)
 - [ ] NIST STEP conformance tests
 
-**Deliverable**: `atomic_step` crate with roundtrip validation.
+**Deliverable**: `solverang_step` crate with roundtrip validation.
 
 ---
 
@@ -1124,7 +1124,7 @@ impl GeometryAggregate {
 
 ```
 crates/
-├── atomic_geometry/              # Layer 1: NURBS, primitives
+├── solverang_geometry/              # Layer 1: NURBS, primitives
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs
@@ -1143,7 +1143,7 @@ crates/
 │       │   └── curve_surface.rs
 │       └── tolerance.rs          # Global tolerance handling
 │
-├── atomic_topology/              # Layer 2: B-rep data structures
+├── solverang_topology/              # Layer 2: B-rep data structures
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs
@@ -1163,7 +1163,7 @@ crates/
 │       ├── validation.rs         # Topology validation
 │       └── traversal.rs          # Traversal utilities
 │
-├── atomic_boolean/               # Layer 3: Boolean operations
+├── solverang_boolean/               # Layer 3: Boolean operations
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs
@@ -1178,7 +1178,7 @@ crates/
 │       ├── reconstruct.rs        # Topology reconstruction
 │       └── boolean_op.rs         # Union, subtract, intersect API
 │
-├── atomic_features/              # Layer 4: Feature modeling
+├── solverang_features/              # Layer 4: Feature modeling
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs
@@ -1193,7 +1193,7 @@ crates/
 │       ├── feature_tree.rs       # DD-based dependency tracking
 │       └── parameters.rs         # Feature parameter expressions
 │
-├── atomic_query/                 # Layer 5: Spatial queries
+├── solverang_query/                 # Layer 5: Spatial queries
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs
@@ -1205,7 +1205,7 @@ crates/
 │       ├── mass_properties.rs
 │       └── aabb.rs               # Axis-Aligned Bounding Box
 │
-├── atomic_step/                  # Layer 6: STEP I/O
+├── solverang_step/                  # Layer 6: STEP I/O
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs
@@ -1222,7 +1222,7 @@ crates/
 │       │   └── healing.rs
 │       └── entities.rs           # STEP entity definitions
 │
-└── atomic_kernel/                # Unified API facade
+└── solverang_kernel/                # Unified API facade
     ├── Cargo.toml
     └── src/
         ├── lib.rs                # Re-exports from all layers
@@ -1235,14 +1235,14 @@ crates/
 
 ## Risk Mitigation
 
-| Risk | Likelihood | Impact | Mitigation Strategy |
-|------|------------|--------|---------------------|
-| SSI robustness issues | High | High | Start with simpler surface types, add extensive edge case tests, use interval arithmetic for critical decisions |
-| Fillet complexity | High | Medium | Defer complex vertex blends, implement constant-radius edge fillet first, many real workflows work without complex fillets |
-| Performance not meeting targets | Medium | Medium | Profile early and often, use spatial indexing (BVH), cache intermediate results, parallelize where possible |
-| STEP compatibility issues | Medium | Medium | Test against real-world files early, implement healing for common issues, don't aim for 100% compatibility initially |
-| DD integration complexity | Medium | High | Prototype DD integration early in Phase 4, keep feature dependencies simple initially |
-| Numerical precision errors | Medium | High | Use consistent tolerance throughout, implement robust predicates for geometric decisions |
+| Risk                            | Likelihood | Impact | Mitigation Strategy                                                                                                        |
+| ------------------------------- | ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------- |
+| SSI robustness issues           | High       | High   | Start with simpler surface types, add extensive edge case tests, use interval arithmetic for critical decisions            |
+| Fillet complexity               | High       | Medium | Defer complex vertex blends, implement constant-radius edge fillet first, many real workflows work without complex fillets |
+| Performance not meeting targets | Medium     | Medium | Profile early and often, use spatial indexing (BVH), cache intermediate results, parallelize where possible                |
+| STEP compatibility issues       | Medium     | Medium | Test against real-world files early, implement healing for common issues, don't aim for 100% compatibility initially       |
+| DD integration complexity       | Medium     | High   | Prototype DD integration early in Phase 4, keep feature dependencies simple initially                                      |
+| Numerical precision errors      | Medium     | High   | Use consistent tolerance throughout, implement robust predicates for geometric decisions                                   |
 
 ### Fallback Strategies
 
@@ -1324,7 +1324,7 @@ impl NurbsCurve {
 ### Commit Granularity
 
 - Each test + implementation = one commit
-- Commit message format: `feat(atomic_geometry): implement NURBS curve evaluation [PASS: nurbs_curve_evaluate_at_midpoint]`
+- Commit message format: `feat(solverang_geometry): implement NURBS curve evaluation [PASS: nurbs_curve_evaluate_at_midpoint]`
 - Never commit with failing tests
 
 ### Performance Regression Prevention
