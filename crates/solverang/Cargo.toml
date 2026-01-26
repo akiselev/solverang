@@ -35,7 +35,7 @@ rayon = { version = "1.10", optional = true }
 faer = { version = "0.22", optional = true }
 
 # Optional: automatic Jacobian generation via symbolic differentiation
-solverang_macros = { path = "../solverang_macros", optional = true }
+solverang_macros = { path = "../macros", optional = true }
 
 # Optional: JIT compilation with Cranelift
 cranelift = { version = "0.116", optional = true }
