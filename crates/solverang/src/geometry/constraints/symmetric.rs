@@ -1,162 +1,229 @@
-//! Symmetric constraint: two points are symmetric about a center point.
+//! Symmetric constraints: point symmetry and line symmetry
 
-use crate::geometry::point::Point;
-use super::{get_point, var_col, GeometricConstraint};
+use crate::geometry::params::{ConstraintId, ParamRange};
+use crate::geometry::constraint::{Constraint, Nonlinearity};
 
-/// Symmetric constraint: two points are symmetric about a center point.
+/// Constrains two points to be symmetric about a center point.
 ///
-/// This constraint enforces that P1 and P2 are mirror images with respect
-/// to the center point C, meaning C is the midpoint of P1 and P2.
+/// Equations: p1[i] + p2[i] = 2 * center[i] for each coordinate i
 ///
-/// # Equations
-///
-/// For each dimension k: `P1[k] + P2[k] - 2*C[k] = 0`
-///
-/// This is equivalent to: `(P1 + P2) / 2 = C`
-///
-/// # Jacobian
-///
-/// - `d(residual_k)/d(P1[k]) = 1`
-/// - `d(residual_k)/d(P2[k]) = 1`
-/// - `d(residual_k)/d(C[k]) = -2`
-#[derive(Clone, Debug)]
-pub struct SymmetricConstraint<const D: usize> {
-    /// Index of first point.
-    pub point1: usize,
-    /// Index of second point.
-    pub point2: usize,
-    /// Index of center point (axis of symmetry).
-    pub center: usize,
+/// Works for both 2D and 3D points (determined by ParamRange.count).
+pub struct SymmetricConstraint {
+    id: ConstraintId,
+    p1: ParamRange,
+    p2: ParamRange,
+    center: ParamRange,
+    deps: Vec<usize>,
 }
 
-impl<const D: usize> SymmetricConstraint<D> {
+impl SymmetricConstraint {
     /// Create a new symmetric constraint.
-    pub fn new(point1: usize, point2: usize, center: usize) -> Self {
+    ///
+    /// # Panics
+    /// Panics if p1, p2, and center don't all have the same dimensionality.
+    pub fn new(
+        id: ConstraintId,
+        p1: ParamRange,
+        p2: ParamRange,
+        center: ParamRange,
+    ) -> Self {
+        assert_eq!(
+            p1.count, p2.count,
+            "SymmetricConstraint requires all points to have same dimensionality"
+        );
+        assert_eq!(
+            p1.count, center.count,
+            "SymmetricConstraint requires all points to have same dimensionality"
+        );
+
+        let mut deps = Vec::new();
+        deps.extend(p1.iter());
+        deps.extend(p2.iter());
+        deps.extend(center.iter());
+
         Self {
-            point1,
-            point2,
+            id,
+            p1,
+            p2,
             center,
+            deps,
         }
     }
 }
 
-impl<const D: usize> GeometricConstraint<D> for SymmetricConstraint<D> {
-    fn equation_count(&self) -> usize {
-        D
-    }
-
-    fn residuals(&self, points: &[Point<D>]) -> Vec<f64> {
-        let p1 = get_point(points, self.point1);
-        let p2 = get_point(points, self.point2);
-        let c = get_point(points, self.center);
-
-        let mut residuals = Vec::with_capacity(D);
-        for k in 0..D {
-            residuals.push(p1.get(k) + p2.get(k) - 2.0 * c.get(k));
-        }
-        residuals
-    }
-
-    fn jacobian(&self, _points: &[Point<D>]) -> Vec<(usize, usize, f64)> {
-        let mut entries = Vec::with_capacity(D * 3);
-
-        for k in 0..D {
-            entries.push((k, var_col::<D>(self.point1, k), 1.0));   // d/dP1[k]
-            entries.push((k, var_col::<D>(self.point2, k), 1.0));   // d/dP2[k]
-            entries.push((k, var_col::<D>(self.center, k), -2.0));  // d/dC[k]
-        }
-
-        entries
-    }
-
-    fn variable_indices(&self) -> Vec<usize> {
-        vec![self.point1, self.point2, self.center]
+impl Constraint for SymmetricConstraint {
+    fn id(&self) -> ConstraintId {
+        self.id
     }
 
     fn name(&self) -> &'static str {
-        "Symmetric"
+        "symmetric"
+    }
+
+    fn equation_count(&self) -> usize {
+        self.p1.count
+    }
+
+    fn dependencies(&self) -> &[usize] {
+        &self.deps
+    }
+
+    fn residuals(&self, params: &[f64]) -> Vec<f64> {
+        let dim = self.p1.count;
+        let mut residuals = Vec::with_capacity(dim);
+
+        for i in 0..dim {
+            let p1_val = params[self.p1.start + i];
+            let p2_val = params[self.p2.start + i];
+            let center_val = params[self.center.start + i];
+
+            residuals.push(p1_val + p2_val - 2.0 * center_val);
+        }
+
+        residuals
+    }
+
+    fn jacobian(&self, _params: &[f64]) -> Vec<(usize, usize, f64)> {
+        let dim = self.p1.count;
+        let mut jacobian = Vec::with_capacity(3 * dim);
+
+        // For each equation i: residual[i] = p1[i] + p2[i] - 2*center[i]
+        // d/dp1[i] = 1, d/dp2[i] = 1, d/dcenter[i] = -2
+        for i in 0..dim {
+            jacobian.push((i, self.p1.start + i, 1.0));
+            jacobian.push((i, self.p2.start + i, 1.0));
+            jacobian.push((i, self.center.start + i, -2.0));
+        }
+
+        jacobian
+    }
+
+    fn nonlinearity_hint(&self) -> Nonlinearity {
+        Nonlinearity::Linear
     }
 }
 
-/// Symmetric about line constraint: two points are mirror images across a line axis.
+/// Constrains two points to be symmetric about a line axis (2D only).
 ///
 /// Two conditions must be satisfied:
 /// 1. Midpoint of P1-P2 lies on the axis
 /// 2. Line P1-P2 is perpendicular to axis
-///
-/// This is a 2D-only constraint.
-#[derive(Clone, Debug)]
 pub struct SymmetricAboutLineConstraint {
-    /// Index of first point.
-    pub point1: usize,
-    /// Index of second point.
-    pub point2: usize,
-    /// Index of axis start point.
-    pub axis_start: usize,
-    /// Index of axis end point.
-    pub axis_end: usize,
+    id: ConstraintId,
+    p1: ParamRange,
+    p2: ParamRange,
+    axis_start: ParamRange,
+    axis_end: ParamRange,
+    deps: Vec<usize>,
 }
 
 impl SymmetricAboutLineConstraint {
     /// Create a new symmetric-about-line constraint.
-    pub fn new(point1: usize, point2: usize, axis_start: usize, axis_end: usize) -> Self {
+    ///
+    /// # Panics
+    /// Panics if any point is not 2D (count != 2).
+    pub fn new(
+        id: ConstraintId,
+        p1: ParamRange,
+        p2: ParamRange,
+        axis_start: ParamRange,
+        axis_end: ParamRange,
+    ) -> Self {
+        assert_eq!(p1.count, 2, "SymmetricAboutLineConstraint requires 2D points");
+        assert_eq!(p2.count, 2, "SymmetricAboutLineConstraint requires 2D points");
+        assert_eq!(axis_start.count, 2, "SymmetricAboutLineConstraint requires 2D points");
+        assert_eq!(axis_end.count, 2, "SymmetricAboutLineConstraint requires 2D points");
+
+        let mut deps = Vec::new();
+        deps.extend(p1.iter());
+        deps.extend(p2.iter());
+        deps.extend(axis_start.iter());
+        deps.extend(axis_end.iter());
+
         Self {
-            point1,
-            point2,
+            id,
+            p1,
+            p2,
             axis_start,
             axis_end,
+            deps,
         }
     }
 }
 
-impl GeometricConstraint<2> for SymmetricAboutLineConstraint {
+impl Constraint for SymmetricAboutLineConstraint {
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+
+    fn name(&self) -> &'static str {
+        "symmetric_about_line"
+    }
+
     fn equation_count(&self) -> usize {
         2
     }
 
-    fn residuals(&self, points: &[Point<2>]) -> Vec<f64> {
-        let p1 = get_point(points, self.point1);
-        let p2 = get_point(points, self.point2);
-        let a = get_point(points, self.axis_start);
-        let b = get_point(points, self.axis_end);
+    fn dependencies(&self) -> &[usize] {
+        &self.deps
+    }
+
+    fn residuals(&self, params: &[f64]) -> Vec<f64> {
+        // Extract point coordinates
+        let p1x = params[self.p1.start];
+        let p1y = params[self.p1.start + 1];
+        let p2x = params[self.p2.start];
+        let p2y = params[self.p2.start + 1];
+        let ax = params[self.axis_start.start];
+        let ay = params[self.axis_start.start + 1];
+        let bx = params[self.axis_end.start];
+        let by = params[self.axis_end.start + 1];
 
         // Midpoint of P1-P2
-        let mx = (p1.get(0) + p2.get(0)) / 2.0;
-        let my = (p1.get(1) + p2.get(1)) / 2.0;
+        let mx = (p1x + p2x) / 2.0;
+        let my = (p1y + p2y) / 2.0;
 
         // Axis direction
-        let ax_dx = b.get(0) - a.get(0);
-        let ax_dy = b.get(1) - a.get(1);
+        let ax_dx = bx - ax;
+        let ax_dy = by - ay;
 
         // P1-P2 direction
-        let p_dx = p2.get(0) - p1.get(0);
-        let p_dy = p2.get(1) - p1.get(1);
+        let p_dx = p2x - p1x;
+        let p_dy = p2y - p1y;
 
-        // Condition 1: Midpoint on axis (cross product)
-        // (M - A) x (B - A) = 0
-        let mid_cross = (mx - a.get(0)) * ax_dy - (my - a.get(1)) * ax_dx;
+        // Equation 1: Midpoint on axis (cross product = 0)
+        // (M - A) × (B - A) = 0
+        let mid_cross = (mx - ax) * ax_dy - (my - ay) * ax_dx;
 
-        // Condition 2: P1-P2 perpendicular to axis (dot product)
-        // (P2 - P1) . (B - A) = 0
+        // Equation 2: P1-P2 perpendicular to axis (dot product = 0)
+        // (P2 - P1) · (B - A) = 0
         let perp_dot = p_dx * ax_dx + p_dy * ax_dy;
 
         vec![mid_cross, perp_dot]
     }
 
-    fn jacobian(&self, points: &[Point<2>]) -> Vec<(usize, usize, f64)> {
-        let p1 = get_point(points, self.point1);
-        let p2 = get_point(points, self.point2);
-        let a = get_point(points, self.axis_start);
-        let b = get_point(points, self.axis_end);
+    fn jacobian(&self, params: &[f64]) -> Vec<(usize, usize, f64)> {
+        // Extract point coordinates
+        let p1x = params[self.p1.start];
+        let p1y = params[self.p1.start + 1];
+        let p2x = params[self.p2.start];
+        let p2y = params[self.p2.start + 1];
+        let ax = params[self.axis_start.start];
+        let ay = params[self.axis_start.start + 1];
+        let bx = params[self.axis_end.start];
+        let by = params[self.axis_end.start + 1];
 
-        let mx = (p1.get(0) + p2.get(0)) / 2.0;
-        let my = (p1.get(1) + p2.get(1)) / 2.0;
+        // Midpoint
+        let mx = (p1x + p2x) / 2.0;
+        let my = (p1y + p2y) / 2.0;
 
-        let ax_dx = b.get(0) - a.get(0);
-        let ax_dy = b.get(1) - a.get(1);
+        // Axis direction
+        let ax_dx = bx - ax;
+        let ax_dy = by - ay;
 
-        let p_dx = p2.get(0) - p1.get(0);
-        let p_dy = p2.get(1) - p1.get(1);
+        // P1-P2 direction
+        let p_dx = p2x - p1x;
+        let p_dy = p2y - p1y;
 
         // Equation 1: mid_cross = (Mx - Ax)(By - Ay) - (My - Ay)(Bx - Ax)
         // where Mx = (P1x + P2x)/2, My = (P1y + P2y)/2
@@ -176,104 +243,124 @@ impl GeometricConstraint<2> for SymmetricAboutLineConstraint {
 
         vec![
             // Equation 1: midpoint on axis
-            (0, var_col::<2>(self.point1, 0), 0.5 * ax_dy),
-            (0, var_col::<2>(self.point1, 1), -0.5 * ax_dx),
-            (0, var_col::<2>(self.point2, 0), 0.5 * ax_dy),
-            (0, var_col::<2>(self.point2, 1), -0.5 * ax_dx),
-            (0, var_col::<2>(self.axis_start, 0), my - b.get(1)),
-            (0, var_col::<2>(self.axis_start, 1), b.get(0) - mx),
-            (0, var_col::<2>(self.axis_end, 0), -(my - a.get(1))),
-            (0, var_col::<2>(self.axis_end, 1), mx - a.get(0)),
+            (0, self.p1.start, 0.5 * ax_dy),
+            (0, self.p1.start + 1, -0.5 * ax_dx),
+            (0, self.p2.start, 0.5 * ax_dy),
+            (0, self.p2.start + 1, -0.5 * ax_dx),
+            (0, self.axis_start.start, my - by),
+            (0, self.axis_start.start + 1, bx - mx),
+            (0, self.axis_end.start, -(my - ay)),
+            (0, self.axis_end.start + 1, mx - ax),
             // Equation 2: P1-P2 perpendicular to axis
-            (1, var_col::<2>(self.point1, 0), -ax_dx),
-            (1, var_col::<2>(self.point1, 1), -ax_dy),
-            (1, var_col::<2>(self.point2, 0), ax_dx),
-            (1, var_col::<2>(self.point2, 1), ax_dy),
-            (1, var_col::<2>(self.axis_start, 0), -p_dx),
-            (1, var_col::<2>(self.axis_start, 1), -p_dy),
-            (1, var_col::<2>(self.axis_end, 0), p_dx),
-            (1, var_col::<2>(self.axis_end, 1), p_dy),
+            (1, self.p1.start, -ax_dx),
+            (1, self.p1.start + 1, -ax_dy),
+            (1, self.p2.start, ax_dx),
+            (1, self.p2.start + 1, ax_dy),
+            (1, self.axis_start.start, -p_dx),
+            (1, self.axis_start.start + 1, -p_dy),
+            (1, self.axis_end.start, p_dx),
+            (1, self.axis_end.start + 1, p_dy),
         ]
     }
 
-    fn variable_indices(&self) -> Vec<usize> {
-        vec![self.point1, self.point2, self.axis_start, self.axis_end]
-    }
-
-    fn name(&self) -> &'static str {
-        "SymmetricAboutLine"
+    fn nonlinearity_hint(&self) -> Nonlinearity {
+        Nonlinearity::Moderate
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::point::{Point2D, Point3D};
 
     #[test]
-    fn test_symmetric_2d_satisfied() {
-        let constraint = SymmetricConstraint::<2>::new(0, 1, 2);
-        let points = vec![
-            Point2D::new(0.0, 0.0),  // P1
-            Point2D::new(10.0, 10.0), // P2
-            Point2D::new(5.0, 5.0),  // Center (midpoint)
-        ];
+    fn test_symmetric_satisfied_2d() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let center = ParamRange { start: 4, count: 2 };
+        let constraint = SymmetricConstraint::new(ConstraintId(0), p1, p2, center);
 
-        let residuals = constraint.residuals(&points);
-        assert!(residuals[0].abs() < 1e-10);
-        assert!(residuals[1].abs() < 1e-10);
+        // p1 = (0, 0), p2 = (10, 10), center = (5, 5)
+        let params = vec![0.0, 0.0, 10.0, 10.0, 5.0, 5.0];
+
+        let residuals = constraint.residuals(&params);
+        assert_eq!(residuals.len(), 2);
+        assert!((residuals[0]).abs() < 1e-10);
+        assert!((residuals[1]).abs() < 1e-10);
     }
 
     #[test]
-    fn test_symmetric_2d_not_satisfied() {
-        let constraint = SymmetricConstraint::<2>::new(0, 1, 2);
-        let points = vec![
-            Point2D::new(0.0, 0.0),  // P1
-            Point2D::new(10.0, 10.0), // P2
-            Point2D::new(0.0, 0.0),  // Not at midpoint
-        ];
+    fn test_symmetric_unsatisfied_2d() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let center = ParamRange { start: 4, count: 2 };
+        let constraint = SymmetricConstraint::new(ConstraintId(0), p1, p2, center);
 
-        let residuals = constraint.residuals(&points);
-        // P1 + P2 - 2*C = (0+10) - 0 = 10
+        // p1 = (0, 0), p2 = (10, 10), center = (0, 0) (not at midpoint)
+        // Expected: p1 + p2 - 2*center = 10, 10
+        let params = vec![0.0, 0.0, 10.0, 10.0, 0.0, 0.0];
+
+        let residuals = constraint.residuals(&params);
+        assert_eq!(residuals.len(), 2);
         assert!((residuals[0] - 10.0).abs() < 1e-10);
         assert!((residuals[1] - 10.0).abs() < 1e-10);
     }
 
     #[test]
-    fn test_symmetric_3d_satisfied() {
-        let constraint = SymmetricConstraint::<3>::new(0, 1, 2);
-        let points = vec![
-            Point3D::new(0.0, 0.0, 0.0),   // P1
-            Point3D::new(10.0, 10.0, 10.0), // P2
-            Point3D::new(5.0, 5.0, 5.0),   // Center
-        ];
+    fn test_symmetric_3d() {
+        let p1 = ParamRange { start: 0, count: 3 };
+        let p2 = ParamRange { start: 3, count: 3 };
+        let center = ParamRange { start: 6, count: 3 };
+        let constraint = SymmetricConstraint::new(ConstraintId(0), p1, p2, center);
 
-        let residuals = constraint.residuals(&points);
+        // p1 = (0, 0, 0), p2 = (10, 10, 10), center = (5, 5, 5)
+        let params = vec![0.0, 0.0, 0.0, 10.0, 10.0, 10.0, 5.0, 5.0, 5.0];
+
+        let residuals = constraint.residuals(&params);
+        assert_eq!(residuals.len(), 3);
         for r in &residuals {
             assert!(r.abs() < 1e-10);
         }
     }
 
     #[test]
-    fn test_symmetric_jacobian() {
-        let constraint = SymmetricConstraint::<2>::new(0, 1, 2);
-        let points = vec![
-            Point2D::new(0.0, 0.0),
-            Point2D::new(10.0, 10.0),
-            Point2D::new(5.0, 5.0),
-        ];
+    fn test_symmetric_equation_count() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let center = ParamRange { start: 4, count: 2 };
+        let constraint = SymmetricConstraint::new(ConstraintId(0), p1, p2, center);
 
-        let jac = constraint.jacobian(&points);
+        assert_eq!(constraint.equation_count(), 2);
+    }
+
+    #[test]
+    fn test_symmetric_dependencies() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let center = ParamRange { start: 4, count: 2 };
+        let constraint = SymmetricConstraint::new(ConstraintId(0), p1, p2, center);
+
+        assert_eq!(constraint.dependencies(), &[0, 1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_symmetric_jacobian() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let center = ParamRange { start: 4, count: 2 };
+        let constraint = SymmetricConstraint::new(ConstraintId(0), p1, p2, center);
+
+        let params = vec![0.0, 0.0, 10.0, 10.0, 5.0, 5.0];
+
+        let jac = constraint.jacobian(&params);
         assert_eq!(jac.len(), 6); // 2 equations * 3 terms each
 
-        // Check entries
         let expected = vec![
-            (0, 0, 1.0),   // d(eq0)/d(P1x)
-            (0, 2, 1.0),   // d(eq0)/d(P2x)
-            (0, 4, -2.0),  // d(eq0)/d(Cx)
-            (1, 1, 1.0),   // d(eq1)/d(P1y)
-            (1, 3, 1.0),   // d(eq1)/d(P2y)
-            (1, 5, -2.0),  // d(eq1)/d(Cy)
+            (0, 0, 1.0),   // d(eq0)/d(p1.x)
+            (0, 2, 1.0),   // d(eq0)/d(p2.x)
+            (0, 4, -2.0),  // d(eq0)/d(center.x)
+            (1, 1, 1.0),   // d(eq1)/d(p1.y)
+            (1, 3, 1.0),   // d(eq1)/d(p2.y)
+            (1, 5, -2.0),  // d(eq1)/d(center.y)
         ];
 
         for exp in &expected {
@@ -283,45 +370,100 @@ mod tests {
 
     #[test]
     fn test_symmetric_about_line_satisfied() {
-        let constraint = SymmetricAboutLineConstraint::new(0, 1, 2, 3);
-        let points = vec![
-            Point2D::new(-1.0, 0.0),  // P1
-            Point2D::new(1.0, 0.0),   // P2 (symmetric about y-axis)
-            Point2D::new(0.0, -5.0),  // Axis start (y-axis)
-            Point2D::new(0.0, 5.0),   // Axis end (y-axis)
-        ];
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let axis_start = ParamRange { start: 4, count: 2 };
+        let axis_end = ParamRange { start: 6, count: 2 };
+        let constraint = SymmetricAboutLineConstraint::new(
+            ConstraintId(0),
+            p1,
+            p2,
+            axis_start,
+            axis_end,
+        );
 
-        let residuals = constraint.residuals(&points);
-        assert!(residuals[0].abs() < 1e-10, "midpoint residual: {}", residuals[0]);
-        assert!(residuals[1].abs() < 1e-10, "perpendicular residual: {}", residuals[1]);
+        // p1 = (-1, 0), p2 = (1, 0), axis: y-axis from (0, -5) to (0, 5)
+        let params = vec![-1.0, 0.0, 1.0, 0.0, 0.0, -5.0, 0.0, 5.0];
+
+        let residuals = constraint.residuals(&params);
+        assert_eq!(residuals.len(), 2);
+        assert!((residuals[0]).abs() < 1e-10, "midpoint residual: {}", residuals[0]);
+        assert!((residuals[1]).abs() < 1e-10, "perpendicular residual: {}", residuals[1]);
     }
 
     #[test]
-    fn test_symmetric_about_line_diagonal_axis() {
-        let constraint = SymmetricAboutLineConstraint::new(0, 1, 2, 3);
-        let points = vec![
-            Point2D::new(0.0, 1.0),  // P1
-            Point2D::new(1.0, 0.0),  // P2 (symmetric about y=x)
-            Point2D::new(0.0, 0.0),  // Axis start
-            Point2D::new(1.0, 1.0),  // Axis end (y=x line)
-        ];
+    fn test_symmetric_about_line_diagonal() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let axis_start = ParamRange { start: 4, count: 2 };
+        let axis_end = ParamRange { start: 6, count: 2 };
+        let constraint = SymmetricAboutLineConstraint::new(
+            ConstraintId(0),
+            p1,
+            p2,
+            axis_start,
+            axis_end,
+        );
 
-        let residuals = constraint.residuals(&points);
-        assert!(residuals[0].abs() < 1e-10, "midpoint residual: {}", residuals[0]);
-        assert!(residuals[1].abs() < 1e-10, "perpendicular residual: {}", residuals[1]);
+        // p1 = (0, 1), p2 = (1, 0), axis: y=x from (0, 0) to (1, 1)
+        let params = vec![0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0];
+
+        let residuals = constraint.residuals(&params);
+        assert_eq!(residuals.len(), 2);
+        assert!((residuals[0]).abs() < 1e-10, "midpoint residual: {}", residuals[0]);
+        assert!((residuals[1]).abs() < 1e-10, "perpendicular residual: {}", residuals[1]);
     }
 
     #[test]
-    fn test_variable_indices_point() {
-        let constraint = SymmetricConstraint::<2>::new(5, 10, 15);
-        let indices = constraint.variable_indices();
-        assert_eq!(indices, vec![5, 10, 15]);
+    fn test_symmetric_about_line_equation_count() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let axis_start = ParamRange { start: 4, count: 2 };
+        let axis_end = ParamRange { start: 6, count: 2 };
+        let constraint = SymmetricAboutLineConstraint::new(
+            ConstraintId(0),
+            p1,
+            p2,
+            axis_start,
+            axis_end,
+        );
+
+        assert_eq!(constraint.equation_count(), 2);
     }
 
     #[test]
-    fn test_variable_indices_line() {
-        let constraint = SymmetricAboutLineConstraint::new(5, 10, 15, 20);
-        let indices = constraint.variable_indices();
-        assert_eq!(indices, vec![5, 10, 15, 20]);
+    fn test_symmetric_about_line_dependencies() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let axis_start = ParamRange { start: 4, count: 2 };
+        let axis_end = ParamRange { start: 6, count: 2 };
+        let constraint = SymmetricAboutLineConstraint::new(
+            ConstraintId(0),
+            p1,
+            p2,
+            axis_start,
+            axis_end,
+        );
+
+        assert_eq!(constraint.dependencies(), &[0, 1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    #[test]
+    #[should_panic(expected = "same dimensionality")]
+    fn test_symmetric_mismatched_dimensions() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let center = ParamRange { start: 4, count: 3 };
+        SymmetricConstraint::new(ConstraintId(0), p1, p2, center);
+    }
+
+    #[test]
+    #[should_panic(expected = "requires 2D points")]
+    fn test_symmetric_about_line_3d_rejected() {
+        let p1 = ParamRange { start: 0, count: 3 };
+        let p2 = ParamRange { start: 3, count: 3 };
+        let axis_start = ParamRange { start: 6, count: 3 };
+        let axis_end = ParamRange { start: 9, count: 3 };
+        SymmetricAboutLineConstraint::new(ConstraintId(0), p1, p2, axis_start, axis_end);
     }
 }

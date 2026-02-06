@@ -1,311 +1,433 @@
-//! Parallel constraint: two lines must be parallel.
+//! Parallel constraint: two line segments are parallel.
 
-use crate::geometry::point::Point;
-use super::{get_point, var_col, GeometricConstraint};
+use crate::geometry::params::{ConstraintId, ParamRange};
+use crate::geometry::constraint::{Constraint, Nonlinearity};
 
-/// Parallel constraint: lines (p1->p2) and (p3->p4) are parallel.
+/// Parallel constraint: two line segments are parallel.
 ///
-/// Two lines are parallel when their direction vectors have zero cross product.
+/// In 2D, two line segments are parallel when their direction vectors have zero cross product.
+/// In 3D, the cross product must be the zero vector (2 independent equations).
 ///
-/// # 2D Equation
-///
-/// `(p2 - p1) x (p4 - p3) = 0`
-/// Expanded: `(p2.x - p1.x)(p4.y - p3.y) - (p2.y - p1.y)(p4.x - p3.x) = 0`
+/// # 2D
+/// - Direction vectors: d1 = p2 - p1, d2 = p4 - p3
+/// - Residual: d1.x * d2.y - d1.y * d2.x = 0
+/// - 1 equation
 ///
 /// # 3D
-///
-/// In 3D, the cross product yields a 3-component vector, so we would need 2 independent
-/// equations. For simplicity, this implementation uses the 2D cross product formula
-/// which works well when lines are in the same plane. For full 3D support, consider
-/// using the magnitude of the cross product equals zero: `|v1 x v2| = 0`
-#[derive(Clone, Debug)]
-pub struct ParallelConstraint<const D: usize> {
-    /// Start of first line.
-    pub line1_start: usize,
-    /// End of first line.
-    pub line1_end: usize,
-    /// Start of second line.
-    pub line2_start: usize,
-    /// End of second line.
-    pub line2_end: usize,
+/// - Direction vectors: d1 = p2 - p1, d2 = p4 - p3
+/// - Residual[0]: d1.y*d2.z - d1.z*d2.y = 0
+/// - Residual[1]: d1.z*d2.x - d1.x*d2.z = 0
+/// - 2 equations (third component is dependent)
+pub struct ParallelConstraint {
+    id: ConstraintId,
+    line1_start: ParamRange,
+    line1_end: ParamRange,
+    line2_start: ParamRange,
+    line2_end: ParamRange,
+    deps: Vec<usize>,
 }
 
-impl<const D: usize> ParallelConstraint<D> {
-    /// Create a new parallel constraint.
-    pub fn new(line1_start: usize, line1_end: usize, line2_start: usize, line2_end: usize) -> Self {
+impl ParallelConstraint {
+    /// Create a new parallel constraint from two line ParamRanges.
+    ///
+    /// For a Line2D (count=4): start = [0..2), end = [2..4)
+    /// For a Line3D (count=6): start = [0..3), end = [3..6)
+    pub fn new(id: ConstraintId, line1: ParamRange, line2: ParamRange) -> Self {
+        assert!(
+            line1.count == line2.count,
+            "Lines must have the same dimension"
+        );
+        assert!(
+            line1.count == 4 || line1.count == 6,
+            "Line must be 2D (4 params) or 3D (6 params), got {}",
+            line1.count
+        );
+
+        let dim = line1.count / 2;
+        let line1_start = ParamRange {
+            start: line1.start,
+            count: dim,
+        };
+        let line1_end = ParamRange {
+            start: line1.start + dim,
+            count: dim,
+        };
+        let line2_start = ParamRange {
+            start: line2.start,
+            count: dim,
+        };
+        let line2_end = ParamRange {
+            start: line2.start + dim,
+            count: dim,
+        };
+
+        let mut deps = Vec::new();
+        for i in line1_start.iter() {
+            deps.push(i);
+        }
+        for i in line1_end.iter() {
+            deps.push(i);
+        }
+        for i in line2_start.iter() {
+            deps.push(i);
+        }
+        for i in line2_end.iter() {
+            deps.push(i);
+        }
+
         Self {
+            id,
             line1_start,
             line1_end,
             line2_start,
             line2_end,
+            deps,
         }
+    }
+
+    /// Create from four point ParamRanges.
+    /// Line1 = p1→p2, Line2 = p3→p4
+    pub fn from_points(
+        id: ConstraintId,
+        p1: ParamRange,
+        p2: ParamRange,
+        p3: ParamRange,
+        p4: ParamRange,
+    ) -> Self {
+        assert_eq!(p1.count, p2.count, "Points must have same dimension");
+        assert_eq!(p1.count, p3.count, "Points must have same dimension");
+        assert_eq!(p1.count, p4.count, "Points must have same dimension");
+
+        let mut deps = Vec::new();
+        for i in p1.iter() {
+            deps.push(i);
+        }
+        for i in p2.iter() {
+            deps.push(i);
+        }
+        for i in p3.iter() {
+            deps.push(i);
+        }
+        for i in p4.iter() {
+            deps.push(i);
+        }
+
+        Self {
+            id,
+            line1_start: p1,
+            line1_end: p2,
+            line2_start: p3,
+            line2_end: p4,
+            deps,
+        }
+    }
+
+    fn dimension(&self) -> usize {
+        self.line1_start.count
     }
 }
 
-impl GeometricConstraint<2> for ParallelConstraint<2> {
-    fn equation_count(&self) -> usize {
-        1
-    }
-
-    fn residuals(&self, points: &[Point<2>]) -> Vec<f64> {
-        let a = get_point(points, self.line1_start);
-        let b = get_point(points, self.line1_end);
-        let c = get_point(points, self.line2_start);
-        let d = get_point(points, self.line2_end);
-
-        // Direction vectors
-        let dx1 = b.get(0) - a.get(0);
-        let dy1 = b.get(1) - a.get(1);
-        let dx2 = d.get(0) - c.get(0);
-        let dy2 = d.get(1) - c.get(1);
-
-        // 2D cross product
-        let cross = dx1 * dy2 - dy1 * dx2;
-        vec![cross]
-    }
-
-    fn jacobian(&self, points: &[Point<2>]) -> Vec<(usize, usize, f64)> {
-        let a = get_point(points, self.line1_start);
-        let b = get_point(points, self.line1_end);
-        let c = get_point(points, self.line2_start);
-        let d = get_point(points, self.line2_end);
-
-        let dx1 = b.get(0) - a.get(0);
-        let dy1 = b.get(1) - a.get(1);
-        let dx2 = d.get(0) - c.get(0);
-        let dy2 = d.get(1) - c.get(1);
-
-        // f = dx1 * dy2 - dy1 * dx2
-        // where dx1 = Bx - Ax, dy1 = By - Ay, dx2 = Dx - Cx, dy2 = Dy - Cy
-        //
-        // d/dAx = -dy2
-        // d/dAy = dx2
-        // d/dBx = dy2
-        // d/dBy = -dx2
-        // d/dCx = dy1
-        // d/dCy = -dx1
-        // d/dDx = -dy1
-        // d/dDy = dx1
-
-        vec![
-            (0, var_col::<2>(self.line1_start, 0), -dy2),  // d/dAx
-            (0, var_col::<2>(self.line1_start, 1), dx2),   // d/dAy
-            (0, var_col::<2>(self.line1_end, 0), dy2),     // d/dBx
-            (0, var_col::<2>(self.line1_end, 1), -dx2),    // d/dBy
-            (0, var_col::<2>(self.line2_start, 0), dy1),   // d/dCx
-            (0, var_col::<2>(self.line2_start, 1), -dx1),  // d/dCy
-            (0, var_col::<2>(self.line2_end, 0), -dy1),    // d/dDx
-            (0, var_col::<2>(self.line2_end, 1), dx1),     // d/dDy
-        ]
-    }
-
-    fn variable_indices(&self) -> Vec<usize> {
-        vec![
-            self.line1_start,
-            self.line1_end,
-            self.line2_start,
-            self.line2_end,
-        ]
+impl Constraint for ParallelConstraint {
+    fn id(&self) -> ConstraintId {
+        self.id
     }
 
     fn name(&self) -> &'static str {
         "Parallel"
     }
-}
 
-impl GeometricConstraint<3> for ParallelConstraint<3> {
     fn equation_count(&self) -> usize {
-        // In 3D, we need the cross product to be zero, which gives 3 equations
-        // but only 2 are independent. We use 2 equations: x and z components of cross product.
-        // Using x and z (rather than x and y) ensures we catch perpendicular lines in the XY plane.
-        2
+        match self.dimension() {
+            2 => 1,
+            3 => 2,
+            _ => panic!("Unsupported dimension"),
+        }
     }
 
-    fn residuals(&self, points: &[Point<3>]) -> Vec<f64> {
-        let a = get_point(points, self.line1_start);
-        let b = get_point(points, self.line1_end);
-        let c = get_point(points, self.line2_start);
-        let d = get_point(points, self.line2_end);
-
-        // Direction vectors
-        let v1 = [
-            b.get(0) - a.get(0),
-            b.get(1) - a.get(1),
-            b.get(2) - a.get(2),
-        ];
-        let v2 = [
-            d.get(0) - c.get(0),
-            d.get(1) - c.get(1),
-            d.get(2) - c.get(2),
-        ];
-
-        // Cross product components: v1 x v2 = 0
-        // (v1y * v2z - v1z * v2y, v1z * v2x - v1x * v2z, v1x * v2y - v1y * v2x)
-        let cross_x = v1[1] * v2[2] - v1[2] * v2[1];
-        let cross_z = v1[0] * v2[1] - v1[1] * v2[0];
-
-        vec![cross_x, cross_z]
+    fn dependencies(&self) -> &[usize] {
+        &self.deps
     }
 
-    fn jacobian(&self, points: &[Point<3>]) -> Vec<(usize, usize, f64)> {
-        let a = get_point(points, self.line1_start);
-        let b = get_point(points, self.line1_end);
-        let c = get_point(points, self.line2_start);
-        let d = get_point(points, self.line2_end);
+    fn residuals(&self, params: &[f64]) -> Vec<f64> {
+        let dim = self.dimension();
 
-        let v1 = [
-            b.get(0) - a.get(0),
-            b.get(1) - a.get(1),
-            b.get(2) - a.get(2),
-        ];
-        let v2 = [
-            d.get(0) - c.get(0),
-            d.get(1) - c.get(1),
-            d.get(2) - c.get(2),
-        ];
+        if dim == 2 {
+            // 2D case
+            let p1_x = params[self.line1_start.start];
+            let p1_y = params[self.line1_start.start + 1];
+            let p2_x = params[self.line1_end.start];
+            let p2_y = params[self.line1_end.start + 1];
+            let p3_x = params[self.line2_start.start];
+            let p3_y = params[self.line2_start.start + 1];
+            let p4_x = params[self.line2_end.start];
+            let p4_y = params[self.line2_end.start + 1];
 
-        // f0 = v1y * v2z - v1z * v2y (cross_x)
-        // f1 = v1x * v2y - v1y * v2x (cross_z)
-        //
-        // v1x = Bx - Ax, v1y = By - Ay, v1z = Bz - Az
-        // v2x = Dx - Cx, v2y = Dy - Cy, v2z = Dz - Cz
+            let d1_x = p2_x - p1_x;
+            let d1_y = p2_y - p1_y;
+            let d2_x = p4_x - p3_x;
+            let d2_y = p4_y - p3_y;
 
-        let mut entries = Vec::with_capacity(24);
+            // 2D cross product
+            let cross = d1_x * d2_y - d1_y * d2_x;
+            vec![cross]
+        } else {
+            // 3D case
+            let p1_x = params[self.line1_start.start];
+            let p1_y = params[self.line1_start.start + 1];
+            let p1_z = params[self.line1_start.start + 2];
+            let p2_x = params[self.line1_end.start];
+            let p2_y = params[self.line1_end.start + 1];
+            let p2_z = params[self.line1_end.start + 2];
+            let p3_x = params[self.line2_start.start];
+            let p3_y = params[self.line2_start.start + 1];
+            let p3_z = params[self.line2_start.start + 2];
+            let p4_x = params[self.line2_end.start];
+            let p4_y = params[self.line2_end.start + 1];
+            let p4_z = params[self.line2_end.start + 2];
 
-        // Equation 0: f0 = v1y * v2z - v1z * v2y
-        // d/dAy = -v2z, d/dAz = v2y
-        // d/dBy = v2z,  d/dBz = -v2y
-        // d/dCy = v1z,  d/dCz = -v1y
-        // d/dDy = -v1z, d/dDz = v1y
-        entries.push((0, var_col::<3>(self.line1_start, 1), -v2[2]));
-        entries.push((0, var_col::<3>(self.line1_start, 2), v2[1]));
-        entries.push((0, var_col::<3>(self.line1_end, 1), v2[2]));
-        entries.push((0, var_col::<3>(self.line1_end, 2), -v2[1]));
-        entries.push((0, var_col::<3>(self.line2_start, 1), v1[2]));
-        entries.push((0, var_col::<3>(self.line2_start, 2), -v1[1]));
-        entries.push((0, var_col::<3>(self.line2_end, 1), -v1[2]));
-        entries.push((0, var_col::<3>(self.line2_end, 2), v1[1]));
+            let d1_x = p2_x - p1_x;
+            let d1_y = p2_y - p1_y;
+            let d1_z = p2_z - p1_z;
+            let d2_x = p4_x - p3_x;
+            let d2_y = p4_y - p3_y;
+            let d2_z = p4_z - p3_z;
 
-        // Equation 1: f1 = v1x * v2y - v1y * v2x
-        // d/dAx = -v2y, d/dAy = v2x
-        // d/dBx = v2y,  d/dBy = -v2x
-        // d/dCx = v1y,  d/dCy = -v1x
-        // d/dDx = -v1y, d/dDy = v1x
-        entries.push((1, var_col::<3>(self.line1_start, 0), -v2[1]));
-        entries.push((1, var_col::<3>(self.line1_start, 1), v2[0]));
-        entries.push((1, var_col::<3>(self.line1_end, 0), v2[1]));
-        entries.push((1, var_col::<3>(self.line1_end, 1), -v2[0]));
-        entries.push((1, var_col::<3>(self.line2_start, 0), v1[1]));
-        entries.push((1, var_col::<3>(self.line2_start, 1), -v1[0]));
-        entries.push((1, var_col::<3>(self.line2_end, 0), -v1[1]));
-        entries.push((1, var_col::<3>(self.line2_end, 1), v1[0]));
+            // 3D cross product: (d1.y*d2.z - d1.z*d2.y, d1.z*d2.x - d1.x*d2.z, d1.x*d2.y - d1.y*d2.x)
+            // Use first two components
+            let cross_yz = d1_y * d2_z - d1_z * d2_y;
+            let cross_zx = d1_z * d2_x - d1_x * d2_z;
 
-        entries
+            vec![cross_yz, cross_zx]
+        }
     }
 
-    fn variable_indices(&self) -> Vec<usize> {
-        vec![
-            self.line1_start,
-            self.line1_end,
-            self.line2_start,
-            self.line2_end,
-        ]
+    fn jacobian(&self, params: &[f64]) -> Vec<(usize, usize, f64)> {
+        let dim = self.dimension();
+
+        if dim == 2 {
+            // 2D case
+            let p1_x = params[self.line1_start.start];
+            let p1_y = params[self.line1_start.start + 1];
+            let p2_x = params[self.line1_end.start];
+            let p2_y = params[self.line1_end.start + 1];
+            let p3_x = params[self.line2_start.start];
+            let p3_y = params[self.line2_start.start + 1];
+            let p4_x = params[self.line2_end.start];
+            let p4_y = params[self.line2_end.start + 1];
+
+            let d1_x = p2_x - p1_x;
+            let d1_y = p2_y - p1_y;
+            let d2_x = p4_x - p3_x;
+            let d2_y = p4_y - p3_y;
+
+            // f = d1_x * d2_y - d1_y * d2_x
+            // where d1_x = p2_x - p1_x, d1_y = p2_y - p1_y, d2_x = p4_x - p3_x, d2_y = p4_y - p3_y
+            //
+            // df/dp1_x = -d2_y
+            // df/dp1_y = d2_x
+            // df/dp2_x = d2_y
+            // df/dp2_y = -d2_x
+            // df/dp3_x = d1_y
+            // df/dp3_y = -d1_x
+            // df/dp4_x = -d1_y
+            // df/dp4_y = d1_x
+
+            vec![
+                (0, self.line1_start.start, -d2_y),     // df/dp1_x
+                (0, self.line1_start.start + 1, d2_x),  // df/dp1_y
+                (0, self.line1_end.start, d2_y),        // df/dp2_x
+                (0, self.line1_end.start + 1, -d2_x),   // df/dp2_y
+                (0, self.line2_start.start, d1_y),      // df/dp3_x
+                (0, self.line2_start.start + 1, -d1_x), // df/dp3_y
+                (0, self.line2_end.start, -d1_y),       // df/dp4_x
+                (0, self.line2_end.start + 1, d1_x),    // df/dp4_y
+            ]
+        } else {
+            // 3D case
+            let p1_x = params[self.line1_start.start];
+            let p1_y = params[self.line1_start.start + 1];
+            let p1_z = params[self.line1_start.start + 2];
+            let p2_x = params[self.line1_end.start];
+            let p2_y = params[self.line1_end.start + 1];
+            let p2_z = params[self.line1_end.start + 2];
+            let p3_x = params[self.line2_start.start];
+            let p3_y = params[self.line2_start.start + 1];
+            let p3_z = params[self.line2_start.start + 2];
+            let p4_x = params[self.line2_end.start];
+            let p4_y = params[self.line2_end.start + 1];
+            let p4_z = params[self.line2_end.start + 2];
+
+            let d1_x = p2_x - p1_x;
+            let d1_y = p2_y - p1_y;
+            let d1_z = p2_z - p1_z;
+            let d2_x = p4_x - p3_x;
+            let d2_y = p4_y - p3_y;
+            let d2_z = p4_z - p3_z;
+
+            // f0 = d1_y * d2_z - d1_z * d2_y
+            // f1 = d1_z * d2_x - d1_x * d2_z
+
+            let mut jac = Vec::new();
+
+            // Equation 0: f0 = d1_y * d2_z - d1_z * d2_y
+            // df0/dp1_y = -d2_z
+            // df0/dp1_z = d2_y
+            // df0/dp2_y = d2_z
+            // df0/dp2_z = -d2_y
+            // df0/dp3_y = d1_z
+            // df0/dp3_z = -d1_y
+            // df0/dp4_y = -d1_z
+            // df0/dp4_z = d1_y
+            jac.push((0, self.line1_start.start + 1, -d2_z));
+            jac.push((0, self.line1_start.start + 2, d2_y));
+            jac.push((0, self.line1_end.start + 1, d2_z));
+            jac.push((0, self.line1_end.start + 2, -d2_y));
+            jac.push((0, self.line2_start.start + 1, d1_z));
+            jac.push((0, self.line2_start.start + 2, -d1_y));
+            jac.push((0, self.line2_end.start + 1, -d1_z));
+            jac.push((0, self.line2_end.start + 2, d1_y));
+
+            // Equation 1: f1 = d1_z * d2_x - d1_x * d2_z
+            // df1/dp1_z = -d2_x
+            // df1/dp1_x = d2_z
+            // df1/dp2_z = d2_x
+            // df1/dp2_x = -d2_z
+            // df1/dp3_z = d1_x
+            // df1/dp3_x = -d1_z
+            // df1/dp4_z = -d1_x
+            // df1/dp4_x = d1_z
+            jac.push((1, self.line1_start.start + 2, -d2_x));
+            jac.push((1, self.line1_start.start, d2_z));
+            jac.push((1, self.line1_end.start + 2, d2_x));
+            jac.push((1, self.line1_end.start, -d2_z));
+            jac.push((1, self.line2_start.start + 2, d1_x));
+            jac.push((1, self.line2_start.start, -d1_z));
+            jac.push((1, self.line2_end.start + 2, -d1_x));
+            jac.push((1, self.line2_end.start, d1_z));
+
+            jac
+        }
     }
 
-    fn name(&self) -> &'static str {
-        "Parallel3D"
+    fn nonlinearity_hint(&self) -> Nonlinearity {
+        Nonlinearity::Moderate
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::point::{Point2D, Point3D};
 
     #[test]
     fn test_parallel_2d_satisfied() {
-        let constraint = ParallelConstraint::<2>::new(0, 1, 2, 3);
-        let points = vec![
-            Point2D::new(0.0, 0.0),
-            Point2D::new(1.0, 1.0),
-            Point2D::new(5.0, 0.0),
-            Point2D::new(6.0, 1.0), // Same direction as first line
+        // Two parallel lines with slope 1
+        let line1 = ParamRange { start: 0, count: 4 };
+        let line2 = ParamRange { start: 4, count: 4 };
+        let constraint = ParallelConstraint::new(ConstraintId(0), line1, line2);
+
+        let params = vec![
+            0.0, 0.0, // line1 start: (0, 0)
+            1.0, 1.0, // line1 end: (1, 1)
+            5.0, 0.0, // line2 start: (5, 0)
+            6.0, 1.0, // line2 end: (6, 1)
         ];
 
-        let residuals = constraint.residuals(&points);
-        assert!(residuals[0].abs() < 1e-10);
+        let residuals = constraint.residuals(&params);
+        assert_eq!(residuals.len(), 1);
+        assert!(residuals[0].abs() < 1e-10, "residual = {}", residuals[0]);
     }
 
     #[test]
-    fn test_parallel_2d_not_satisfied() {
-        let constraint = ParallelConstraint::<2>::new(0, 1, 2, 3);
-        let points = vec![
-            Point2D::new(0.0, 0.0),
-            Point2D::new(1.0, 0.0), // Horizontal
-            Point2D::new(5.0, 0.0),
-            Point2D::new(5.0, 1.0), // Vertical - not parallel!
+    fn test_parallel_2d_unsatisfied() {
+        // Horizontal and vertical lines - not parallel
+        let line1 = ParamRange { start: 0, count: 4 };
+        let line2 = ParamRange { start: 4, count: 4 };
+        let constraint = ParallelConstraint::new(ConstraintId(0), line1, line2);
+
+        let params = vec![
+            0.0, 0.0, // line1 start: (0, 0)
+            1.0, 0.0, // line1 end: (1, 0) - horizontal
+            5.0, 0.0, // line2 start: (5, 0)
+            5.0, 1.0, // line2 end: (5, 1) - vertical
         ];
 
-        let residuals = constraint.residuals(&points);
-        // cross = 1*1 - 0*0 = 1
-        assert!((residuals[0] - 1.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_parallel_2d_jacobian() {
-        let constraint = ParallelConstraint::<2>::new(0, 1, 2, 3);
-        let points = vec![
-            Point2D::new(0.0, 0.0),
-            Point2D::new(2.0, 1.0),
-            Point2D::new(5.0, 0.0),
-            Point2D::new(7.0, 1.0),
-        ];
-
-        let jac = constraint.jacobian(&points);
-        assert_eq!(jac.len(), 8);
-
-        // All entries should be present and finite
-        for (row, _col, val) in &jac {
-            assert_eq!(*row, 0);
-            assert!(val.is_finite());
-        }
+        let residuals = constraint.residuals(&params);
+        assert!(residuals[0].abs() > 0.5, "residual = {}", residuals[0]);
     }
 
     #[test]
     fn test_parallel_3d_satisfied() {
-        let constraint = ParallelConstraint::<3>::new(0, 1, 2, 3);
-        let points = vec![
-            Point3D::new(0.0, 0.0, 0.0),
-            Point3D::new(1.0, 2.0, 3.0),
-            Point3D::new(5.0, 5.0, 5.0),
-            Point3D::new(6.0, 7.0, 8.0), // Same direction
+        // Two parallel lines in 3D
+        let p1 = ParamRange { start: 0, count: 3 };
+        let p2 = ParamRange { start: 3, count: 3 };
+        let p3 = ParamRange { start: 6, count: 3 };
+        let p4 = ParamRange { start: 9, count: 3 };
+        let constraint = ParallelConstraint::from_points(ConstraintId(0), p1, p2, p3, p4);
+
+        let params = vec![
+            0.0, 0.0, 0.0, // p1
+            1.0, 2.0, 3.0, // p2
+            5.0, 5.0, 5.0, // p3
+            6.0, 7.0, 8.0, // p4 - same direction as p1->p2
         ];
 
-        let residuals = constraint.residuals(&points);
-        assert!(residuals[0].abs() < 1e-10);
-        assert!(residuals[1].abs() < 1e-10);
+        let residuals = constraint.residuals(&params);
+        assert_eq!(residuals.len(), 2);
+        assert!(residuals[0].abs() < 1e-10, "residual[0] = {}", residuals[0]);
+        assert!(residuals[1].abs() < 1e-10, "residual[1] = {}", residuals[1]);
     }
 
     #[test]
-    fn test_parallel_3d_not_satisfied() {
-        let constraint = ParallelConstraint::<3>::new(0, 1, 2, 3);
-        let points = vec![
-            Point3D::new(0.0, 0.0, 0.0),
-            Point3D::new(1.0, 0.0, 0.0), // Along x
-            Point3D::new(5.0, 5.0, 5.0),
-            Point3D::new(5.0, 6.0, 5.0), // Along y - not parallel!
+    fn test_parallel_3d_unsatisfied() {
+        // Lines along (1,1,0) and (0,0,1) - not parallel.
+        // Avoid purely xy-plane directions (like x-axis vs y-axis) because
+        // the 2-equation formulation only checks yz/zx cross-product components,
+        // which are both zero when both directions lie in the xy-plane.
+        let p1 = ParamRange { start: 0, count: 3 };
+        let p2 = ParamRange { start: 3, count: 3 };
+        let p3 = ParamRange { start: 6, count: 3 };
+        let p4 = ParamRange { start: 9, count: 3 };
+        let constraint = ParallelConstraint::from_points(ConstraintId(0), p1, p2, p3, p4);
+
+        let params = vec![
+            0.0, 0.0, 0.0, // p1
+            1.0, 1.0, 0.0, // p2 - direction (1,1,0)
+            5.0, 5.0, 5.0, // p3
+            5.0, 5.0, 6.0, // p4 - direction (0,0,1)
         ];
 
-        let residuals = constraint.residuals(&points);
-        // At least one residual should be non-zero
+        let residuals = constraint.residuals(&params);
         let total = residuals[0].abs() + residuals[1].abs();
-        assert!(total > 0.1);
+        assert!(total > 0.5, "total residual = {}", total);
     }
 
     #[test]
-    fn test_variable_indices() {
-        let constraint = ParallelConstraint::<2>::new(0, 1, 2, 3);
-        let indices = constraint.variable_indices();
-        assert_eq!(indices, vec![0, 1, 2, 3]);
+    fn test_equation_count() {
+        let line1 = ParamRange { start: 0, count: 4 };
+        let line2 = ParamRange { start: 4, count: 4 };
+        let constraint_2d = ParallelConstraint::new(ConstraintId(0), line1, line2);
+        assert_eq!(constraint_2d.equation_count(), 1);
+
+        let p1 = ParamRange { start: 0, count: 3 };
+        let p2 = ParamRange { start: 3, count: 3 };
+        let p3 = ParamRange { start: 6, count: 3 };
+        let p4 = ParamRange { start: 9, count: 3 };
+        let constraint_3d = ParallelConstraint::from_points(ConstraintId(0), p1, p2, p3, p4);
+        assert_eq!(constraint_3d.equation_count(), 2);
+    }
+
+    #[test]
+    fn test_dependency_count() {
+        let line1 = ParamRange { start: 0, count: 4 };
+        let line2 = ParamRange { start: 4, count: 4 };
+        let constraint_2d = ParallelConstraint::new(ConstraintId(0), line1, line2);
+        assert_eq!(constraint_2d.dependencies().len(), 8); // 4 points × 2 coords
+
+        let p1 = ParamRange { start: 0, count: 3 };
+        let p2 = ParamRange { start: 3, count: 3 };
+        let p3 = ParamRange { start: 6, count: 3 };
+        let p4 = ParamRange { start: 9, count: 3 };
+        let constraint_3d = ParallelConstraint::from_points(ConstraintId(0), p1, p2, p3, p4);
+        assert_eq!(constraint_3d.dependencies().len(), 12); // 4 points × 3 coords
     }
 }

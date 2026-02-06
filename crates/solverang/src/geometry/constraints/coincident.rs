@@ -1,149 +1,208 @@
-//! Coincident constraint: two points must be at the same location.
+//! Coincident constraint: p1 = p2
 
-use crate::geometry::point::Point;
-use super::{get_point, var_col, GeometricConstraint};
+use crate::geometry::params::{ConstraintId, ParamRange};
+use crate::geometry::constraint::{Constraint, Nonlinearity};
 
-/// Coincident constraint: p1 = p2.
+/// Constrains two points to be at the same location.
 ///
-/// This constraint enforces that two points occupy the same location.
-/// It generates D equations (one per dimension).
+/// Equations: p1[i] = p2[i] for each coordinate i
 ///
-/// # Equations
-///
-/// For each dimension k: `p2[k] - p1[k] = 0`
-///
-/// # Jacobian
-///
-/// - `d(residual_k)/d(p1[k]) = -1`
-/// - `d(residual_k)/d(p2[k]) = 1`
-#[derive(Clone, Debug)]
-pub struct CoincidentConstraint<const D: usize> {
-    /// Index of first point.
-    pub point1: usize,
-    /// Index of second point.
-    pub point2: usize,
+/// Works for both 2D and 3D points (determined by ParamRange.count).
+pub struct CoincidentConstraint {
+    id: ConstraintId,
+    p1: ParamRange,
+    p2: ParamRange,
+    deps: Vec<usize>,
 }
 
-impl<const D: usize> CoincidentConstraint<D> {
+impl CoincidentConstraint {
     /// Create a new coincident constraint.
-    pub fn new(point1: usize, point2: usize) -> Self {
-        Self { point1, point2 }
+    ///
+    /// # Panics
+    /// Panics if p1 and p2 have different dimensionality (count).
+    pub fn new(id: ConstraintId, p1: ParamRange, p2: ParamRange) -> Self {
+        assert_eq!(
+            p1.count, p2.count,
+            "CoincidentConstraint requires points of same dimensionality"
+        );
+
+        let mut deps = Vec::new();
+        deps.extend(p1.iter());
+        deps.extend(p2.iter());
+
+        Self { id, p1, p2, deps }
     }
 }
 
-impl<const D: usize> GeometricConstraint<D> for CoincidentConstraint<D> {
-    fn equation_count(&self) -> usize {
-        D
-    }
-
-    fn residuals(&self, points: &[Point<D>]) -> Vec<f64> {
-        let p1 = get_point(points, self.point1);
-        let p2 = get_point(points, self.point2);
-
-        let mut residuals = Vec::with_capacity(D);
-        for k in 0..D {
-            residuals.push(p2.get(k) - p1.get(k));
-        }
-        residuals
-    }
-
-    fn jacobian(&self, _points: &[Point<D>]) -> Vec<(usize, usize, f64)> {
-        let mut entries = Vec::with_capacity(D * 2);
-
-        for k in 0..D {
-            entries.push((k, var_col::<D>(self.point1, k), -1.0));
-            entries.push((k, var_col::<D>(self.point2, k), 1.0));
-        }
-
-        entries
-    }
-
-    fn variable_indices(&self) -> Vec<usize> {
-        vec![self.point1, self.point2]
+impl Constraint for CoincidentConstraint {
+    fn id(&self) -> ConstraintId {
+        self.id
     }
 
     fn name(&self) -> &'static str {
-        "Coincident"
+        "coincident"
+    }
+
+    fn equation_count(&self) -> usize {
+        self.p1.count
+    }
+
+    fn dependencies(&self) -> &[usize] {
+        &self.deps
+    }
+
+    fn residuals(&self, params: &[f64]) -> Vec<f64> {
+        let dim = self.p1.count;
+        let mut residuals = Vec::with_capacity(dim);
+
+        for i in 0..dim {
+            residuals.push(params[self.p1.start + i] - params[self.p2.start + i]);
+        }
+
+        residuals
+    }
+
+    fn jacobian(&self, _params: &[f64]) -> Vec<(usize, usize, f64)> {
+        let dim = self.p1.count;
+        let mut jacobian = Vec::with_capacity(2 * dim);
+
+        // For each equation i: residual[i] = p1[i] - p2[i]
+        // d/dp1[i] = 1, d/dp2[i] = -1
+        for i in 0..dim {
+            jacobian.push((i, self.p1.start + i, 1.0));
+            jacobian.push((i, self.p2.start + i, -1.0));
+        }
+
+        jacobian
+    }
+
+    fn nonlinearity_hint(&self) -> Nonlinearity {
+        Nonlinearity::Linear
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::point::{Point2D, Point3D};
 
     #[test]
-    fn test_coincident_2d_satisfied() {
-        let constraint = CoincidentConstraint::<2>::new(0, 1);
-        let points = vec![
-            Point2D::new(5.0, 3.0),
-            Point2D::new(5.0, 3.0),
-        ];
+    fn test_coincident_satisfied_2d() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let constraint = CoincidentConstraint::new(ConstraintId(0), p1, p2);
 
-        let residuals = constraint.residuals(&points);
+        // Both points at (1, 2)
+        let params = vec![1.0, 2.0, 1.0, 2.0];
+
+        let residuals = constraint.residuals(&params);
         assert_eq!(residuals.len(), 2);
-        assert!(residuals[0].abs() < 1e-10);
-        assert!(residuals[1].abs() < 1e-10);
+        assert!((residuals[0]).abs() < 1e-10);
+        assert!((residuals[1]).abs() < 1e-10);
     }
 
     #[test]
-    fn test_coincident_2d_not_satisfied() {
-        let constraint = CoincidentConstraint::<2>::new(0, 1);
-        let points = vec![
-            Point2D::new(0.0, 0.0),
-            Point2D::new(3.0, 4.0),
-        ];
+    fn test_coincident_unsatisfied_2d() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let constraint = CoincidentConstraint::new(ConstraintId(0), p1, p2);
 
-        let residuals = constraint.residuals(&points);
-        assert!((residuals[0] - 3.0).abs() < 1e-10);
-        assert!((residuals[1] - 4.0).abs() < 1e-10);
+        // p1 at (1, 2), p2 at (4, 6)
+        let params = vec![1.0, 2.0, 4.0, 6.0];
+
+        let residuals = constraint.residuals(&params);
+        assert_eq!(residuals.len(), 2);
+        assert!((residuals[0] - (-3.0)).abs() < 1e-10);
+        assert!((residuals[1] - (-4.0)).abs() < 1e-10);
     }
 
     #[test]
     fn test_coincident_3d() {
-        let constraint = CoincidentConstraint::<3>::new(0, 1);
-        let points = vec![
-            Point3D::new(1.0, 2.0, 3.0),
-            Point3D::new(4.0, 5.0, 6.0),
-        ];
+        let p1 = ParamRange { start: 0, count: 3 };
+        let p2 = ParamRange { start: 3, count: 3 };
+        let constraint = CoincidentConstraint::new(ConstraintId(0), p1, p2);
 
-        let residuals = constraint.residuals(&points);
+        // Both points at (1, 2, 3)
+        let params = vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0];
+
+        let residuals = constraint.residuals(&params);
         assert_eq!(residuals.len(), 3);
-        assert!((residuals[0] - 3.0).abs() < 1e-10);
-        assert!((residuals[1] - 3.0).abs() < 1e-10);
-        assert!((residuals[2] - 3.0).abs() < 1e-10);
+        assert!((residuals[0]).abs() < 1e-10);
+        assert!((residuals[1]).abs() < 1e-10);
+        assert!((residuals[2]).abs() < 1e-10);
     }
 
     #[test]
-    fn test_coincident_jacobian() {
-        let constraint = CoincidentConstraint::<2>::new(0, 1);
-        let points = vec![
-            Point2D::new(0.0, 0.0),
-            Point2D::new(1.0, 1.0),
-        ];
+    fn test_equation_count_2d() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let constraint = CoincidentConstraint::new(ConstraintId(0), p1, p2);
 
-        let jac = constraint.jacobian(&points);
-        assert_eq!(jac.len(), 4); // 2 equations * 2 entries each
-
-        // Check entries
-        // Equation 0 (x): d/dp1.x = -1, d/dp2.x = 1
-        // Equation 1 (y): d/dp1.y = -1, d/dp2.y = 1
-        let expected = vec![
-            (0, 0, -1.0), // d(eq0)/d(p1.x)
-            (0, 2, 1.0),  // d(eq0)/d(p2.x)
-            (1, 1, -1.0), // d(eq1)/d(p1.y)
-            (1, 3, 1.0),  // d(eq1)/d(p2.y)
-        ];
-
-        for exp in &expected {
-            assert!(jac.contains(exp), "Missing entry {:?}", exp);
-        }
+        assert_eq!(constraint.equation_count(), 2);
     }
 
     #[test]
-    fn test_variable_indices() {
-        let constraint = CoincidentConstraint::<2>::new(3, 7);
-        let indices = constraint.variable_indices();
-        assert_eq!(indices, vec![3, 7]);
+    fn test_equation_count_3d() {
+        let p1 = ParamRange { start: 0, count: 3 };
+        let p2 = ParamRange { start: 3, count: 3 };
+        let constraint = CoincidentConstraint::new(ConstraintId(0), p1, p2);
+
+        assert_eq!(constraint.equation_count(), 3);
+    }
+
+    #[test]
+    fn test_dependencies() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let constraint = CoincidentConstraint::new(ConstraintId(0), p1, p2);
+
+        assert_eq!(constraint.dependencies(), &[0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_jacobian_2d() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let constraint = CoincidentConstraint::new(ConstraintId(0), p1, p2);
+
+        let params = vec![1.0, 2.0, 4.0, 6.0];
+
+        let jac = constraint.jacobian(&params);
+        assert_eq!(jac.len(), 4);
+
+        // Equation 0: p1.x - p2.x
+        assert!(jac.contains(&(0, 0, 1.0)));
+        assert!(jac.contains(&(0, 2, -1.0)));
+
+        // Equation 1: p1.y - p2.y
+        assert!(jac.contains(&(1, 1, 1.0)));
+        assert!(jac.contains(&(1, 3, -1.0)));
+    }
+
+    #[test]
+    fn test_jacobian_3d() {
+        let p1 = ParamRange { start: 0, count: 3 };
+        let p2 = ParamRange { start: 3, count: 3 };
+        let constraint = CoincidentConstraint::new(ConstraintId(0), p1, p2);
+
+        let params = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+
+        let jac = constraint.jacobian(&params);
+        assert_eq!(jac.len(), 6);
+
+        // Verify all entries
+        assert!(jac.contains(&(0, 0, 1.0)));
+        assert!(jac.contains(&(0, 3, -1.0)));
+        assert!(jac.contains(&(1, 1, 1.0)));
+        assert!(jac.contains(&(1, 4, -1.0)));
+        assert!(jac.contains(&(2, 2, 1.0)));
+        assert!(jac.contains(&(2, 5, -1.0)));
+    }
+
+    #[test]
+    #[should_panic(expected = "same dimensionality")]
+    fn test_mismatched_dimensions() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 3 };
+        CoincidentConstraint::new(ConstraintId(0), p1, p2);
     }
 }

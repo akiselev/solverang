@@ -287,6 +287,12 @@ pub mod test_problems;
 #[cfg(feature = "geometry")]
 pub mod geometry;
 
+#[cfg(feature = "geometry")]
+pub mod graph;
+
+#[cfg(feature = "geometry")]
+pub mod pipeline;
+
 #[cfg(feature = "jit")]
 pub mod jit;
 
@@ -328,3 +334,7 @@ pub use jit::{
 // Re-export JIT solver
 #[cfg(feature = "jit")]
 pub use solver::JITSolver;
+
+// Re-export pipeline types
+#[cfg(feature = "geometry")]
+pub use pipeline::{ComponentProblem, SolvePipeline, SolverSelection};

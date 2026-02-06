@@ -1,127 +1,156 @@
-//! Midpoint constraint: a point must be at the midpoint of a line segment.
+//! Midpoint constraint: mid = (start + end) / 2
 
-use crate::geometry::point::Point;
-use super::{get_point, var_col, GeometricConstraint};
+use crate::geometry::params::{ConstraintId, ParamRange};
+use crate::geometry::constraint::{Constraint, Nonlinearity};
 
-/// Midpoint constraint: point M is the midpoint of line from A to B.
+/// Constrains a point to be at the midpoint of two other points.
 ///
-/// This constraint enforces that a point is exactly at the midpoint
-/// of a line segment defined by two other points.
+/// Equations: mid[i] = (start[i] + end[i]) / 2 for each coordinate i
 ///
-/// # Equations
-///
-/// For each dimension k: `2*M[k] - A[k] - B[k] = 0`
-///
-/// # Jacobian
-///
-/// - `d(residual_k)/d(M[k]) = 2`
-/// - `d(residual_k)/d(A[k]) = -1`
-/// - `d(residual_k)/d(B[k]) = -1`
-#[derive(Clone, Debug)]
-pub struct MidpointConstraint<const D: usize> {
-    /// Index of the midpoint.
-    pub midpoint: usize,
-    /// Index of line start point.
-    pub line_start: usize,
-    /// Index of line end point.
-    pub line_end: usize,
+/// Works for both 2D and 3D points (determined by ParamRange.count).
+pub struct MidpointConstraint {
+    id: ConstraintId,
+    mid: ParamRange,
+    start: ParamRange,
+    end: ParamRange,
+    deps: Vec<usize>,
 }
 
-impl<const D: usize> MidpointConstraint<D> {
+impl MidpointConstraint {
     /// Create a new midpoint constraint.
-    pub fn new(midpoint: usize, line_start: usize, line_end: usize) -> Self {
+    ///
+    /// # Panics
+    /// Panics if mid, start, and end don't all have the same dimensionality.
+    pub fn new(
+        id: ConstraintId,
+        mid: ParamRange,
+        start: ParamRange,
+        end: ParamRange,
+    ) -> Self {
+        assert_eq!(
+            mid.count, start.count,
+            "MidpointConstraint requires all points to have same dimensionality"
+        );
+        assert_eq!(
+            mid.count, end.count,
+            "MidpointConstraint requires all points to have same dimensionality"
+        );
+
+        let mut deps = Vec::new();
+        deps.extend(mid.iter());
+        deps.extend(start.iter());
+        deps.extend(end.iter());
+
         Self {
-            midpoint,
-            line_start,
-            line_end,
+            id,
+            mid,
+            start,
+            end,
+            deps,
         }
     }
 }
 
-impl<const D: usize> GeometricConstraint<D> for MidpointConstraint<D> {
-    fn equation_count(&self) -> usize {
-        D
-    }
-
-    fn residuals(&self, points: &[Point<D>]) -> Vec<f64> {
-        let m = get_point(points, self.midpoint);
-        let a = get_point(points, self.line_start);
-        let b = get_point(points, self.line_end);
-
-        let mut residuals = Vec::with_capacity(D);
-        for k in 0..D {
-            residuals.push(2.0 * m.get(k) - a.get(k) - b.get(k));
-        }
-        residuals
-    }
-
-    fn jacobian(&self, _points: &[Point<D>]) -> Vec<(usize, usize, f64)> {
-        let mut entries = Vec::with_capacity(D * 3);
-
-        for k in 0..D {
-            entries.push((k, var_col::<D>(self.midpoint, k), 2.0));    // d/dM[k]
-            entries.push((k, var_col::<D>(self.line_start, k), -1.0)); // d/dA[k]
-            entries.push((k, var_col::<D>(self.line_end, k), -1.0));   // d/dB[k]
-        }
-
-        entries
-    }
-
-    fn variable_indices(&self) -> Vec<usize> {
-        vec![self.midpoint, self.line_start, self.line_end]
+impl Constraint for MidpointConstraint {
+    fn id(&self) -> ConstraintId {
+        self.id
     }
 
     fn name(&self) -> &'static str {
-        "Midpoint"
+        "midpoint"
+    }
+
+    fn equation_count(&self) -> usize {
+        self.mid.count
+    }
+
+    fn dependencies(&self) -> &[usize] {
+        &self.deps
+    }
+
+    fn residuals(&self, params: &[f64]) -> Vec<f64> {
+        let dim = self.mid.count;
+        let mut residuals = Vec::with_capacity(dim);
+
+        for i in 0..dim {
+            let mid_val = params[self.mid.start + i];
+            let start_val = params[self.start.start + i];
+            let end_val = params[self.end.start + i];
+
+            residuals.push(mid_val - (start_val + end_val) / 2.0);
+        }
+
+        residuals
+    }
+
+    fn jacobian(&self, _params: &[f64]) -> Vec<(usize, usize, f64)> {
+        let dim = self.mid.count;
+        let mut jacobian = Vec::with_capacity(3 * dim);
+
+        // For each equation i: residual[i] = mid[i] - (start[i] + end[i]) / 2
+        // d/dmid[i] = 1, d/dstart[i] = -0.5, d/dend[i] = -0.5
+        for i in 0..dim {
+            jacobian.push((i, self.mid.start + i, 1.0));
+            jacobian.push((i, self.start.start + i, -0.5));
+            jacobian.push((i, self.end.start + i, -0.5));
+        }
+
+        jacobian
+    }
+
+    fn nonlinearity_hint(&self) -> Nonlinearity {
+        Nonlinearity::Linear
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::point::{Point2D, Point3D};
 
     #[test]
-    fn test_midpoint_2d_satisfied() {
-        let constraint = MidpointConstraint::<2>::new(0, 1, 2);
-        let points = vec![
-            Point2D::new(5.0, 5.0),  // Midpoint
-            Point2D::new(0.0, 0.0),  // Start
-            Point2D::new(10.0, 10.0), // End
-        ];
+    fn test_midpoint_satisfied_2d() {
+        let mid = ParamRange { start: 0, count: 2 };
+        let start = ParamRange { start: 2, count: 2 };
+        let end = ParamRange { start: 4, count: 2 };
+        let constraint = MidpointConstraint::new(ConstraintId(0), mid, start, end);
 
-        let residuals = constraint.residuals(&points);
+        // mid = (5, 5), start = (0, 0), end = (10, 10)
+        let params = vec![5.0, 5.0, 0.0, 0.0, 10.0, 10.0];
+
+        let residuals = constraint.residuals(&params);
         assert_eq!(residuals.len(), 2);
-        assert!(residuals[0].abs() < 1e-10);
-        assert!(residuals[1].abs() < 1e-10);
+        assert!((residuals[0]).abs() < 1e-10);
+        assert!((residuals[1]).abs() < 1e-10);
     }
 
     #[test]
-    fn test_midpoint_2d_not_satisfied() {
-        let constraint = MidpointConstraint::<2>::new(0, 1, 2);
-        let points = vec![
-            Point2D::new(0.0, 0.0),   // Not at midpoint
-            Point2D::new(0.0, 0.0),   // Start
-            Point2D::new(10.0, 10.0), // End
-        ];
+    fn test_midpoint_unsatisfied_2d() {
+        let mid = ParamRange { start: 0, count: 2 };
+        let start = ParamRange { start: 2, count: 2 };
+        let end = ParamRange { start: 4, count: 2 };
+        let constraint = MidpointConstraint::new(ConstraintId(0), mid, start, end);
 
-        let residuals = constraint.residuals(&points);
+        // mid = (0, 0), start = (0, 0), end = (10, 10)
         // Expected midpoint is (5, 5)
-        // 2*0 - 0 - 10 = -10
-        assert!((residuals[0] - (-10.0)).abs() < 1e-10);
-        assert!((residuals[1] - (-10.0)).abs() < 1e-10);
+        let params = vec![0.0, 0.0, 0.0, 0.0, 10.0, 10.0];
+
+        let residuals = constraint.residuals(&params);
+        assert_eq!(residuals.len(), 2);
+        assert!((residuals[0] - (-5.0)).abs() < 1e-10);
+        assert!((residuals[1] - (-5.0)).abs() < 1e-10);
     }
 
     #[test]
-    fn test_midpoint_3d_satisfied() {
-        let constraint = MidpointConstraint::<3>::new(0, 1, 2);
-        let points = vec![
-            Point3D::new(5.0, 5.0, 5.0),   // Midpoint
-            Point3D::new(0.0, 0.0, 0.0),   // Start
-            Point3D::new(10.0, 10.0, 10.0), // End
-        ];
+    fn test_midpoint_3d() {
+        let mid = ParamRange { start: 0, count: 3 };
+        let start = ParamRange { start: 3, count: 3 };
+        let end = ParamRange { start: 6, count: 3 };
+        let constraint = MidpointConstraint::new(ConstraintId(0), mid, start, end);
 
-        let residuals = constraint.residuals(&points);
+        // mid = (5, 5, 5), start = (0, 0, 0), end = (10, 10, 10)
+        let params = vec![5.0, 5.0, 5.0, 0.0, 0.0, 0.0, 10.0, 10.0, 10.0];
+
+        let residuals = constraint.residuals(&params);
         assert_eq!(residuals.len(), 3);
         for r in &residuals {
             assert!(r.abs() < 1e-10);
@@ -129,27 +158,45 @@ mod tests {
     }
 
     #[test]
-    fn test_midpoint_jacobian() {
-        let constraint = MidpointConstraint::<2>::new(0, 1, 2);
-        let points = vec![
-            Point2D::new(5.0, 5.0),
-            Point2D::new(0.0, 0.0),
-            Point2D::new(10.0, 10.0),
-        ];
+    fn test_equation_count() {
+        let mid = ParamRange { start: 0, count: 2 };
+        let start = ParamRange { start: 2, count: 2 };
+        let end = ParamRange { start: 4, count: 2 };
+        let constraint = MidpointConstraint::new(ConstraintId(0), mid, start, end);
 
-        let jac = constraint.jacobian(&points);
-        assert_eq!(jac.len(), 6); // 2D * 3 points
+        assert_eq!(constraint.equation_count(), 2);
+    }
+
+    #[test]
+    fn test_dependencies() {
+        let mid = ParamRange { start: 0, count: 2 };
+        let start = ParamRange { start: 2, count: 2 };
+        let end = ParamRange { start: 4, count: 2 };
+        let constraint = MidpointConstraint::new(ConstraintId(0), mid, start, end);
+
+        assert_eq!(constraint.dependencies(), &[0, 1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_jacobian_2d() {
+        let mid = ParamRange { start: 0, count: 2 };
+        let start = ParamRange { start: 2, count: 2 };
+        let end = ParamRange { start: 4, count: 2 };
+        let constraint = MidpointConstraint::new(ConstraintId(0), mid, start, end);
+
+        let params = vec![5.0, 5.0, 0.0, 0.0, 10.0, 10.0];
+
+        let jac = constraint.jacobian(&params);
+        assert_eq!(jac.len(), 6); // 2 equations * 3 terms each
 
         // Check expected entries
-        // Equation 0 (x): d/dMx = 2, d/dAx = -1, d/dBx = -1
-        // Equation 1 (y): d/dMy = 2, d/dAy = -1, d/dBy = -1
         let expected = vec![
-            (0, 0, 2.0),   // d(eq0)/d(Mx)
-            (0, 2, -1.0),  // d(eq0)/d(Ax)
-            (0, 4, -1.0),  // d(eq0)/d(Bx)
-            (1, 1, 2.0),   // d(eq1)/d(My)
-            (1, 3, -1.0),  // d(eq1)/d(Ay)
-            (1, 5, -1.0),  // d(eq1)/d(By)
+            (0, 0, 1.0),   // d(eq0)/d(mid.x)
+            (0, 2, -0.5),  // d(eq0)/d(start.x)
+            (0, 4, -0.5),  // d(eq0)/d(end.x)
+            (1, 1, 1.0),   // d(eq1)/d(mid.y)
+            (1, 3, -0.5),  // d(eq1)/d(start.y)
+            (1, 5, -0.5),  // d(eq1)/d(end.y)
         ];
 
         for exp in &expected {
@@ -158,9 +205,11 @@ mod tests {
     }
 
     #[test]
-    fn test_variable_indices() {
-        let constraint = MidpointConstraint::<2>::new(5, 10, 15);
-        let indices = constraint.variable_indices();
-        assert_eq!(indices, vec![5, 10, 15]);
+    #[should_panic(expected = "same dimensionality")]
+    fn test_mismatched_dimensions() {
+        let mid = ParamRange { start: 0, count: 2 };
+        let start = ParamRange { start: 2, count: 2 };
+        let end = ParamRange { start: 4, count: 3 };
+        MidpointConstraint::new(ConstraintId(0), mid, start, end);
     }
 }

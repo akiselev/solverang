@@ -1,196 +1,221 @@
-//! Distance constraint: enforce a specific distance between two points.
+//! Distance constraint: ||p1 - p2|| = target
 
-use crate::geometry::point::Point;
-use super::{get_point, var_col, GeometricConstraint};
+use crate::geometry::params::{ConstraintId, ParamRange};
+use crate::geometry::constraint::{Constraint, Nonlinearity, MIN_EPSILON};
 
-/// Distance constraint: |p2 - p1| = target.
+/// Constrains the distance between two points to a target value.
 ///
-/// This constraint enforces that the Euclidean distance between two points
-/// equals a specified target value.
+/// Equation: sqrt(sum((p1[i] - p2[i])²)) = target
 ///
-/// # Equation
-///
-/// `sqrt((p2.x - p1.x)^2 + (p2.y - p1.y)^2 + ...) - target = 0`
-///
-/// # Jacobian
-///
-/// For coordinate `k` of point `i`:
-/// - `d(residual)/d(p1[k]) = -(p2[k] - p1[k]) / distance`
-/// - `d(residual)/d(p2[k]) = (p2[k] - p1[k]) / distance`
-#[derive(Clone, Debug)]
-pub struct DistanceConstraint<const D: usize> {
-    /// Index of first point.
-    pub point1: usize,
-    /// Index of second point.
-    pub point2: usize,
-    /// Target distance.
-    pub target: f64,
-    /// Optional weight (default 1.0).
-    weight: f64,
+/// Works for both 2D and 3D points (determined by ParamRange.count).
+pub struct DistanceConstraint {
+    id: ConstraintId,
+    p1: ParamRange,
+    p2: ParamRange,
+    target_distance: f64,
+    deps: Vec<usize>,
 }
 
-impl<const D: usize> DistanceConstraint<D> {
+impl DistanceConstraint {
     /// Create a new distance constraint.
-    pub fn new(point1: usize, point2: usize, target: f64) -> Self {
-        Self {
-            point1,
-            point2,
-            target,
-            weight: 1.0,
-        }
-    }
+    ///
+    /// # Panics
+    /// Panics if p1 and p2 have different dimensionality (count).
+    pub fn new(id: ConstraintId, p1: ParamRange, p2: ParamRange, target_distance: f64) -> Self {
+        assert_eq!(
+            p1.count, p2.count,
+            "DistanceConstraint requires points of same dimensionality"
+        );
 
-    /// Create a distance constraint with custom weight.
-    pub fn with_weight(point1: usize, point2: usize, target: f64, weight: f64) -> Self {
+        let mut deps = Vec::new();
+        deps.extend(p1.iter());
+        deps.extend(p2.iter());
+
         Self {
-            point1,
-            point2,
-            target,
-            weight,
+            id,
+            p1,
+            p2,
+            target_distance,
+            deps,
         }
     }
 }
 
-impl<const D: usize> GeometricConstraint<D> for DistanceConstraint<D> {
+impl Constraint for DistanceConstraint {
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+
+    fn name(&self) -> &'static str {
+        "distance"
+    }
+
     fn equation_count(&self) -> usize {
         1
     }
 
-    fn residuals(&self, points: &[Point<D>]) -> Vec<f64> {
-        let p1 = get_point(points, self.point1);
-        let p2 = get_point(points, self.point2);
-
-        let actual = p1.distance_to(&p2);
-        vec![actual - self.target]
+    fn dependencies(&self) -> &[usize] {
+        &self.deps
     }
 
-    fn jacobian(&self, points: &[Point<D>]) -> Vec<(usize, usize, f64)> {
-        let p1 = get_point(points, self.point1);
-        let p2 = get_point(points, self.point2);
+    fn residuals(&self, params: &[f64]) -> Vec<f64> {
+        let dim = self.p1.count;
 
-        let dist = p1.safe_distance_to(&p2);
-
-        let mut entries = Vec::with_capacity(D * 2);
-
-        for k in 0..D {
-            let diff = p2.get(k) - p1.get(k);
-            let grad = diff / dist;
-
-            entries.push((0, var_col::<D>(self.point1, k), -grad));
-            entries.push((0, var_col::<D>(self.point2, k), grad));
+        // Compute squared distance
+        let mut dist_sq = 0.0;
+        for i in 0..dim {
+            let diff = params[self.p1.start + i] - params[self.p2.start + i];
+            dist_sq += diff * diff;
         }
 
-        entries
+        let dist = dist_sq.sqrt();
+        vec![dist - self.target_distance]
     }
 
-    fn variable_indices(&self) -> Vec<usize> {
-        vec![self.point1, self.point2]
+    fn jacobian(&self, params: &[f64]) -> Vec<(usize, usize, f64)> {
+        let dim = self.p1.count;
+
+        // Compute distance
+        let mut dist_sq = 0.0;
+        for i in 0..dim {
+            let diff = params[self.p1.start + i] - params[self.p2.start + i];
+            dist_sq += diff * diff;
+        }
+
+        let dist = dist_sq.sqrt().max(MIN_EPSILON);
+
+        let mut jacobian = Vec::with_capacity(2 * dim);
+
+        // Jacobian: d/dp1[i] = (p1[i] - p2[i]) / dist
+        //           d/dp2[i] = -(p1[i] - p2[i]) / dist
+        for i in 0..dim {
+            let diff = params[self.p1.start + i] - params[self.p2.start + i];
+            let deriv = diff / dist;
+
+            jacobian.push((0, self.p1.start + i, deriv));
+            jacobian.push((0, self.p2.start + i, -deriv));
+        }
+
+        jacobian
     }
 
-    fn weight(&self) -> f64 {
-        self.weight
-    }
-
-    fn name(&self) -> &'static str {
-        "Distance"
+    fn nonlinearity_hint(&self) -> Nonlinearity {
+        Nonlinearity::Moderate
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::point::{Point2D, Point3D};
 
     #[test]
-    fn test_distance_2d_residual() {
-        let constraint = DistanceConstraint::<2>::new(0, 1, 5.0);
-        let points = vec![
-            Point2D::new(0.0, 0.0),
-            Point2D::new(3.0, 4.0),
-        ];
+    fn test_distance_satisfied_2d() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let constraint = DistanceConstraint::new(ConstraintId(0), p1, p2, 5.0);
 
-        let residuals = constraint.residuals(&points);
+        // Points at distance 5: (0,0) and (3,4)
+        let params = vec![0.0, 0.0, 3.0, 4.0];
+
+        let residuals = constraint.residuals(&params);
         assert_eq!(residuals.len(), 1);
-        // Distance is 5, target is 5, residual should be 0
-        assert!(residuals[0].abs() < 1e-10);
+        assert!((residuals[0]).abs() < 1e-10, "Expected residual ≈ 0, got {}", residuals[0]);
     }
 
     #[test]
-    fn test_distance_2d_residual_nonzero() {
-        let constraint = DistanceConstraint::<2>::new(0, 1, 10.0);
-        let points = vec![
-            Point2D::new(0.0, 0.0),
-            Point2D::new(3.0, 4.0),
-        ];
+    fn test_distance_unsatisfied_2d() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let constraint = DistanceConstraint::new(ConstraintId(0), p1, p2, 5.0);
 
-        let residuals = constraint.residuals(&points);
-        // Distance is 5, target is 10, residual should be -5
-        assert!((residuals[0] - (-5.0)).abs() < 1e-10);
+        // Points at distance 10: (0,0) and (10,0)
+        let params = vec![0.0, 0.0, 10.0, 0.0];
+
+        let residuals = constraint.residuals(&params);
+        assert_eq!(residuals.len(), 1);
+        assert!((residuals[0] - 5.0).abs() < 1e-10, "Expected residual = 5.0, got {}", residuals[0]);
     }
 
     #[test]
-    fn test_distance_3d_residual() {
-        let constraint = DistanceConstraint::<3>::new(0, 1, 7.0);
-        let points = vec![
-            Point3D::new(0.0, 0.0, 0.0),
-            Point3D::new(2.0, 3.0, 6.0), // distance = sqrt(4+9+36) = 7
-        ];
+    fn test_distance_3d() {
+        let p1 = ParamRange { start: 0, count: 3 };
+        let p2 = ParamRange { start: 3, count: 3 };
+        let constraint = DistanceConstraint::new(ConstraintId(0), p1, p2, 1.0);
 
-        let residuals = constraint.residuals(&points);
-        assert!(residuals[0].abs() < 1e-10);
+        // Points at distance 1: (0,0,0) and (1,0,0)
+        let params = vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+
+        let residuals = constraint.residuals(&params);
+        assert_eq!(residuals.len(), 1);
+        assert!((residuals[0]).abs() < 1e-10);
     }
 
     #[test]
-    fn test_distance_jacobian() {
-        let constraint = DistanceConstraint::<2>::new(0, 1, 5.0);
-        let points = vec![
-            Point2D::new(0.0, 0.0),
-            Point2D::new(3.0, 4.0),
-        ];
+    fn test_equation_count() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let constraint = DistanceConstraint::new(ConstraintId(0), p1, p2, 5.0);
 
-        let jac = constraint.jacobian(&points);
-        assert_eq!(jac.len(), 4); // 2 points * 2 coordinates
-
-        // Verify derivatives: grad = (p2 - p1) / dist
-        // dx/dist = 3/5 = 0.6, dy/dist = 4/5 = 0.8
-        // d/dp1.x = -0.6, d/dp1.y = -0.8
-        // d/dp2.x = 0.6, d/dp2.y = 0.8
-
-        let mut found = [false; 4];
-        for (row, col, val) in &jac {
-            assert_eq!(*row, 0);
-            match *col {
-                0 => { assert!((*val - (-0.6)).abs() < 1e-10); found[0] = true; }
-                1 => { assert!((*val - (-0.8)).abs() < 1e-10); found[1] = true; }
-                2 => { assert!((*val - 0.6).abs() < 1e-10); found[2] = true; }
-                3 => { assert!((*val - 0.8).abs() < 1e-10); found[3] = true; }
-                _ => panic!("unexpected column"),
-            }
-        }
-        assert!(found.iter().all(|&f| f));
+        assert_eq!(constraint.equation_count(), 1);
     }
 
     #[test]
-    fn test_distance_coincident_points() {
-        // When points are coincident, the distance is zero
-        // Jacobian should use MIN_EPSILON to avoid division by zero
-        let constraint = DistanceConstraint::<2>::new(0, 1, 1.0);
-        let points = vec![
-            Point2D::new(0.0, 0.0),
-            Point2D::new(0.0, 0.0),
-        ];
+    fn test_dependencies() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let constraint = DistanceConstraint::new(ConstraintId(0), p1, p2, 5.0);
 
-        let jac = constraint.jacobian(&points);
+        assert_eq!(constraint.dependencies(), &[0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_jacobian_2d() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let constraint = DistanceConstraint::new(ConstraintId(0), p1, p2, 5.0);
+
+        // Points: (0,0) and (3,4) -> distance = 5
+        let params = vec![0.0, 0.0, 3.0, 4.0];
+
+        let jac = constraint.jacobian(&params);
+        assert_eq!(jac.len(), 4);
+
+        // d/dx1 = -3/5 = -0.6, d/dy1 = -4/5 = -0.8
+        // d/dx2 = 3/5 = 0.6, d/dy2 = 4/5 = 0.8
+
+        // Find entries by column
+        let dx1 = jac.iter().find(|&&(_, col, _)| col == 0).unwrap().2;
+        let dy1 = jac.iter().find(|&&(_, col, _)| col == 1).unwrap().2;
+        let dx2 = jac.iter().find(|&&(_, col, _)| col == 2).unwrap().2;
+        let dy2 = jac.iter().find(|&&(_, col, _)| col == 3).unwrap().2;
+
+        assert!((dx1 - (-0.6)).abs() < 1e-10);
+        assert!((dy1 - (-0.8)).abs() < 1e-10);
+        assert!((dx2 - 0.6).abs() < 1e-10);
+        assert!((dy2 - 0.8).abs() < 1e-10);
+    }
+
+    #[test]
+    #[should_panic(expected = "same dimensionality")]
+    fn test_mismatched_dimensions() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 3 };
+        DistanceConstraint::new(ConstraintId(0), p1, p2, 5.0);
+    }
+
+    #[test]
+    fn test_zero_distance_safe() {
+        let p1 = ParamRange { start: 0, count: 2 };
+        let p2 = ParamRange { start: 2, count: 2 };
+        let constraint = DistanceConstraint::new(ConstraintId(0), p1, p2, 0.0);
+
+        // Coincident points - should use MIN_EPSILON for safe division
+        let params = vec![1.0, 2.0, 1.0, 2.0];
+
+        let jac = constraint.jacobian(&params);
         // Should not panic and should produce finite values
-        for (_, _, val) in jac {
+        for &(_, _, val) in &jac {
             assert!(val.is_finite());
         }
-    }
-
-    #[test]
-    fn test_variable_indices() {
-        let constraint = DistanceConstraint::<2>::new(5, 10, 1.0);
-        let indices = constraint.variable_indices();
-        assert_eq!(indices, vec![5, 10]);
     }
 }

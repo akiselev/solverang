@@ -1,115 +1,130 @@
-//! Fixed position constraint: a point must be at a specific location.
+//! Fixed constraint: p = target_values
 
-use crate::geometry::point::Point;
-use super::{get_point, var_col, GeometricConstraint};
+use crate::geometry::params::{ConstraintId, ParamRange};
+use crate::geometry::constraint::{Constraint, Nonlinearity};
 
-/// Fixed position constraint: p = target.
+/// Constrains a point to be at a specific fixed location.
 ///
-/// This constraint enforces that a point is at a specific fixed location.
-/// It generates D equations (one per dimension).
+/// Equations: p[i] = target[i] for each coordinate i
 ///
-/// # Equations
-///
-/// For each dimension k: `p[k] - target[k] = 0`
-///
-/// # Jacobian
-///
-/// - `d(residual_k)/d(p[k]) = 1`
-#[derive(Clone, Debug)]
-pub struct FixedConstraint<const D: usize> {
-    /// Index of the point to fix.
-    pub point: usize,
-    /// Target position.
-    pub target: Point<D>,
+/// Works for both 2D and 3D points (determined by ParamRange.count).
+pub struct FixedConstraint {
+    id: ConstraintId,
+    p: ParamRange,
+    target_values: Vec<f64>,
+    deps: Vec<usize>,
 }
 
-impl<const D: usize> FixedConstraint<D> {
-    /// Create a new fixed position constraint.
-    pub fn new(point: usize, target: Point<D>) -> Self {
-        Self { point, target }
-    }
-}
+impl FixedConstraint {
+    /// Create a new fixed constraint.
+    ///
+    /// # Panics
+    /// Panics if target_values.len() != p.count.
+    pub fn new(id: ConstraintId, p: ParamRange, target_values: Vec<f64>) -> Self {
+        assert_eq!(
+            target_values.len(),
+            p.count,
+            "FixedConstraint: target_values length must match point dimensionality"
+        );
 
-impl FixedConstraint<2> {
-    /// Create a 2D fixed constraint from coordinates.
-    pub fn from_coords(point: usize, x: f64, y: f64) -> Self {
-        Self::new(point, Point::from_coords([x, y]))
-    }
-}
+        let deps: Vec<usize> = p.iter().collect();
 
-impl FixedConstraint<3> {
-    /// Create a 3D fixed constraint from coordinates.
-    pub fn from_coords(point: usize, x: f64, y: f64, z: f64) -> Self {
-        Self::new(point, Point::from_coords([x, y, z]))
-    }
-}
-
-impl<const D: usize> GeometricConstraint<D> for FixedConstraint<D> {
-    fn equation_count(&self) -> usize {
-        D
-    }
-
-    fn residuals(&self, points: &[Point<D>]) -> Vec<f64> {
-        let p = get_point(points, self.point);
-
-        let mut residuals = Vec::with_capacity(D);
-        for k in 0..D {
-            residuals.push(p.get(k) - self.target.get(k));
+        Self {
+            id,
+            p,
+            target_values,
+            deps,
         }
-        residuals
     }
+}
 
-    fn jacobian(&self, _points: &[Point<D>]) -> Vec<(usize, usize, f64)> {
-        let mut entries = Vec::with_capacity(D);
-
-        for k in 0..D {
-            entries.push((k, var_col::<D>(self.point, k), 1.0));
-        }
-
-        entries
-    }
-
-    fn variable_indices(&self) -> Vec<usize> {
-        vec![self.point]
+impl Constraint for FixedConstraint {
+    fn id(&self) -> ConstraintId {
+        self.id
     }
 
     fn name(&self) -> &'static str {
-        "Fixed"
+        "fixed"
+    }
+
+    fn equation_count(&self) -> usize {
+        self.p.count
+    }
+
+    fn dependencies(&self) -> &[usize] {
+        &self.deps
+    }
+
+    fn residuals(&self, params: &[f64]) -> Vec<f64> {
+        let dim = self.p.count;
+        let mut residuals = Vec::with_capacity(dim);
+
+        for i in 0..dim {
+            residuals.push(params[self.p.start + i] - self.target_values[i]);
+        }
+
+        residuals
+    }
+
+    fn jacobian(&self, _params: &[f64]) -> Vec<(usize, usize, f64)> {
+        let dim = self.p.count;
+        let mut jacobian = Vec::with_capacity(dim);
+
+        // For each equation i: residual[i] = p[i] - target[i]
+        // d/dp[i] = 1
+        for i in 0..dim {
+            jacobian.push((i, self.p.start + i, 1.0));
+        }
+
+        jacobian
+    }
+
+    fn nonlinearity_hint(&self) -> Nonlinearity {
+        Nonlinearity::Linear
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::geometry::point::{Point2D, Point3D};
 
     #[test]
-    fn test_fixed_2d_satisfied() {
-        let constraint = FixedConstraint::<2>::from_coords(0, 5.0, 3.0);
-        let points = vec![Point2D::new(5.0, 3.0)];
+    fn test_fixed_satisfied_2d() {
+        let p = ParamRange { start: 0, count: 2 };
+        let constraint = FixedConstraint::new(ConstraintId(0), p, vec![5.0, 3.0]);
 
-        let residuals = constraint.residuals(&points);
+        // Point at (5, 3)
+        let params = vec![5.0, 3.0];
+
+        let residuals = constraint.residuals(&params);
         assert_eq!(residuals.len(), 2);
-        assert!(residuals[0].abs() < 1e-10);
-        assert!(residuals[1].abs() < 1e-10);
+        assert!((residuals[0]).abs() < 1e-10);
+        assert!((residuals[1]).abs() < 1e-10);
     }
 
     #[test]
-    fn test_fixed_2d_not_satisfied() {
-        let constraint = FixedConstraint::<2>::from_coords(0, 10.0, 20.0);
-        let points = vec![Point2D::new(0.0, 0.0)];
+    fn test_fixed_unsatisfied_2d() {
+        let p = ParamRange { start: 0, count: 2 };
+        let constraint = FixedConstraint::new(ConstraintId(0), p, vec![10.0, 20.0]);
 
-        let residuals = constraint.residuals(&points);
+        // Point at (0, 0) but should be at (10, 20)
+        let params = vec![0.0, 0.0];
+
+        let residuals = constraint.residuals(&params);
+        assert_eq!(residuals.len(), 2);
         assert!((residuals[0] - (-10.0)).abs() < 1e-10);
         assert!((residuals[1] - (-20.0)).abs() < 1e-10);
     }
 
     #[test]
     fn test_fixed_3d() {
-        let constraint = FixedConstraint::<3>::from_coords(0, 1.0, 2.0, 3.0);
-        let points = vec![Point3D::new(4.0, 5.0, 6.0)];
+        let p = ParamRange { start: 0, count: 3 };
+        let constraint = FixedConstraint::new(ConstraintId(0), p, vec![1.0, 2.0, 3.0]);
 
-        let residuals = constraint.residuals(&points);
+        // Point at (4, 5, 6)
+        let params = vec![4.0, 5.0, 6.0];
+
+        let residuals = constraint.residuals(&params);
         assert_eq!(residuals.len(), 3);
         assert!((residuals[0] - 3.0).abs() < 1e-10);
         assert!((residuals[1] - 3.0).abs() < 1e-10);
@@ -117,11 +132,29 @@ mod tests {
     }
 
     #[test]
-    fn test_fixed_jacobian() {
-        let constraint = FixedConstraint::<2>::from_coords(0, 5.0, 3.0);
-        let points = vec![Point2D::new(0.0, 0.0)];
+    fn test_equation_count() {
+        let p = ParamRange { start: 0, count: 2 };
+        let constraint = FixedConstraint::new(ConstraintId(0), p, vec![0.0, 0.0]);
 
-        let jac = constraint.jacobian(&points);
+        assert_eq!(constraint.equation_count(), 2);
+    }
+
+    #[test]
+    fn test_dependencies() {
+        let p = ParamRange { start: 0, count: 2 };
+        let constraint = FixedConstraint::new(ConstraintId(0), p, vec![0.0, 0.0]);
+
+        assert_eq!(constraint.dependencies(), &[0, 1]);
+    }
+
+    #[test]
+    fn test_jacobian_2d() {
+        let p = ParamRange { start: 0, count: 2 };
+        let constraint = FixedConstraint::new(ConstraintId(0), p, vec![5.0, 3.0]);
+
+        let params = vec![0.0, 0.0];
+
+        let jac = constraint.jacobian(&params);
         assert_eq!(jac.len(), 2);
 
         // d(eq0)/d(p.x) = 1, d(eq1)/d(p.y) = 1
@@ -130,29 +163,28 @@ mod tests {
     }
 
     #[test]
-    fn test_fixed_with_multiple_points() {
-        // Fix point 2 out of 3 points
-        let constraint = FixedConstraint::<2>::from_coords(2, 10.0, 20.0);
-        let points = vec![
-            Point2D::new(0.0, 0.0),
-            Point2D::new(1.0, 1.0),
-            Point2D::new(10.0, 20.0),
-        ];
+    fn test_fixed_with_offset_param_range() {
+        // Point stored at indices 5-6 in parameter vector
+        let p = ParamRange { start: 5, count: 2 };
+        let constraint = FixedConstraint::new(ConstraintId(0), p, vec![10.0, 20.0]);
 
-        let residuals = constraint.residuals(&points);
+        // Create a params vector with dummy values, the point at indices 5-6
+        let params = vec![0.0, 0.0, 0.0, 0.0, 0.0, 10.0, 20.0];
+
+        let residuals = constraint.residuals(&params);
         assert!(residuals[0].abs() < 1e-10);
         assert!(residuals[1].abs() < 1e-10);
 
-        let jac = constraint.jacobian(&points);
-        // Column indices should be 4 and 5 (point 2's x and y)
-        assert!(jac.contains(&(0, 4, 1.0)));
-        assert!(jac.contains(&(1, 5, 1.0)));
+        let jac = constraint.jacobian(&params);
+        // Jacobian should reference columns 5 and 6
+        assert!(jac.contains(&(0, 5, 1.0)));
+        assert!(jac.contains(&(1, 6, 1.0)));
     }
 
     #[test]
-    fn test_variable_indices() {
-        let constraint = FixedConstraint::<2>::from_coords(5, 0.0, 0.0);
-        let indices = constraint.variable_indices();
-        assert_eq!(indices, vec![5]);
+    #[should_panic(expected = "must match point dimensionality")]
+    fn test_mismatched_target_length() {
+        let p = ParamRange { start: 0, count: 2 };
+        FixedConstraint::new(ConstraintId(0), p, vec![1.0, 2.0, 3.0]);
     }
 }

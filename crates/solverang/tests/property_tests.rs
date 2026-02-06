@@ -14,10 +14,10 @@ use solverang::{
 use solverang::geometry::{
     constraints::{
         CoincidentConstraint, DistanceConstraint, EqualLengthConstraint, FixedConstraint,
-        GeometricConstraint, HorizontalConstraint, MidpointConstraint, ParallelConstraint,
+        HorizontalConstraint, MidpointConstraint, ParallelConstraint,
         PerpendicularConstraint, PointOnLineConstraint, SymmetricConstraint, VerticalConstraint,
     },
-    ConstraintSystem, Point2D,
+    Constraint, ConstraintId, ConstraintSystem, ParamRange,
 };
 
 // =============================================================================
@@ -163,6 +163,15 @@ fn is_valid_result(result: &SolveResult) -> bool {
     )
 }
 
+/// Helper to create a ParamRange for point at a given index in a flat 2D param vector.
+#[cfg(feature = "geometry")]
+fn pr2d(point_index: usize) -> ParamRange {
+    ParamRange {
+        start: point_index * 2,
+        count: 2,
+    }
+}
+
 // =============================================================================
 // Proptest Strategies
 // =============================================================================
@@ -175,10 +184,10 @@ fn coord_strategy() -> impl Strategy<Value = f64> {
     })
 }
 
-/// Strategy for generating a 2D point.
+/// Strategy for generating a 2D point as (x, y) tuple.
 #[cfg(feature = "geometry")]
-fn point2d_strategy() -> impl Strategy<Value = Point2D> {
-    (coord_strategy(), coord_strategy()).prop_map(|(x, y)| Point2D::new(x, y))
+fn point2d_strategy() -> impl Strategy<Value = (f64, f64)> {
+    (coord_strategy(), coord_strategy())
 }
 
 /// Strategy for generating a positive distance.
@@ -456,14 +465,15 @@ proptest! {
         p2 in point2d_strategy(),
         target in positive_distance_strategy(),
     ) {
-        let points = vec![p1, p2];
+        // Flat params: [p1.x, p1.y, p2.x, p2.y]
+        let params = vec![p1.0, p1.1, p2.0, p2.1];
 
         // Create constraint in both orderings
-        let constraint_12 = DistanceConstraint::<2>::new(0, 1, target);
-        let constraint_21 = DistanceConstraint::<2>::new(1, 0, target);
+        let constraint_12 = DistanceConstraint::new(ConstraintId(0), pr2d(0), pr2d(1), target);
+        let constraint_21 = DistanceConstraint::new(ConstraintId(1), pr2d(1), pr2d(0), target);
 
-        let residuals_12 = constraint_12.residuals(&points);
-        let residuals_21 = constraint_21.residuals(&points);
+        let residuals_12 = constraint_12.residuals(&params);
+        let residuals_21 = constraint_21.residuals(&params);
 
         // Residuals should be identical (distance is symmetric)
         prop_assert!(
@@ -482,15 +492,16 @@ proptest! {
         target in positive_distance_strategy(),
     ) {
         // Avoid nearly coincident points
-        let dist = ((p2.x() - p1.x()).powi(2) + (p2.y() - p1.y()).powi(2)).sqrt();
+        let dist = ((p2.0 - p1.0).powi(2) + (p2.1 - p1.1).powi(2)).sqrt();
         if dist < 0.01 {
             return Ok(());
         }
 
-        let mut system = ConstraintSystem::<2>::new();
-        system.add_point(p1);
-        system.add_point(p2);
-        system.add_constraint(Box::new(DistanceConstraint::<2>::new(0, 1, target)));
+        let mut system = ConstraintSystem::new();
+        let h1 = system.add_point_2d(p1.0, p1.1);
+        let h2 = system.add_point_2d(p2.0, p2.1);
+        let id = system.next_constraint_id();
+        system.add_constraint(Box::new(DistanceConstraint::new(id, h1.params, h2.params, target)));
 
         let x = system.current_values();
         let verification = verify_jacobian(&system, &x, 1e-7, 1e-4);
@@ -507,10 +518,11 @@ proptest! {
     fn prop_coincident_zero_at_same_point(
         p in point2d_strategy(),
     ) {
-        let points = vec![p, p];
-        let constraint = CoincidentConstraint::<2>::new(0, 1);
+        // Flat params: [p.x, p.y, p.x, p.y]
+        let params = vec![p.0, p.1, p.0, p.1];
+        let constraint = CoincidentConstraint::new(ConstraintId(0), pr2d(0), pr2d(1));
 
-        let residuals = constraint.residuals(&points);
+        let residuals = constraint.residuals(&params);
 
         prop_assert!(
             residuals.iter().all(|r| r.abs() < 1e-10),
@@ -525,10 +537,11 @@ proptest! {
         p1 in point2d_strategy(),
         p2 in point2d_strategy(),
     ) {
-        let mut system = ConstraintSystem::<2>::new();
-        system.add_point(p1);
-        system.add_point(p2);
-        system.add_constraint(Box::new(CoincidentConstraint::<2>::new(0, 1)));
+        let mut system = ConstraintSystem::new();
+        let h1 = system.add_point_2d(p1.0, p1.1);
+        let h2 = system.add_point_2d(p2.0, p2.1);
+        let id = system.next_constraint_id();
+        system.add_constraint(Box::new(CoincidentConstraint::new(id, h1.params, h2.params)));
 
         let x = system.current_values();
         let verification = verify_jacobian(&system, &x, 1e-7, 1e-5);
@@ -547,10 +560,11 @@ proptest! {
         x2 in coord_strategy(),
         y in coord_strategy(),
     ) {
-        let points = vec![Point2D::new(x1, y), Point2D::new(x2, y)];
-        let constraint = HorizontalConstraint::new(0, 1);
+        // Flat params: [x1, y, x2, y]
+        let params = vec![x1, y, x2, y];
+        let constraint = HorizontalConstraint::new(ConstraintId(0), pr2d(0), pr2d(1));
 
-        let residuals = constraint.residuals(&points);
+        let residuals = constraint.residuals(&params);
 
         prop_assert!(
             residuals[0].abs() < 1e-10,
@@ -566,10 +580,11 @@ proptest! {
         y1 in coord_strategy(),
         y2 in coord_strategy(),
     ) {
-        let points = vec![Point2D::new(x, y1), Point2D::new(x, y2)];
-        let constraint = VerticalConstraint::new(0, 1);
+        // Flat params: [x, y1, x, y2]
+        let params = vec![x, y1, x, y2];
+        let constraint = VerticalConstraint::new(ConstraintId(0), pr2d(0), pr2d(1));
 
-        let residuals = constraint.residuals(&points);
+        let residuals = constraint.residuals(&params);
 
         prop_assert!(
             residuals[0].abs() < 1e-10,
@@ -584,11 +599,13 @@ proptest! {
         p1 in point2d_strategy(),
         p2 in point2d_strategy(),
     ) {
-        let mid = Point2D::new((p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0);
-        let points = vec![mid, p1, p2];
+        let mid_x = (p1.0 + p2.0) / 2.0;
+        let mid_y = (p1.1 + p2.1) / 2.0;
+        // Flat params: [mid.x, mid.y, p1.x, p1.y, p2.x, p2.y]
+        let params = vec![mid_x, mid_y, p1.0, p1.1, p2.0, p2.1];
 
-        let constraint = MidpointConstraint::<2>::new(0, 1, 2);
-        let residuals = constraint.residuals(&points);
+        let constraint = MidpointConstraint::new(ConstraintId(0), pr2d(0), pr2d(1), pr2d(2));
+        let residuals = constraint.residuals(&params);
 
         prop_assert!(
             residuals.iter().all(|r| r.abs() < 1e-10),
@@ -602,10 +619,11 @@ proptest! {
     fn prop_fixed_zero_at_target(
         target in point2d_strategy(),
     ) {
-        let points = vec![target];
-        let constraint = FixedConstraint::<2>::new(0, target);
+        // Flat params: [target.x, target.y]
+        let params = vec![target.0, target.1];
+        let constraint = FixedConstraint::new(ConstraintId(0), pr2d(0), vec![target.0, target.1]);
 
-        let residuals = constraint.residuals(&points);
+        let residuals = constraint.residuals(&params);
 
         prop_assert!(
             residuals.iter().all(|r| r.abs() < 1e-10),
@@ -620,11 +638,13 @@ proptest! {
         p1 in point2d_strategy(),
         center in point2d_strategy(),
     ) {
-        let p2 = Point2D::new(2.0 * center.x() - p1.x(), 2.0 * center.y() - p1.y());
-        let points = vec![p1, p2, center];
+        let p2_x = 2.0 * center.0 - p1.0;
+        let p2_y = 2.0 * center.1 - p1.1;
+        // Flat params: [p1.x, p1.y, p2.x, p2.y, center.x, center.y]
+        let params = vec![p1.0, p1.1, p2_x, p2_y, center.0, center.1];
 
-        let constraint = SymmetricConstraint::<2>::new(0, 1, 2);
-        let residuals = constraint.residuals(&points);
+        let constraint = SymmetricConstraint::new(ConstraintId(0), pr2d(0), pr2d(1), pr2d(2));
+        let residuals = constraint.residuals(&params);
 
         prop_assert!(
             residuals.iter().all(|r| r.abs() < 1e-10),
@@ -641,14 +661,20 @@ proptest! {
         angle1 in 0.0f64..std::f64::consts::TAU,
         angle2 in 0.0f64..std::f64::consts::TAU,
     ) {
-        let p2 = Point2D::new(p1.x() + length * angle1.cos(), p1.y() + length * angle1.sin());
-        let p3 = Point2D::new(0.0, 0.0);
-        let p4 = Point2D::new(length * angle2.cos(), length * angle2.sin());
+        let p2_x = p1.0 + length * angle1.cos();
+        let p2_y = p1.1 + length * angle1.sin();
+        let p3_x = 0.0;
+        let p3_y = 0.0;
+        let p4_x = length * angle2.cos();
+        let p4_y = length * angle2.sin();
 
-        let points = vec![p1, p2, p3, p4];
-        let constraint = EqualLengthConstraint::<2>::new(0, 1, 2, 3);
+        // Flat params: [p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y]
+        let params = vec![p1.0, p1.1, p2_x, p2_y, p3_x, p3_y, p4_x, p4_y];
+        let constraint = EqualLengthConstraint::from_points(
+            ConstraintId(0), pr2d(0), pr2d(1), pr2d(2), pr2d(3),
+        );
 
-        let residuals = constraint.residuals(&points);
+        let residuals = constraint.residuals(&params);
 
         prop_assert!(
             residuals[0].abs() < 1e-8,
@@ -671,16 +697,22 @@ proptest! {
             return Ok(());
         }
 
-        let p2 = Point2D::new(p1.x() + direction_x, p1.y() + direction_y);
+        let p2_x = p1.0 + direction_x;
+        let p2_y = p1.1 + direction_y;
 
         // Second line is offset but parallel
-        let p3 = Point2D::new(p1.x() + offset, p1.y() + offset);
-        let p4 = Point2D::new(p3.x() + direction_x, p3.y() + direction_y);
+        let p3_x = p1.0 + offset;
+        let p3_y = p1.1 + offset;
+        let p4_x = p3_x + direction_x;
+        let p4_y = p3_y + direction_y;
 
-        let points = vec![p1, p2, p3, p4];
-        let constraint = ParallelConstraint::<2>::new(0, 1, 2, 3);
+        // Parallel constraint takes Line2D entities (4 params each: [x1, y1, x2, y2])
+        let params = vec![p1.0, p1.1, p2_x, p2_y, p3_x, p3_y, p4_x, p4_y];
+        let line1 = ParamRange { start: 0, count: 4 };
+        let line2 = ParamRange { start: 4, count: 4 };
+        let constraint = ParallelConstraint::new(ConstraintId(0), line1, line2);
 
-        let residuals = constraint.residuals(&points);
+        let residuals = constraint.residuals(&params);
 
         prop_assert!(
             residuals[0].abs() < 1e-8,
@@ -701,19 +733,25 @@ proptest! {
             return Ok(());
         }
 
-        let p2 = Point2D::new(p1.x() + direction_x, p1.y() + direction_y);
+        let p2_x = p1.0 + direction_x;
+        let p2_y = p1.1 + direction_y;
 
         // Perpendicular direction: rotate 90 degrees
         let perp_x = -direction_y;
         let perp_y = direction_x;
 
-        let p3 = Point2D::new(0.0, 0.0);
-        let p4 = Point2D::new(perp_x, perp_y);
+        let p3_x = 0.0;
+        let p3_y = 0.0;
+        let p4_x = perp_x;
+        let p4_y = perp_y;
 
-        let points = vec![p1, p2, p3, p4];
-        let constraint = PerpendicularConstraint::<2>::new(0, 1, 2, 3);
+        // Perpendicular constraint takes Line2D entities (4 params each: [x1, y1, x2, y2])
+        let params = vec![p1.0, p1.1, p2_x, p2_y, p3_x, p3_y, p4_x, p4_y];
+        let line1 = ParamRange { start: 0, count: 4 };
+        let line2 = ParamRange { start: 4, count: 4 };
+        let constraint = PerpendicularConstraint::new(ConstraintId(0), line1, line2);
 
-        let residuals = constraint.residuals(&points);
+        let residuals = constraint.residuals(&params);
 
         prop_assert!(
             residuals[0].abs() < 1e-8,
@@ -730,21 +768,22 @@ proptest! {
         t in 0.0f64..1.0,
     ) {
         // Skip zero-length line
-        let dist = ((p2.x() - p1.x()).powi(2) + (p2.y() - p1.y()).powi(2)).sqrt();
+        let dist = ((p2.0 - p1.0).powi(2) + (p2.1 - p1.1).powi(2)).sqrt();
         if dist < 0.01 {
             return Ok(());
         }
 
         // Point on line: p = p1 + t*(p2 - p1)
-        let point_on_line = Point2D::new(
-            p1.x() + t * (p2.x() - p1.x()),
-            p1.y() + t * (p2.y() - p1.y()),
+        let point_x = p1.0 + t * (p2.0 - p1.0);
+        let point_y = p1.1 + t * (p2.1 - p1.1);
+
+        // Flat params: [point.x, point.y, line_start.x, line_start.y, line_end.x, line_end.y]
+        let params = vec![point_x, point_y, p1.0, p1.1, p2.0, p2.1];
+        let constraint = PointOnLineConstraint::new(
+            ConstraintId(0), pr2d(0), pr2d(1), pr2d(2),
         );
 
-        let points = vec![point_on_line, p1, p2];
-        let constraint = PointOnLineConstraint::<2>::new(0, 1, 2);
-
-        let residuals = constraint.residuals(&points);
+        let residuals = constraint.residuals(&params);
 
         prop_assert!(
             residuals[0].abs() < 1e-8,
@@ -776,10 +815,10 @@ proptest! {
 
         use solverang::geometry::ConstraintSystemBuilder;
 
-        let system = ConstraintSystemBuilder::<2>::new()
-            .point(Point2D::new(0.0, 0.0))
-            .point(Point2D::new(side1, 0.0))
-            .point(Point2D::new(side1 / 2.0, side2 / 2.0)) // Initial guess
+        let system = ConstraintSystemBuilder::new()
+            .point_2d(0.0, 0.0)
+            .point_2d(side1, 0.0)
+            .point_2d(side1 / 2.0, side2 / 2.0) // Initial guess
             .fix(0)
             .fix(1)
             .distance(0, 1, side1)
@@ -805,16 +844,20 @@ proptest! {
         num_fixed_points in 0usize..3,
         num_distance_constraints in 0usize..10,
     ) {
-        let mut system = ConstraintSystem::<2>::new();
+        let mut system = ConstraintSystem::new();
 
-        // Add free points
+        // Add free points and collect handles
+        let mut handles = Vec::new();
         for i in 0..num_free_points {
-            system.add_point(Point2D::new(i as f64, 0.0));
+            let h = system.add_point_2d(i as f64, 0.0);
+            handles.push(h);
         }
 
         // Add fixed points
         for i in 0..num_fixed_points {
-            system.add_point_fixed(Point2D::new(100.0 + i as f64, 0.0));
+            let h = system.add_point_2d(100.0 + i as f64, 0.0);
+            system.fix_entity(&h);
+            handles.push(h);
         }
 
         let total_points = num_free_points + num_fixed_points;
@@ -828,7 +871,10 @@ proptest! {
         let actual_constraints = num_distance_constraints.min(max_constraints);
 
         for i in 0..actual_constraints {
-            system.add_constraint(Box::new(DistanceConstraint::<2>::new(i, i + 1, 1.0)));
+            let id = system.next_constraint_id();
+            system.add_constraint(Box::new(DistanceConstraint::new(
+                id, handles[i].params, handles[i + 1].params, 1.0,
+            )));
         }
 
         // DOF = (free points * 2) - equations

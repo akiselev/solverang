@@ -55,8 +55,9 @@ mod cranelift;
 mod lower;
 mod opcodes;
 
-#[cfg(feature = "geometry")]
-mod geometry_lowering;
+// TODO: Port geometry_lowering to v2 constraint trait (Phase 6)
+// #[cfg(feature = "geometry")]
+// mod geometry_lowering;
 
 pub use cranelift::{JITCompiler, JITError, JITFunction};
 pub use lower::{

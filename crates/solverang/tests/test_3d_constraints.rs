@@ -3,7 +3,9 @@
 #![cfg(feature = "geometry")]
 
 use solverang::geometry::constraints::*;
-use solverang::geometry::{ConstraintSystem, ConstraintSystemBuilder, Point3D};
+use solverang::geometry::entity::EntityKind;
+use solverang::geometry::params::EntityHandle;
+use solverang::geometry::{ConstraintSystem, ConstraintSystemBuilder};
 use solverang::{verify_jacobian, LMConfig, LMSolver, Problem, SolveResult};
 
 /// Tolerance for convergence tests
@@ -11,6 +13,14 @@ const CONVERGENCE_TOL: f64 = 1e-6;
 
 /// Tolerance for Jacobian verification
 const JACOBIAN_TOL: f64 = 1e-5;
+
+/// Helper: compute Euclidean distance between two 3D points stored as slices.
+fn distance_3d(a: &[f64], b: &[f64]) -> f64 {
+    let dx = a[0] - b[0];
+    let dy = a[1] - b[1];
+    let dz = a[2] - b[2];
+    (dx * dx + dy * dy + dz * dz).sqrt()
+}
 
 // =============================================================================
 // Tetrahedron Tests
@@ -22,12 +32,12 @@ fn test_tetrahedron_solve() {
     let edge = 10.0;
 
     // Initial positions (perturbed from regular tetrahedron)
-    let mut system = ConstraintSystemBuilder::<3>::new()
+    let mut system = ConstraintSystemBuilder::new()
         .name("Tetrahedron")
-        .point(Point3D::new(0.0, 0.0, 0.0)) // p0 - will be fixed
-        .point(Point3D::new(edge + 0.5, 0.0, 0.0)) // p1 - perturbed
-        .point(Point3D::new(edge / 2.0, edge * 0.8, 0.5)) // p2 - perturbed
-        .point(Point3D::new(edge / 2.0, edge * 0.3, edge * 0.7)) // p3 - perturbed
+        .point_3d(0.0, 0.0, 0.0)                           // p0 - will be fixed
+        .point_3d(edge + 0.5, 0.0, 0.0)                    // p1 - perturbed
+        .point_3d(edge / 2.0, edge * 0.8, 0.5)             // p2 - perturbed
+        .point_3d(edge / 2.0, edge * 0.3, edge * 0.7)      // p3 - perturbed
         .fix(0) // Fix p0
         // All 6 edges have the same length
         .distance(0, 1, edge)
@@ -56,15 +66,23 @@ fn test_tetrahedron_solve() {
         system.set_values(&solution);
 
         // Verify all edge lengths
-        let p0 = system.get_point(0).copied().unwrap_or_default();
-        let p1 = system.get_point(1).copied().unwrap_or_default();
-        let p2 = system.get_point(2).copied().unwrap_or_default();
-        let p3 = system.get_point(3).copied().unwrap_or_default();
+        let handles = system.handles();
+        let p0 = system.params().get_entity_values(&handles[0]).to_vec();
+        let p1 = system.params().get_entity_values(&handles[1]).to_vec();
+        let p2 = system.params().get_entity_values(&handles[2]).to_vec();
+        let p3 = system.params().get_entity_values(&handles[3]).to_vec();
 
-        let edges = [(p0, p1), (p0, p2), (p0, p3), (p1, p2), (p1, p3), (p2, p3)];
+        let edges = [
+            (&p0, &p1),
+            (&p0, &p2),
+            (&p0, &p3),
+            (&p1, &p2),
+            (&p1, &p3),
+            (&p2, &p3),
+        ];
 
         for (i, (a, b)) in edges.iter().enumerate() {
-            let dist = a.distance_to(b);
+            let dist = distance_3d(a, b);
             assert!(
                 (dist - edge).abs() < CONVERGENCE_TOL,
                 "Edge {} has length {}, expected {}",
@@ -81,26 +99,22 @@ fn test_cube_vertices() {
     // Cube with 8 vertices, constraining the edges
     let side = 5.0;
 
-    let mut system = ConstraintSystem::<3>::new();
+    let mut system = ConstraintSystem::new();
 
     // Add 8 vertices with perturbed positions
-    let vertices = [
-        Point3D::new(0.0, 0.0, 0.0),
-        Point3D::new(side + 0.2, 0.0, 0.0),
-        Point3D::new(side, side + 0.1, 0.0),
-        Point3D::new(0.0, side, 0.0),
-        Point3D::new(0.0, 0.0, side + 0.1),
-        Point3D::new(side, 0.0, side),
-        Point3D::new(side + 0.2, side, side + 0.1),
-        Point3D::new(0.0, side + 0.1, side),
+    let h: Vec<EntityHandle> = vec![
+        system.add_point_3d(0.0, 0.0, 0.0),
+        system.add_point_3d(side + 0.2, 0.0, 0.0),
+        system.add_point_3d(side, side + 0.1, 0.0),
+        system.add_point_3d(0.0, side, 0.0),
+        system.add_point_3d(0.0, 0.0, side + 0.1),
+        system.add_point_3d(side, 0.0, side),
+        system.add_point_3d(side + 0.2, side, side + 0.1),
+        system.add_point_3d(0.0, side + 0.1, side),
     ];
 
-    for v in &vertices {
-        system.add_point(*v);
-    }
-
     // Fix the first vertex to remove translation freedom
-    system.fix_point(0);
+    system.fix_entity(&h[0]);
 
     // Add distance constraints for all 12 edges
     let edges = [
@@ -119,13 +133,34 @@ fn test_cube_vertices() {
     ];
 
     for (a, b) in edges {
-        system.add_constraint(Box::new(DistanceConstraint::<3>::new(a, b, side)));
+        let id = system.next_constraint_id();
+        system.add_constraint(Box::new(DistanceConstraint::new(
+            id,
+            h[a].params,
+            h[b].params,
+            side,
+        )));
     }
 
     // Add perpendicular constraints for adjacent edges
-    // Bottom face edges
-    system.add_constraint(Box::new(PerpendicularConstraint::<3>::new(0, 1, 1, 2)));
-    system.add_constraint(Box::new(PerpendicularConstraint::<3>::new(0, 1, 0, 4)));
+    // Bottom face edges: (0->1) perpendicular to (1->2)
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(PerpendicularConstraint::from_points(
+        id,
+        h[0].params,
+        h[1].params,
+        h[1].params,
+        h[2].params,
+    )));
+    // (0->1) perpendicular to (0->4)
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(PerpendicularConstraint::from_points(
+        id,
+        h[0].params,
+        h[1].params,
+        h[0].params,
+        h[4].params,
+    )));
 
     let solver = LMSolver::new(LMConfig::default());
     let initial = system.current_values();
@@ -138,9 +173,9 @@ fn test_cube_vertices() {
 
         // Verify edge lengths
         for (a, b) in edges {
-            let pa = system.get_point(a).copied().unwrap_or_default();
-            let pb = system.get_point(b).copied().unwrap_or_default();
-            let dist = pa.distance_to(&pb);
+            let pa = system.params().get_entity_values(&h[a]).to_vec();
+            let pb = system.params().get_entity_values(&h[b]).to_vec();
+            let dist = distance_3d(&pa, &pb);
             assert!(
                 (dist - side).abs() < 0.01, // Slightly relaxed tolerance for complex system
                 "Edge ({}, {}) has length {}, expected {}",
@@ -159,10 +194,16 @@ fn test_cube_vertices() {
 
 #[test]
 fn test_distance_3d_jacobian() {
-    let mut system = ConstraintSystem::<3>::new();
-    system.add_point(Point3D::new(0.0, 0.0, 0.0));
-    system.add_point(Point3D::new(1.0, 2.0, 2.0));
-    system.add_constraint(Box::new(DistanceConstraint::<3>::new(0, 1, 3.0)));
+    let mut system = ConstraintSystem::new();
+    let h0 = system.add_point_3d(0.0, 0.0, 0.0);
+    let h1 = system.add_point_3d(1.0, 2.0, 2.0);
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(DistanceConstraint::new(
+        id,
+        h0.params,
+        h1.params,
+        3.0,
+    )));
 
     let x = system.current_values();
     let verification = verify_jacobian(&system, &x, 1e-7, JACOBIAN_TOL);
@@ -176,10 +217,15 @@ fn test_distance_3d_jacobian() {
 
 #[test]
 fn test_coincident_3d_jacobian() {
-    let mut system = ConstraintSystem::<3>::new();
-    system.add_point(Point3D::new(1.0, 2.0, 3.0));
-    system.add_point(Point3D::new(4.0, 5.0, 6.0));
-    system.add_constraint(Box::new(CoincidentConstraint::<3>::new(0, 1)));
+    let mut system = ConstraintSystem::new();
+    let h0 = system.add_point_3d(1.0, 2.0, 3.0);
+    let h1 = system.add_point_3d(4.0, 5.0, 6.0);
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(CoincidentConstraint::new(
+        id,
+        h0.params,
+        h1.params,
+    )));
 
     let x = system.current_values();
     let verification = verify_jacobian(&system, &x, 1e-7, JACOBIAN_TOL);
@@ -193,12 +239,19 @@ fn test_coincident_3d_jacobian() {
 
 #[test]
 fn test_parallel_3d_jacobian() {
-    let mut system = ConstraintSystem::<3>::new();
-    system.add_point(Point3D::new(0.0, 0.0, 0.0));
-    system.add_point(Point3D::new(1.0, 2.0, 3.0));
-    system.add_point(Point3D::new(5.0, 5.0, 5.0));
-    system.add_point(Point3D::new(6.0, 7.0, 8.0));
-    system.add_constraint(Box::new(ParallelConstraint::<3>::new(0, 1, 2, 3)));
+    let mut system = ConstraintSystem::new();
+    let h0 = system.add_point_3d(0.0, 0.0, 0.0);
+    let h1 = system.add_point_3d(1.0, 2.0, 3.0);
+    let h2 = system.add_point_3d(5.0, 5.0, 5.0);
+    let h3 = system.add_point_3d(6.0, 7.0, 8.0);
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(ParallelConstraint::from_points(
+        id,
+        h0.params,
+        h1.params,
+        h2.params,
+        h3.params,
+    )));
 
     let x = system.current_values();
     let verification = verify_jacobian(&system, &x, 1e-7, JACOBIAN_TOL);
@@ -212,12 +265,19 @@ fn test_parallel_3d_jacobian() {
 
 #[test]
 fn test_perpendicular_3d_jacobian() {
-    let mut system = ConstraintSystem::<3>::new();
-    system.add_point(Point3D::new(0.0, 0.0, 0.0));
-    system.add_point(Point3D::new(1.0, 0.0, 0.0));
-    system.add_point(Point3D::new(5.0, 5.0, 5.0));
-    system.add_point(Point3D::new(5.0, 6.0, 5.0));
-    system.add_constraint(Box::new(PerpendicularConstraint::<3>::new(0, 1, 2, 3)));
+    let mut system = ConstraintSystem::new();
+    let h0 = system.add_point_3d(0.0, 0.0, 0.0);
+    let h1 = system.add_point_3d(1.0, 0.0, 0.0);
+    let h2 = system.add_point_3d(5.0, 5.0, 5.0);
+    let h3 = system.add_point_3d(5.0, 6.0, 5.0);
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(PerpendicularConstraint::from_points(
+        id,
+        h0.params,
+        h1.params,
+        h2.params,
+        h3.params,
+    )));
 
     let x = system.current_values();
     let verification = verify_jacobian(&system, &x, 1e-7, JACOBIAN_TOL);
@@ -231,11 +291,17 @@ fn test_perpendicular_3d_jacobian() {
 
 #[test]
 fn test_point_on_line_3d_jacobian() {
-    let mut system = ConstraintSystem::<3>::new();
-    system.add_point(Point3D::new(5.0, 5.0, 5.0)); // point
-    system.add_point(Point3D::new(0.0, 0.0, 0.0)); // line start
-    system.add_point(Point3D::new(10.0, 10.0, 10.0)); // line end
-    system.add_constraint(Box::new(PointOnLineConstraint::<3>::new(0, 1, 2)));
+    let mut system = ConstraintSystem::new();
+    let h0 = system.add_point_3d(5.0, 5.0, 5.0);     // point
+    let h1 = system.add_point_3d(0.0, 0.0, 0.0);     // line start
+    let h2 = system.add_point_3d(10.0, 10.0, 10.0);   // line end
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(PointOnLineConstraint::new(
+        id,
+        h0.params,
+        h1.params,
+        h2.params,
+    )));
 
     let x = system.current_values();
     let verification = verify_jacobian(&system, &x, 1e-7, JACOBIAN_TOL);
@@ -249,10 +315,16 @@ fn test_point_on_line_3d_jacobian() {
 
 #[test]
 fn test_point_on_sphere_jacobian() {
-    let mut system = ConstraintSystem::<3>::new();
-    system.add_point(Point3D::new(3.0, 4.0, 0.0)); // point on sphere
-    system.add_point(Point3D::new(0.0, 0.0, 0.0)); // center
-    system.add_constraint(Box::new(PointOnCircleConstraint::<3>::new(0, 1, 5.0)));
+    let mut system = ConstraintSystem::new();
+    let h_point = system.add_point_3d(3.0, 4.0, 0.0); // point on sphere
+    // Model as a Sphere entity [cx, cy, cz, r] with 4 params
+    let h_sphere = system.add_entity(EntityKind::Sphere, &[0.0, 0.0, 0.0, 5.0]);
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(PointOnCircleConstraint::new(
+        id,
+        h_point.params,
+        h_sphere.params,
+    )));
 
     let x = system.current_values();
     let verification = verify_jacobian(&system, &x, 1e-7, JACOBIAN_TOL);
@@ -266,12 +338,19 @@ fn test_point_on_sphere_jacobian() {
 
 #[test]
 fn test_collinear_3d_jacobian() {
-    let mut system = ConstraintSystem::<3>::new();
-    system.add_point(Point3D::new(0.0, 0.0, 0.0));
-    system.add_point(Point3D::new(10.0, 10.0, 10.0));
-    system.add_point(Point3D::new(3.0, 3.0, 3.0));
-    system.add_point(Point3D::new(7.0, 7.0, 7.0));
-    system.add_constraint(Box::new(CollinearConstraint::<3>::new(0, 1, 2, 3)));
+    let mut system = ConstraintSystem::new();
+    let h0 = system.add_point_3d(0.0, 0.0, 0.0);
+    let h1 = system.add_point_3d(10.0, 10.0, 10.0);
+    let h2 = system.add_point_3d(3.0, 3.0, 3.0);
+    let h3 = system.add_point_3d(7.0, 7.0, 7.0);
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(CollinearConstraint::from_points(
+        id,
+        h0.params,
+        h1.params,
+        h2.params,
+        h3.params,
+    )));
 
     let x = system.current_values();
     let verification = verify_jacobian(&system, &x, 1e-7, JACOBIAN_TOL);
@@ -285,12 +364,19 @@ fn test_collinear_3d_jacobian() {
 
 #[test]
 fn test_equal_length_3d_jacobian() {
-    let mut system = ConstraintSystem::<3>::new();
-    system.add_point(Point3D::new(0.0, 0.0, 0.0));
-    system.add_point(Point3D::new(1.0, 2.0, 2.0)); // len = 3
-    system.add_point(Point3D::new(10.0, 0.0, 0.0));
-    system.add_point(Point3D::new(10.0, 3.0, 0.0)); // len = 3
-    system.add_constraint(Box::new(EqualLengthConstraint::<3>::new(0, 1, 2, 3)));
+    let mut system = ConstraintSystem::new();
+    let h0 = system.add_point_3d(0.0, 0.0, 0.0);
+    let h1 = system.add_point_3d(1.0, 2.0, 2.0);     // len = 3
+    let h2 = system.add_point_3d(10.0, 0.0, 0.0);
+    let h3 = system.add_point_3d(10.0, 3.0, 0.0);    // len = 3
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(EqualLengthConstraint::from_points(
+        id,
+        h0.params,
+        h1.params,
+        h2.params,
+        h3.params,
+    )));
 
     let x = system.current_values();
     let verification = verify_jacobian(&system, &x, 1e-7, JACOBIAN_TOL);
@@ -304,11 +390,17 @@ fn test_equal_length_3d_jacobian() {
 
 #[test]
 fn test_symmetric_3d_jacobian() {
-    let mut system = ConstraintSystem::<3>::new();
-    system.add_point(Point3D::new(0.0, 0.0, 0.0)); // p1
-    system.add_point(Point3D::new(10.0, 10.0, 10.0)); // p2
-    system.add_point(Point3D::new(5.0, 5.0, 5.0)); // center
-    system.add_constraint(Box::new(SymmetricConstraint::<3>::new(0, 1, 2)));
+    let mut system = ConstraintSystem::new();
+    let h0 = system.add_point_3d(0.0, 0.0, 0.0);         // p1
+    let h1 = system.add_point_3d(10.0, 10.0, 10.0);       // p2
+    let h2 = system.add_point_3d(5.0, 5.0, 5.0);          // center
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(SymmetricConstraint::new(
+        id,
+        h0.params,
+        h1.params,
+        h2.params,
+    )));
 
     let x = system.current_values();
     let verification = verify_jacobian(&system, &x, 1e-7, JACOBIAN_TOL);
@@ -322,12 +414,19 @@ fn test_symmetric_3d_jacobian() {
 
 #[test]
 fn test_sphere_tangent_jacobian() {
-    let mut system = ConstraintSystem::<3>::new();
-    system.add_point(Point3D::new(0.0, 0.0, 0.0)); // center 1
-    system.add_point(Point3D::new(8.0, 0.0, 0.0)); // center 2
+    let mut system = ConstraintSystem::new();
+    // Model as Sphere entities [cx, cy, cz, r]
+    let h_sphere1 = system.add_entity(EntityKind::Sphere, &[0.0, 0.0, 0.0, 3.0]);
+    let h_sphere2 = system.add_entity(EntityKind::Sphere, &[8.0, 0.0, 0.0, 5.0]);
 
     // External tangent: centers at distance r1 + r2 = 3 + 5 = 8
-    system.add_constraint(Box::new(CircleTangentConstraint::external(0, 3.0, 1, 5.0)));
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(CircleTangentConstraint::new(
+        id,
+        h_sphere1.params,
+        h_sphere2.params,
+        true, // external
+    )));
 
     let x = system.current_values();
     let verification = verify_jacobian(&system, &x, 1e-7, JACOBIAN_TOL);
@@ -346,10 +445,16 @@ fn test_sphere_tangent_jacobian() {
 #[test]
 fn test_near_zero_length_3d() {
     // Test that constraints handle near-zero distances properly
-    let mut system = ConstraintSystem::<3>::new();
-    system.add_point(Point3D::new(0.0, 0.0, 0.0));
-    system.add_point(Point3D::new(1e-11, 1e-11, 1e-11)); // Very close to first point
-    system.add_constraint(Box::new(DistanceConstraint::<3>::new(0, 1, 1.0)));
+    let mut system = ConstraintSystem::new();
+    let h0 = system.add_point_3d(0.0, 0.0, 0.0);
+    let h1 = system.add_point_3d(1e-11, 1e-11, 1e-11); // Very close to first point
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(DistanceConstraint::new(
+        id,
+        h0.params,
+        h1.params,
+        1.0,
+    )));
 
     let x = system.current_values();
 
@@ -366,19 +471,40 @@ fn test_near_zero_length_3d() {
 #[test]
 fn test_mixed_fixed_free_3d() {
     // Mix of fixed and free points
-    let mut system = ConstraintSystem::<3>::new();
-    system.add_point_fixed(Point3D::new(0.0, 0.0, 0.0)); // fixed
-    system.add_point(Point3D::new(5.0, 0.0, 0.0)); // free
-    system.add_point_fixed(Point3D::new(0.0, 5.0, 0.0)); // fixed
-    system.add_point(Point3D::new(3.0, 3.0, 3.0)); // free
+    let mut system = ConstraintSystem::new();
+    let h0 = system.add_point_3d(0.0, 0.0, 0.0); // will be fixed
+    let h1 = system.add_point_3d(5.0, 0.0, 0.0); // free
+    let h2 = system.add_point_3d(0.0, 5.0, 0.0); // will be fixed
+    let h3 = system.add_point_3d(3.0, 3.0, 3.0); // free
+
+    system.fix_entity(&h0);
+    system.fix_entity(&h2);
 
     // Constraints between mixed points
-    system.add_constraint(Box::new(DistanceConstraint::<3>::new(0, 1, 5.0)));
-    system.add_constraint(Box::new(DistanceConstraint::<3>::new(2, 3, 5.0)));
-    system.add_constraint(Box::new(DistanceConstraint::<3>::new(1, 3, 5.0)));
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(DistanceConstraint::new(
+        id,
+        h0.params,
+        h1.params,
+        5.0,
+    )));
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(DistanceConstraint::new(
+        id,
+        h2.params,
+        h3.params,
+        5.0,
+    )));
+    let id = system.next_constraint_id();
+    system.add_constraint(Box::new(DistanceConstraint::new(
+        id,
+        h1.params,
+        h3.params,
+        5.0,
+    )));
 
     // Should have 6 variables (2 free points * 3 coords) and 3 equations
-    assert_eq!(system.total_variable_count(), 6);
+    assert_eq!(system.variable_count(), 6);
     assert_eq!(system.equation_count(), 3);
 
     let solver = LMSolver::new(LMConfig::default());
