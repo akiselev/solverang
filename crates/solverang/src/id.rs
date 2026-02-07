@@ -85,8 +85,8 @@ impl ParamId {
 }
 
 impl EntityId {
-    /// Create a new EntityId.
-    pub(crate) fn new(index: u32, generation: Generation) -> Self {
+    /// Create a new EntityId with the given index and generation.
+    pub fn new(index: u32, generation: Generation) -> Self {
         Self { index, generation }
     }
 
@@ -97,8 +97,8 @@ impl EntityId {
 }
 
 impl ConstraintId {
-    /// Create a new ConstraintId.
-    pub(crate) fn new(index: u32, generation: Generation) -> Self {
+    /// Create a new ConstraintId with the given index and generation.
+    pub fn new(index: u32, generation: Generation) -> Self {
         Self { index, generation }
     }
 
