@@ -277,6 +277,21 @@
 //! 4. **Sparsity**: For sparse problems, ensure your `jacobian()` implementation
 //!    only returns non-zero entries. This enables efficient sparse operations.
 
+// --- V3 Solver-First Architecture modules ---
+pub mod id;
+pub mod param;
+pub mod entity;
+pub mod constraint;
+pub mod graph;
+pub mod solve;
+pub mod reduce;
+pub mod dataflow;
+pub mod system;
+pub mod sketch2d;
+pub mod sketch3d;
+pub mod assembly;
+
+// --- Existing modules (kept as-is) ---
 pub mod constraints;
 pub mod decomposition;
 pub mod jacobian;
@@ -290,41 +305,40 @@ pub mod geometry;
 #[cfg(feature = "jit")]
 pub mod jit;
 
-// Re-export main types at crate root
+// --- Re-export existing types at crate root ---
 pub use problem::{ConfigurableProblem, Problem};
 pub use solver::{
     AutoSolver, LMConfig, LMSolver, ParallelSolver, ParallelSolverConfig, RobustSolver, SolveError,
     SolveResult, Solver, SolverChoice, SolverConfig, SparseSolver, SparseSolverConfig,
 };
 
-// Re-export decomposition types
 pub use decomposition::{
     decompose, decompose_from_edges, Component, ComponentId, DecomposableProblem, SubProblem,
 };
 
-// Re-export constraint types
 pub use constraints::{
     BoundsConstraint, ClearanceConstraint, InequalityConstraint, InequalityProblem,
     SlackVariableTransform,
 };
 
-// Re-export jacobian utilities
 pub use jacobian::{
     finite_difference_jacobian, verify_jacobian, CsrMatrix, JacobianVerification, SparseJacobian,
     SparsityPattern,
 };
 
-// Re-export macros for automatic Jacobian generation
 #[cfg(feature = "macros")]
 pub use solverang_macros::{auto_jacobian, residual};
 
-// Re-export JIT types
 #[cfg(feature = "jit")]
 pub use jit::{
     jit_available, lower_constraints, CompiledConstraints, ConstraintOp, JITCompiler, JITConfig,
     JITError, JITFunction, Lowerable, LoweringContext, OpcodeEmitter, Reg,
 };
 
-// Re-export JIT solver
 #[cfg(feature = "jit")]
 pub use solver::JITSolver;
+
+// --- Re-export V3 types ---
+pub use id::{ClusterId, ConstraintId, EntityId, ParamId};
+pub use param::ParamStore;
+pub use system::ConstraintSystem;
