@@ -48,13 +48,17 @@ pub fn decompose_clusters(
     // mapping columns back to ParamIds.
     let mapping = store.build_solver_mapping();
 
-    // Build the edge list from the constraint graph.  `to_constraint_variable_edges`
-    // already filters out fixed parameters.
-    let edges = graph.to_constraint_variable_edges(store);
+    // Build the edge list from the constraint graph, reusing the mapping
+    // we already built rather than constructing a second one internally.
+    let edges = graph.to_constraint_variable_edges_with_mapping(&mapping);
+
+    // Use max_constraint_index() instead of constraint_count() so that
+    // sparse (non-contiguous) constraint indices are handled correctly.
+    let constraint_count = graph.max_constraint_index();
 
     // Delegate to the existing union-find decomposition.
     let components = crate::decomposition::decompose_from_edges(
-        graph.constraint_count(),
+        constraint_count,
         mapping.len(),
         &edges,
     );

@@ -65,6 +65,14 @@ fn select_closest(results: &[SolveResult], previous: &[f64]) -> Option<usize> {
 
     for (i, result) in results.iter().enumerate() {
         if let SolveResult::Converged { solution, .. } = result {
+            debug_assert_eq!(
+                solution.len(),
+                previous.len(),
+                "select_closest: solution and previous must have the same length"
+            );
+            if solution.len() != previous.len() {
+                continue;
+            }
             let dist_sq: f64 = solution
                 .iter()
                 .zip(previous.iter())

@@ -61,8 +61,6 @@ struct EntityInfo {
 /// ```
 pub struct Sketch2DBuilder {
     system: ConstraintSystem,
-    next_entity_idx: u32,
-    next_constraint_idx: u32,
     entity_info: HashMap<EntityId, EntityInfo>,
 }
 
@@ -77,24 +75,18 @@ impl Sketch2DBuilder {
     pub fn new() -> Self {
         Self {
             system: ConstraintSystem::new(),
-            next_entity_idx: 0,
-            next_constraint_idx: 0,
             entity_info: HashMap::new(),
         }
     }
 
-    // -- ID allocation helpers --
+    // -- ID allocation helpers (delegated to ConstraintSystem) --
 
     fn alloc_entity_id(&mut self) -> EntityId {
-        let id = EntityId::new(self.next_entity_idx, 0);
-        self.next_entity_idx += 1;
-        id
+        self.system.alloc_entity_id()
     }
 
     fn alloc_constraint_id(&mut self) -> ConstraintId {
-        let id = ConstraintId::new(self.next_constraint_idx, 0);
-        self.next_constraint_idx += 1;
-        id
+        self.system.alloc_constraint_id()
     }
 
     // -- Entity info lookup helpers --

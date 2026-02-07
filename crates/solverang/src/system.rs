@@ -136,10 +136,14 @@ pub struct ConstraintSystem {
     pipeline: SolvePipeline,
     change_tracker: ChangeTracker,
     solution_cache: SolutionCache,
-    /// Next generation for entity ID allocation.
-    next_entity_gen: u32,
-    /// Next generation for constraint ID allocation.
-    next_constraint_gen: u32,
+    /// Per-slot generation counters for entity IDs.
+    entity_generations: Vec<u32>,
+    /// Free list of reusable entity slots.
+    entity_free_list: Vec<u32>,
+    /// Per-slot generation counters for constraint IDs.
+    constraint_generations: Vec<u32>,
+    /// Free list of reusable constraint slots.
+    constraint_free_list: Vec<u32>,
 }
 
 impl Default for ConstraintSystem {
@@ -159,8 +163,10 @@ impl ConstraintSystem {
             pipeline: SolvePipeline::default(),
             change_tracker: ChangeTracker::new(),
             solution_cache: SolutionCache::new(),
-            next_entity_gen: 0,
-            next_constraint_gen: 0,
+            entity_generations: Vec::new(),
+            entity_free_list: Vec::new(),
+            constraint_generations: Vec::new(),
+            constraint_free_list: Vec::new(),
         }
     }
 
@@ -248,12 +254,18 @@ impl ConstraintSystem {
     /// via [`alloc_param`](Self::alloc_param), build the entity, and finally
     /// call [`add_entity`](Self::add_entity).
     pub fn alloc_entity_id(&mut self) -> EntityId {
-        let gen = self.next_entity_gen;
-        self.next_entity_gen += 1;
-        let index = self.entities.len() as u32;
-        // Reserve a slot
-        self.entities.push(None);
-        EntityId::new(index, gen)
+        if let Some(index) = self.entity_free_list.pop() {
+            let gen = self.entity_generations[index as usize] + 1;
+            self.entity_generations[index as usize] = gen;
+            // Clear the slot for reuse
+            self.entities[index as usize] = None;
+            EntityId::new(index, gen)
+        } else {
+            let index = self.entities.len() as u32;
+            self.entities.push(None);
+            self.entity_generations.push(0);
+            EntityId::new(index, 0)
+        }
     }
 
     /// Remove an entity and free its parameters.
@@ -262,11 +274,15 @@ impl ConstraintSystem {
     /// removed; remove them separately if needed.
     pub fn remove_entity(&mut self, id: EntityId) {
         let idx = id.raw_index() as usize;
-        if idx < self.entities.len() {
+        if idx < self.entities.len()
+            && idx < self.entity_generations.len()
+            && self.entity_generations[idx] == id.generation
+        {
             if let Some(entity) = self.entities[idx].take() {
                 for &pid in entity.params() {
                     self.params.free(pid);
                 }
+                self.entity_free_list.push(idx as u32);
                 self.change_tracker.mark_entity_removed(id);
                 self.pipeline.invalidate();
             }
@@ -279,11 +295,17 @@ impl ConstraintSystem {
 
     /// Allocate a new [`ConstraintId`] for constructing a constraint.
     pub fn alloc_constraint_id(&mut self) -> ConstraintId {
-        let gen = self.next_constraint_gen;
-        self.next_constraint_gen += 1;
-        let index = self.constraints.len() as u32;
-        self.constraints.push(None);
-        ConstraintId::new(index, gen)
+        if let Some(index) = self.constraint_free_list.pop() {
+            let gen = self.constraint_generations[index as usize] + 1;
+            self.constraint_generations[index as usize] = gen;
+            self.constraints[index as usize] = None;
+            ConstraintId::new(index, gen)
+        } else {
+            let index = self.constraints.len() as u32;
+            self.constraints.push(None);
+            self.constraint_generations.push(0);
+            ConstraintId::new(index, 0)
+        }
     }
 
     /// Add a constraint to the system.
@@ -308,10 +330,16 @@ impl ConstraintSystem {
     /// Remove a constraint from the system.
     pub fn remove_constraint(&mut self, id: ConstraintId) {
         let idx = id.raw_index() as usize;
-        if idx < self.constraints.len() {
-            self.constraints[idx] = None;
-            self.change_tracker.mark_constraint_removed(id);
-            self.pipeline.invalidate();
+        if idx < self.constraints.len()
+            && idx < self.constraint_generations.len()
+            && self.constraint_generations[idx] == id.generation
+        {
+            if self.constraints[idx].is_some() {
+                self.constraints[idx] = None;
+                self.constraint_free_list.push(idx as u32);
+                self.change_tracker.mark_constraint_removed(id);
+                self.pipeline.invalidate();
+            }
         }
     }
 

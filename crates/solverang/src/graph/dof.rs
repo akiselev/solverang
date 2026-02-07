@@ -244,15 +244,7 @@ fn compute_entity_columns(
 
 /// Extract a column subset from a matrix, returning a new dense matrix.
 fn extract_columns(matrix: &DMatrix<f64>, cols: &[usize]) -> DMatrix<f64> {
-    let nrows = matrix.nrows();
-    let ncols = cols.len();
-    let mut sub = DMatrix::zeros(nrows, ncols);
-    for (j, &col) in cols.iter().enumerate() {
-        for i in 0..nrows {
-            sub[(i, j)] = matrix[(i, col)];
-        }
-    }
-    sub
+    matrix.select_columns(cols)
 }
 
 // ---------------------------------------------------------------------------

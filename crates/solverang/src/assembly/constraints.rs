@@ -30,9 +30,10 @@ fn transform_local(store: &ParamStore, t: [ParamId; 3], q: [ParamId; 4], local: 
     ]
 }
 
-/// Jacobian entries for `world_i = R(q)*local + t` for a single body.
+/// Append Jacobian entries for `world_i = R(q)*local + t` for a single body.
 ///
-/// Returns entries `(residual_row_offset + i, param, value)` for i in 0..3.
+/// Pushes entries `(residual_row_offset + i, param, value)` for i in 0..3
+/// into the provided `entries` vec.
 /// `sign` is +1 or -1 depending on whether this body contributes positively
 /// or negatively to the residual.
 fn transform_jacobian_entries(
@@ -42,15 +43,14 @@ fn transform_jacobian_entries(
     t: [ParamId; 3],
     q: [ParamId; 4],
     local: [f64; 3],
-) -> Vec<(usize, ParamId, f64)> {
+    entries: &mut Vec<(usize, ParamId, f64)>,
+) {
     let w = store.get(q[0]);
     let x = store.get(q[1]);
     let y = store.get(q[2]);
     let z = store.get(q[3]);
 
     let drvdq = quat_rotate_derivatives(w, x, y, z, local);
-
-    let mut entries = Vec::with_capacity(21);
 
     for i in 0..3 {
         // d(world_i)/d(t_i) = 1
@@ -61,8 +61,6 @@ fn transform_jacobian_entries(
             entries.push((row_offset + i, q[j], sign * drvdq[j][i]));
         }
     }
-
-    entries
 }
 
 /// Rotate a local direction vector by quaternion (no translation).
@@ -159,8 +157,9 @@ impl Constraint for Mate {
     }
 
     fn jacobian(&self, store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
-        let mut jac = transform_jacobian_entries(store, 0, 1.0, self.t1(), self.q1(), self.local1);
-        jac.extend(transform_jacobian_entries(store, 0, -1.0, self.t2(), self.q2(), self.local2));
+        let mut jac = Vec::with_capacity(30);
+        transform_jacobian_entries(store, 0, 1.0, self.t1(), self.q1(), self.local1, &mut jac);
+        transform_jacobian_entries(store, 0, -1.0, self.t2(), self.q2(), self.local2, &mut jac);
         jac
     }
 }
