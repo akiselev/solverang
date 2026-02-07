@@ -10,10 +10,9 @@
 
 use crate::constraint::Constraint;
 use crate::entity::Entity;
-use crate::graph::dof::{analyze_dof, DofAnalysis};
-use crate::graph::pattern::{detect_patterns, MatchedPattern};
-use crate::graph::redundancy::{analyze_redundancy, RedundancyAnalysis};
-use crate::id::{ClusterId, EntityId};
+use crate::graph::dof::analyze_dof;
+use crate::graph::pattern::detect_patterns;
+use crate::graph::redundancy::analyze_redundancy;
 use crate::param::ParamStore;
 use crate::system::DiagnosticIssue;
 

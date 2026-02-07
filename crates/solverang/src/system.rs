@@ -5,11 +5,10 @@
 //!
 //! 1. Entities are added (each owns parameters in the [`ParamStore`]).
 //! 2. Constraints are added between entities.
-//! 3. On [`solve()`](ConstraintSystem::solve), the system decomposes into
-//!    independent clusters of coupled constraints.
-//! 4. Each cluster becomes a [`ReducedSubProblem`](crate::solve::ReducedSubProblem)
-//!    and is solved with an LM solver.
-//! 5. Solutions are written back to the `ParamStore`.
+//! 3. On [`solve()`](ConstraintSystem::solve), the system delegates to a
+//!    [`SolvePipeline`] which decomposes into independent clusters, analyzes,
+//!    reduces, and solves each one.
+//! 4. Solutions are written back to the `ParamStore`.
 //!
 //! # Example
 //!
@@ -22,16 +21,12 @@
 //! let result = system.solve();
 //! ```
 
-use std::collections::HashMap;
-
 use crate::constraint::Constraint;
+use crate::dataflow::{ChangeTracker, SolutionCache};
 use crate::entity::Entity;
-use crate::id::{ClusterId, ConstraintId, EntityId, ParamId};
+use crate::id::{ConstraintId, EntityId, ParamId};
 use crate::param::ParamStore;
-use crate::problem::Problem;
-use crate::solve::ReducedSubProblem;
-use crate::solver::{LMConfig, LMSolver, SolverConfig};
-use crate::solver::SolveResult;
+use crate::pipeline::SolvePipeline;
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -41,16 +36,16 @@ use crate::solver::SolveResult;
 #[derive(Clone, Debug)]
 pub struct SystemConfig {
     /// Configuration for the Levenberg-Marquardt solver.
-    pub lm_config: LMConfig,
+    pub lm_config: crate::solver::LMConfig,
     /// Configuration for the Newton-Raphson solver (used by AutoSolver).
-    pub solver_config: SolverConfig,
+    pub solver_config: crate::solver::SolverConfig,
 }
 
 impl Default for SystemConfig {
     fn default() -> Self {
         Self {
-            lm_config: LMConfig::default(),
-            solver_config: SolverConfig::default(),
+            lm_config: crate::solver::LMConfig::default(),
+            solver_config: crate::solver::SolverConfig::default(),
         }
     }
 }
@@ -85,7 +80,7 @@ pub enum SystemStatus {
 /// Result of solving a single cluster.
 pub struct ClusterResult {
     /// Which cluster this result belongs to.
-    pub cluster_id: ClusterId,
+    pub cluster_id: crate::id::ClusterId,
     /// Solve status for this cluster.
     pub status: ClusterSolveStatus,
     /// Number of solver iterations for this cluster.
@@ -125,161 +120,22 @@ pub enum DiagnosticIssue {
 }
 
 // ---------------------------------------------------------------------------
-// Internal: cluster decomposition via union-find on ParamIds
-// ---------------------------------------------------------------------------
-
-/// A cluster of constraints that share parameters (directly or transitively).
-#[derive(Debug, Clone)]
-struct Cluster {
-    id: ClusterId,
-    /// Indices into `ConstraintSystem::constraints`.
-    constraint_indices: Vec<usize>,
-    /// All distinct `ParamId`s touched by constraints in this cluster.
-    param_ids: Vec<ParamId>,
-}
-
-/// Union-Find for efficient connected component detection.
-struct UnionFind {
-    parent: Vec<usize>,
-    rank: Vec<usize>,
-}
-
-impl UnionFind {
-    fn new(n: usize) -> Self {
-        Self {
-            parent: (0..n).collect(),
-            rank: vec![0; n],
-        }
-    }
-
-    fn find(&mut self, mut x: usize) -> usize {
-        while self.parent[x] != x {
-            self.parent[x] = self.parent[self.parent[x]]; // path splitting
-            x = self.parent[x];
-        }
-        x
-    }
-
-    fn union(&mut self, a: usize, b: usize) {
-        let ra = self.find(a);
-        let rb = self.find(b);
-        if ra == rb {
-            return;
-        }
-        if self.rank[ra] < self.rank[rb] {
-            self.parent[ra] = rb;
-        } else if self.rank[ra] > self.rank[rb] {
-            self.parent[rb] = ra;
-        } else {
-            self.parent[rb] = ra;
-            self.rank[ra] += 1;
-        }
-    }
-}
-
-/// Decompose constraints into independent clusters based on shared `ParamId`s.
-///
-/// Two constraints belong to the same cluster if they share any parameter
-/// (directly or transitively through other constraints).
-fn decompose_into_clusters(
-    constraints: &[Option<Box<dyn Constraint>>],
-) -> Vec<Cluster> {
-    // Collect alive constraint indices
-    let alive: Vec<usize> = constraints
-        .iter()
-        .enumerate()
-        .filter_map(|(i, c)| c.as_ref().map(|_| i))
-        .collect();
-
-    if alive.is_empty() {
-        return Vec::new();
-    }
-
-    // Build a mapping: ParamId -> list of alive constraint indices that use it
-    let mut param_to_constraints: HashMap<ParamId, Vec<usize>> = HashMap::new();
-    for &idx in &alive {
-        let constraint = constraints[idx].as_ref().unwrap();
-        for &pid in constraint.param_ids() {
-            param_to_constraints.entry(pid).or_default().push(idx);
-        }
-    }
-
-    // Map alive constraint indices to dense [0..alive.len()) for union-find
-    let mut idx_to_dense: HashMap<usize, usize> = HashMap::new();
-    for (dense, &idx) in alive.iter().enumerate() {
-        idx_to_dense.insert(idx, dense);
-    }
-
-    let mut uf = UnionFind::new(alive.len());
-
-    // Union constraints that share a parameter
-    for indices in param_to_constraints.values() {
-        if indices.len() > 1 {
-            let first = idx_to_dense[&indices[0]];
-            for &ci in &indices[1..] {
-                uf.union(first, idx_to_dense[&ci]);
-            }
-        }
-    }
-
-    // Group by root
-    let mut root_to_group: HashMap<usize, Vec<usize>> = HashMap::new();
-    for (dense, &idx) in alive.iter().enumerate() {
-        let root = uf.find(dense);
-        root_to_group.entry(root).or_default().push(idx);
-    }
-
-    // Build Cluster structs
-    let mut clusters: Vec<Cluster> = root_to_group
-        .into_values()
-        .enumerate()
-        .map(|(cluster_idx, mut constraint_indices)| {
-            constraint_indices.sort_unstable();
-            // Collect all unique ParamIds
-            let mut param_set: Vec<ParamId> = Vec::new();
-            let mut seen: std::collections::HashSet<ParamId> = std::collections::HashSet::new();
-            for &ci in &constraint_indices {
-                let constraint = constraints[ci].as_ref().unwrap();
-                for &pid in constraint.param_ids() {
-                    if seen.insert(pid) {
-                        param_set.push(pid);
-                    }
-                }
-            }
-            Cluster {
-                id: ClusterId(cluster_idx),
-                constraint_indices,
-                param_ids: param_set,
-            }
-        })
-        .collect();
-
-    // Deterministic ordering by first constraint index
-    clusters.sort_by_key(|c| c.constraint_indices.first().copied().unwrap_or(usize::MAX));
-    for (i, cluster) in clusters.iter_mut().enumerate() {
-        cluster.id = ClusterId(i);
-    }
-
-    clusters
-}
-
-// ---------------------------------------------------------------------------
 // ConstraintSystem
 // ---------------------------------------------------------------------------
 
 /// The top-level constraint system coordinator.
 ///
 /// Manages entities, constraints, and parameters. Provides a `solve()` method
-/// that decomposes the system into independent clusters and solves each one.
+/// that delegates to a [`SolvePipeline`] which decomposes the system into
+/// independent clusters, analyzes, reduces, and solves each one.
 pub struct ConstraintSystem {
     params: ParamStore,
     entities: Vec<Option<Box<dyn Entity>>>,
     constraints: Vec<Option<Box<dyn Constraint>>>,
     config: SystemConfig,
-    /// Cached clusters from the last decomposition.
-    clusters: Vec<Cluster>,
-    /// Whether the constraint/entity set has changed since the last decompose.
-    needs_decompose: bool,
+    pipeline: SolvePipeline,
+    change_tracker: ChangeTracker,
+    solution_cache: SolutionCache,
     /// Next generation for entity ID allocation.
     next_entity_gen: u32,
     /// Next generation for constraint ID allocation.
@@ -300,8 +156,9 @@ impl ConstraintSystem {
             entities: Vec::new(),
             constraints: Vec::new(),
             config: SystemConfig::default(),
-            clusters: Vec::new(),
-            needs_decompose: true,
+            pipeline: SolvePipeline::default(),
+            change_tracker: ChangeTracker::new(),
+            solution_cache: SolutionCache::new(),
             next_entity_gen: 0,
             next_constraint_gen: 0,
         }
@@ -344,18 +201,21 @@ impl ConstraintSystem {
     /// Set the value of a parameter.
     pub fn set_param(&mut self, id: ParamId, value: f64) {
         self.params.set(id, value);
+        self.change_tracker.mark_param_dirty(id);
     }
 
     /// Mark a parameter as fixed (excluded from solving).
     pub fn fix_param(&mut self, id: ParamId) {
         self.params.fix(id);
-        self.needs_decompose = true;
+        self.change_tracker.mark_param_dirty(id);
+        self.pipeline.invalidate();
     }
 
     /// Mark a parameter as free (included in solving).
     pub fn unfix_param(&mut self, id: ParamId) {
         self.params.unfix(id);
-        self.needs_decompose = true;
+        self.change_tracker.mark_param_dirty(id);
+        self.pipeline.invalidate();
     }
 
     // -------------------------------------------------------------------
@@ -378,7 +238,7 @@ impl ConstraintSystem {
             self.entities.resize_with(idx + 1, || None);
         }
         self.entities[idx] = Some(entity);
-        self.needs_decompose = true;
+        self.change_tracker.mark_entity_added(id);
         id
     }
 
@@ -407,7 +267,8 @@ impl ConstraintSystem {
                 for &pid in entity.params() {
                     self.params.free(pid);
                 }
-                self.needs_decompose = true;
+                self.change_tracker.mark_entity_removed(id);
+                self.pipeline.invalidate();
             }
         }
     }
@@ -439,7 +300,8 @@ impl ConstraintSystem {
             self.constraints.resize_with(idx + 1, || None);
         }
         self.constraints[idx] = Some(constraint);
-        self.needs_decompose = true;
+        self.change_tracker.mark_constraint_added(id);
+        self.pipeline.invalidate();
         id
     }
 
@@ -448,7 +310,8 @@ impl ConstraintSystem {
         let idx = id.raw_index() as usize;
         if idx < self.constraints.len() {
             self.constraints[idx] = None;
-            self.needs_decompose = true;
+            self.change_tracker.mark_constraint_removed(id);
+            self.pipeline.invalidate();
         }
     }
 
@@ -457,11 +320,8 @@ impl ConstraintSystem {
     // -------------------------------------------------------------------
 
     /// Number of independent clusters in the current decomposition.
-    ///
-    /// If the system has changed since the last decompose, this triggers
-    /// a re-decomposition.
     pub fn cluster_count(&self) -> usize {
-        self.clusters.len()
+        self.pipeline.cluster_count()
     }
 
     /// Degrees of freedom: (free params) - (total equation count).
@@ -495,122 +355,120 @@ impl ConstraintSystem {
 
     /// Solve the constraint system.
     ///
-    /// 1. If the topology has changed, re-decompose into clusters.
-    /// 2. For each cluster, build a [`ReducedSubProblem`] and solve with LM.
-    /// 3. Write solutions back to the [`ParamStore`].
-    /// 4. Return a [`SystemResult`] with per-cluster details.
+    /// Delegates to the [`SolvePipeline`] which handles decomposition,
+    /// analysis, reduction, per-cluster solving, and post-processing.
     pub fn solve(&mut self) -> SystemResult {
         let start = std::time::Instant::now();
+        let mut result = self.pipeline.run(
+            &self.constraints,
+            &self.entities,
+            &mut self.params,
+            &self.config,
+            &mut self.change_tracker,
+            &mut self.solution_cache,
+        );
+        result.duration = start.elapsed();
+        result
+    }
 
-        // Step 1: re-decompose if needed
-        if self.needs_decompose {
-            self.clusters = decompose_into_clusters(&self.constraints);
-            self.needs_decompose = false;
+    /// Solve only clusters affected by parameter changes since the last solve.
+    /// Falls back to full solve on structural changes.
+    pub fn solve_incremental(&mut self) -> SystemResult {
+        // Same as solve() -- the pipeline already handles incremental logic.
+        self.solve()
+    }
+
+    /// Project a drag displacement onto the constraint manifold.
+    pub fn drag(&mut self, displacements: &[(ParamId, f64)]) -> crate::solve::drag::DragResult {
+        use crate::solve::drag::{apply_drag, project_drag};
+
+        // Build constraint refs and mapping for affected params.
+        let constraint_refs: Vec<&dyn Constraint> = self
+            .constraints
+            .iter()
+            .filter_map(|c| c.as_deref())
+            .collect();
+        let mapping = self.params.build_solver_mapping();
+
+        let result = project_drag(&constraint_refs, &self.params, &mapping, displacements, 1e-10);
+
+        apply_drag(&mut self.params, &mapping, &result);
+
+        // Mark dragged params dirty for subsequent solve.
+        for &(pid, _) in displacements {
+            self.change_tracker.mark_param_dirty(pid);
         }
 
-        let solver = LMSolver::new(self.config.lm_config.clone());
+        result
+    }
 
-        let mut cluster_results = Vec::with_capacity(self.clusters.len());
-        let mut total_iterations: usize = 0;
-        let mut all_converged = true;
-        let mut any_converged = false;
+    /// Analyze redundancy in the constraint system.
+    pub fn analyze_redundancy(&self) -> crate::graph::redundancy::RedundancyAnalysis {
+        let constraint_refs: Vec<(usize, &dyn Constraint)> = self
+            .constraints
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| c.as_deref().map(|c| (i, c as &dyn Constraint)))
+            .collect();
+        let mapping = self.params.build_solver_mapping();
+        crate::graph::redundancy::analyze_redundancy(&constraint_refs, &self.params, &mapping, 1e-10)
+    }
 
-        // Step 2-3: solve each cluster
-        for cluster in &self.clusters {
-            // Collect constraint references for this cluster
-            let constraint_refs: Vec<&dyn Constraint> = cluster
-                .constraint_indices
-                .iter()
-                .filter_map(|&idx| self.constraints[idx].as_deref())
-                .collect();
+    /// Analyze degrees of freedom per entity.
+    pub fn analyze_dof(&self) -> crate::graph::dof::DofAnalysis {
+        let entity_refs: Vec<&dyn Entity> = self
+            .entities
+            .iter()
+            .filter_map(|e| e.as_deref())
+            .collect();
+        let constraint_refs: Vec<(usize, &dyn Constraint)> = self
+            .constraints
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| c.as_deref().map(|c| (i, c as &dyn Constraint)))
+            .collect();
+        let mapping = self.params.build_solver_mapping();
+        crate::graph::dof::analyze_dof(&entity_refs, &constraint_refs, &self.params, &mapping)
+    }
 
-            // Build the sub-problem and solve it.
-            // We solve inside a block to release the borrow on self.params
-            // before writing the solution back.
-            let (mapping, result) = {
-                let sub = ReducedSubProblem::new(
-                    &self.params,
-                    constraint_refs,
-                    &cluster.param_ids,
-                );
+    /// Run full diagnostics (redundancy + DOF analysis).
+    pub fn diagnose(&self) -> Vec<DiagnosticIssue> {
+        let mut issues = Vec::new();
 
-                // Skip clusters with no free variables
-                if sub.variable_count() == 0 {
-                    let residual_norm = if sub.residual_count() > 0 {
-                        let r = sub.residuals(&[]);
-                        r.iter().map(|v| v * v).sum::<f64>().sqrt()
-                    } else {
-                        0.0
-                    };
-                    cluster_results.push(ClusterResult {
-                        cluster_id: cluster.id,
-                        status: ClusterSolveStatus::Skipped,
-                        iterations: 0,
-                        residual_norm,
-                    });
-                    continue;
-                }
-
-                let x0 = sub.initial_point(1.0);
-                let result = solver.solve(&sub, &x0);
-                let mapping = sub.mapping().clone();
-                (mapping, result)
-            };
-            // sub is dropped here, releasing the immutable borrow on self.params
-
-            let (status, iterations, residual_norm) = match &result {
-                SolveResult::Converged {
-                    solution,
-                    iterations,
-                    residual_norm,
-                } => {
-                    self.params.write_free_values(solution, &mapping);
-                    any_converged = true;
-                    (ClusterSolveStatus::Converged, *iterations, *residual_norm)
-                }
-                SolveResult::NotConverged {
-                    solution,
-                    iterations,
-                    residual_norm,
-                } => {
-                    self.params.write_free_values(solution, &mapping);
-                    all_converged = false;
-                    (ClusterSolveStatus::NotConverged, *iterations, *residual_norm)
-                }
-                SolveResult::Failed { .. } => {
-                    all_converged = false;
-                    (ClusterSolveStatus::NotConverged, 0, f64::INFINITY)
-                }
-            };
-
-            total_iterations += iterations;
-            cluster_results.push(ClusterResult {
-                cluster_id: cluster.id,
-                status,
-                iterations,
-                residual_norm,
+        let redundancy = self.analyze_redundancy();
+        for r in &redundancy.redundant {
+            issues.push(DiagnosticIssue::RedundantConstraint {
+                constraint: r.id,
+                implied_by: vec![],
+            });
+        }
+        for g in &redundancy.conflicts {
+            issues.push(DiagnosticIssue::ConflictingConstraints {
+                constraints: g.constraint_ids.clone(),
             });
         }
 
-        let duration = start.elapsed();
-
-        let system_status = if all_converged && !cluster_results.is_empty() {
-            SystemStatus::Solved
-        } else if any_converged {
-            SystemStatus::PartiallySolved
-        } else if cluster_results.is_empty() {
-            // No clusters to solve (no constraints); trivially solved
-            SystemStatus::Solved
-        } else {
-            SystemStatus::DiagnosticFailure(Vec::new())
-        };
-
-        SystemResult {
-            status: system_status,
-            clusters: cluster_results,
-            total_iterations,
-            duration,
+        let dof = self.analyze_dof();
+        for e in &dof.entities {
+            if e.dof > 0 {
+                issues.push(DiagnosticIssue::UnderConstrained {
+                    entity: e.entity_id,
+                    free_directions: e.dof,
+                });
+            }
         }
+
+        issues
+    }
+
+    /// Set a custom pipeline for this system.
+    pub fn set_pipeline(&mut self, pipeline: SolvePipeline) {
+        self.pipeline = pipeline;
+    }
+
+    /// Access the change tracker.
+    pub fn change_tracker(&self) -> &ChangeTracker {
+        &self.change_tracker
     }
 
     // -----------------------------------------------------------------
@@ -645,6 +503,7 @@ mod tests {
     use crate::entity::Entity;
     use crate::id::{ConstraintId, EntityId, ParamId};
     use crate::param::ParamStore;
+    use crate::solver::{LMConfig, SolverConfig};
 
     // -------------------------------------------------------------------
     // Test entity: a 2D point with two parameters (x, y).
@@ -1021,66 +880,6 @@ mod tests {
     }
 
     #[test]
-    fn test_decompose_into_clusters_empty() {
-        let constraints: Vec<Option<Box<dyn Constraint>>> = Vec::new();
-        let clusters = decompose_into_clusters(&constraints);
-        assert!(clusters.is_empty());
-    }
-
-    #[test]
-    fn test_decompose_independent_constraints() {
-        // Build two constraints that do NOT share params
-        let mut store = ParamStore::new();
-        let owner = EntityId::new(0, 0);
-        let p1 = store.alloc(1.0, owner);
-        let p2 = store.alloc(2.0, owner);
-
-        let c1: Box<dyn Constraint> = Box::new(FixValueConstraint {
-            id: ConstraintId::new(0, 0),
-            entity_ids: vec![owner],
-            param: p1,
-            target: 5.0,
-        });
-        let c2: Box<dyn Constraint> = Box::new(FixValueConstraint {
-            id: ConstraintId::new(1, 0),
-            entity_ids: vec![owner],
-            param: p2,
-            target: 10.0,
-        });
-
-        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c1), Some(c2)];
-        let clusters = decompose_into_clusters(&constraints);
-        assert_eq!(clusters.len(), 2, "Independent constraints -> 2 clusters");
-    }
-
-    #[test]
-    fn test_decompose_coupled_constraints() {
-        let mut store = ParamStore::new();
-        let owner = EntityId::new(0, 0);
-        let p1 = store.alloc(1.0, owner);
-        let p2 = store.alloc(2.0, owner);
-
-        // c1 uses p1; c2 uses p1 and p2 -> they share p1 -> same cluster
-        let c1: Box<dyn Constraint> = Box::new(FixValueConstraint {
-            id: ConstraintId::new(0, 0),
-            entity_ids: vec![owner],
-            param: p1,
-            target: 5.0,
-        });
-        let c2: Box<dyn Constraint> = Box::new(SumConstraint {
-            id: ConstraintId::new(1, 0),
-            entity_ids: vec![owner],
-            params: vec![p1, p2],
-            target: 10.0,
-        });
-
-        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c1), Some(c2)];
-        let clusters = decompose_into_clusters(&constraints);
-        assert_eq!(clusters.len(), 1, "Coupled constraints -> 1 cluster");
-        assert_eq!(clusters[0].constraint_indices.len(), 2);
-    }
-
-    #[test]
     fn test_system_result_duration() {
         let mut system = ConstraintSystem::new();
         let result = system.solve();
@@ -1089,15 +888,14 @@ mod tests {
     }
 
     #[test]
-    fn test_needs_decompose_flag() {
+    fn test_structural_change_triggers_redecompose() {
         let mut system = ConstraintSystem::new();
         let (eid, px, _py) = add_test_point(&mut system, 1.0, 2.0);
 
-        // First solve triggers decompose
+        // First solve works fine
         let _ = system.solve();
-        assert!(!system.needs_decompose);
 
-        // Adding a constraint sets the flag
+        // Adding a constraint is a structural change
         let cid = system.alloc_constraint_id();
         system.add_constraint(Box::new(FixValueConstraint {
             id: cid,
@@ -1105,15 +903,23 @@ mod tests {
             param: px,
             target: 5.0,
         }));
-        assert!(system.needs_decompose);
 
-        // Solve again clears it
-        let _ = system.solve();
-        assert!(!system.needs_decompose);
+        // The change tracker should have structural changes
+        assert!(system.change_tracker().has_structural_changes());
 
-        // Removing the constraint sets the flag
+        // Solve again should succeed (triggers re-decompose)
+        let result = system.solve();
+        assert!(matches!(
+            result.status,
+            SystemStatus::Solved | SystemStatus::PartiallySolved
+        ));
+
+        // After solve, change tracker is cleared
+        assert!(!system.change_tracker().has_any_changes());
+
+        // Removing the constraint is also a structural change
         system.remove_constraint(cid);
-        assert!(system.needs_decompose);
+        assert!(system.change_tracker().has_structural_changes());
     }
 
     #[test]

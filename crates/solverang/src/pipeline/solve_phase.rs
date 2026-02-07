@@ -10,7 +10,7 @@
 use std::collections::HashSet;
 
 use crate::constraint::Constraint;
-use crate::id::{ClusterId, ParamId};
+use crate::id::ParamId;
 use crate::param::{ParamStore, SolverMapping};
 use crate::problem::Problem;
 use crate::solve::closed_form::solve_pattern;
