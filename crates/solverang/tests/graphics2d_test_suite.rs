@@ -28,20 +28,28 @@ const TOL: f64 = 1e-6;
 /// Solve a system built by the builder and assert convergence.
 /// Returns the solved system.
 ///
-/// Uses a pure numerical pipeline (no reduction, no closed-form patterns)
-/// to ensure all constraints are solved together via Levenberg-Marquardt.
-/// This bypasses both the reduce phase (which can incorrectly eliminate
-/// coupled params) and the closed-form solver.
+/// Uses a SubstituteReducer → EliminateReducer reduce pipeline (with
+/// cascading eliminations) to analytically determine params where possible,
+/// then NumericalOnlySolve for the remaining constraints.
+///
+/// MergeReducer is intentionally excluded because it removes equality
+/// constraints (Horizontal/Vertical) but does not fix the merged-away
+/// params in the store — the solve phase doesn't apply the merge_map,
+/// so the solver treats merged params as independent, leaving constraints
+/// unsatisfied.
 fn solve_and_verify(builder: Sketch2DBuilder) -> solverang::system::ConstraintSystem {
     use solverang::pipeline::{PipelineBuilder, solve_phase::NumericalOnlySolve};
-    use solverang::pipeline::reduce::NoopReduce;
+    use solverang::pipeline::reduce::{ChainedReducer, SubstituteReducer, EliminateReducer};
 
     let mut system = builder.build();
 
-    // Use a pipeline with NoopReduce + NumericalOnlySolve to avoid both
-    // reduce-phase elimination issues and closed-form solver coupling issues.
+    let reduce = ChainedReducer::new(vec![
+        Box::new(SubstituteReducer),
+        Box::new(EliminateReducer),
+    ]);
+
     let pipeline = PipelineBuilder::new()
-        .reduce(NoopReduce)
+        .reduce(reduce)
         .solve(NumericalOnlySolve)
         .build();
     system.set_pipeline(pipeline);
