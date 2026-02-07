@@ -1,9 +1,23 @@
 # Plan 1: Explicit Optimization Objectives
 
-## Status: PROPOSAL
+## Status: PROPOSAL (v2 — composition notes added)
 ## Priority: High (most value with least architectural disruption)
-## Depends on: Plan A (ProblemBase trait)
+## Depends on: Plan A (ProblemBase)
 ## Feature flag: `optimization`
+
+---
+
+## Revision Notes (v2)
+
+**Design unchanged.** `OptimizationProblem` remains a standalone typed trait with its own
+typed solvers (`PenaltyTransform`, `AugmentedLagrangianSolver`). Solvers accept
+`&dyn OptimizationProblem`, not `&dyn ProblemBase`.
+
+**Composition role (Plan 6)**: The continuous sub-solver in Plan 6's Benders decomposition
+can be an `AugmentedLagrangianSolver` when the sub-problem has an objective (optimization
+over continuous variables given fixed discrete decisions). The `HybridProblem::continuous_subproblem()`
+may return either a `Problem` (feasibility) or `OptimizationProblem` (with objective) depending
+on the hybrid problem's structure.
 
 ---
 

@@ -1,9 +1,29 @@
 # Plan 5: Modeling DSL Layer
 
-## Status: PROPOSAL
+## Status: PROPOSAL (v2 — role as integration point clarified)
 ## Priority: Medium (user experience — makes all other plans accessible)
-## Depends on: Plan A (ProblemBase), Plan 4 (Dispatch); benefits from Plans 1-3
+## Depends on: Plan A (ProblemBase), Plan 4 (Classifier); benefits from Plans 1-3, 6
 ## Feature flag: `model`
+
+---
+
+## Revision Notes (v2)
+
+**The DSL is the real integration layer**, not a generic `solve()` function. When
+`Model::build()` is called, it analyzes the expression tree and variable types to
+determine the problem class at build time, then emits the right typed object:
+
+- All continuous, no objective → `impl Problem` (solved by existing NR/LM)
+- All continuous + objective → `impl OptimizationProblem` (Plan 1)
+- All discrete → `impl DiscreteProblem` (Plan 3)
+- Mixed continuous + discrete → `impl HybridProblem` (Plan 6)
+
+The DSL knows the type at build time, so there's no downcasting or enum matching.
+The user writes a model declaratively; the DSL figures out which solver(s) to use.
+
+**v1 had**: "Plan 5 depends on Plan 4 (Dispatch)". **v2 says**: Plan 5 depends on
+Plan 4 for the `ProblemClassifier` (diagnostics), but NOT for `AnySolver` dispatch
+(which no longer exists). The DSL does its own typed dispatch internally.
 
 ---
 

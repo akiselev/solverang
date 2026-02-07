@@ -1,9 +1,39 @@
 # Plan 3: Finite-Domain Constraint Satisfaction (CSP) Module
 
-## Status: PROPOSAL
+## Status: PROPOSAL (v2 — TheorySolver hook for Plan 6 added)
 ## Priority: Medium (opens entirely new problem class)
 ## Depends on: Plan A (ProblemBase, VariableDomain)
 ## Feature flag: `csp`
+
+---
+
+## Revision Notes (v2)
+
+**Core design unchanged.** `CSPSolver` remains a typed solver for `DiscreteProblem`.
+
+**Composition hook (Plan 6)**: The CSP solver needs an extension point for Plan 6's
+DPLL(T) integration. Specifically, the backtracking search loop must accept an optional
+`TheorySolver` callback that is called after each variable assignment. If the theory
+solver reports a conflict, the CSP solver backtracks and learns the conflict as a nogood.
+This is the "T" in DPLL(T). Implementation detail:
+
+```rust
+impl CSPSolver {
+    /// Solve a pure discrete problem (no theory).
+    pub fn solve(&self, problem: &dyn DiscreteProblem) -> CSPResult { ... }
+
+    /// Solve with a theory solver for hybrid problems (Plan 6).
+    /// After each discrete assignment, checks theory consistency.
+    pub fn solve_with_theory(
+        &self,
+        problem: &dyn DiscreteProblem,
+        theory: &mut dyn TheorySolver,
+    ) -> CSPResult { ... }
+}
+```
+
+The CSP solver's search loop already has assignment/backtrack points — the theory
+hook plugs in at those points without changing the core algorithm.
 
 ---
 

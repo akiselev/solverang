@@ -1,9 +1,24 @@
 # Plan 2: Integer Variable Support with Branch-and-Bound
 
-## Status: PROPOSAL
+## Status: PROPOSAL (v2 — relationship to Plan 6 clarified)
 ## Priority: Medium-High (unlocks scheduling, assignment, routing)
 ## Depends on: Plan A (ProblemBase, VariableDomain), Plan 1 (OptimizationProblem)
 ## Feature flag: `mixed-integer`
+
+---
+
+## Revision Notes (v2)
+
+**Design unchanged.** B&B remains a typed solver for `MixedIntegerProblem` where all
+constraints are expressible as continuous residuals (the "integer" part is only that some
+variables must take integer values). This is classic MINLP.
+
+**Relationship to Plan 6**: Plan 2 handles a specific case: continuous constraints +
+integrality requirements. Plan 6 handles the more general case: continuous constraints +
+arbitrary discrete constraints (CSP-style). B&B is the right tool when the relaxation is a
+smooth NLP. Plan 6's Benders/DPLL(T) is the right tool when discrete choices change the
+*structure* of the continuous problem (e.g., which constraints exist). Both can coexist —
+the classifier (Plan 4) determines which applies.
 
 ---
 
