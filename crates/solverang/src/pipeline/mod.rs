@@ -22,6 +22,8 @@ pub mod solve_phase;
 mod minpack_bridge_tests;
 #[cfg(test)]
 mod incremental_tests;
+#[cfg(test)]
+mod error_path_tests;
 
 // ---------------------------------------------------------------------------
 // Re-exports
