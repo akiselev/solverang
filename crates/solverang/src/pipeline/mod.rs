@@ -177,14 +177,8 @@ impl SolvePipeline {
                 self.analyze
                     .analyze(cluster, constraints, entities, store);
 
-            // Phase 3: Reduce (immutable borrow of store).
+            // Phase 3: Reduce (may temporarily fix eliminated params in store).
             let reduced = self.reduce.reduce(cluster, constraints, store);
-
-            // Apply eliminated params from reduce BEFORE solving,
-            // so remaining constraints see updated values.
-            for &(pid, val) in &reduced.eliminated_params {
-                store.set(pid, val);
-            }
 
             // Phase 4: Solve (immutable borrow of store).
             let warm_start = cache.get(&cluster.id).map(|c| c.solution.as_slice());
@@ -222,6 +216,12 @@ impl SolvePipeline {
                 solution.residual_norm,
                 solution.iterations,
             );
+
+            // Un-fix params that were temporarily fixed during the reduce
+            // phase so they remain free for subsequent pipeline runs.
+            for &(pid, _) in &reduced.eliminated_params {
+                store.unfix(pid);
+            }
 
             // Post-process.
             let result =
@@ -817,5 +817,120 @@ mod tests {
         assert!(matches!(result.status, SystemStatus::Solved));
         assert_eq!(result.clusters.len(), 0);
         assert_eq!(result.total_iterations, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Regression: cascading elimination through the full pipeline
+    // -----------------------------------------------------------------------
+
+    /// Regression test for the reduce phase coupling bug: when the
+    /// EliminateReducer analytically solves a constraint involving a param
+    /// that participates in other constraints, the remaining constraints
+    /// should see the updated value and cascade further eliminations.
+    ///
+    /// This end-to-end test verifies that:
+    /// 1. Cascading elimination works across linear constraints.
+    /// 2. Eliminated params are unfixed after solve (not permanently fixed).
+    /// 3. A second pipeline run produces the same correct result.
+    #[test]
+    fn end_to_end_cascading_elimination() {
+        let mut store = ParamStore::new();
+        let eid = EntityId::new(0, 0);
+        let px = store.alloc(0.0, eid);
+        let py = store.alloc(0.0, eid);
+
+        let point = TestPoint {
+            id: eid,
+            params: vec![px, py],
+        };
+        let entities: Vec<Option<Box<dyn Entity>>> = vec![Some(Box::new(point))];
+
+        // C0: px = 3.0 (eliminable)
+        let c0: Box<dyn Constraint> = Box::new(FixValueConstraint {
+            id: ConstraintId::new(0, 0),
+            entity_ids: vec![eid],
+            param: px,
+            target: 3.0,
+        });
+        // C1: px + py = 10.0 (becomes eliminable after px is determined)
+        let c1: Box<dyn Constraint> = Box::new(SumConstraint {
+            id: ConstraintId::new(1, 0),
+            entity_ids: vec![eid],
+            params: vec![px, py],
+            target: 10.0,
+        });
+        let constraints: Vec<Option<Box<dyn Constraint>>> =
+            vec![Some(c0), Some(c1)];
+
+        let config = SystemConfig::default();
+        let mut tracker = ChangeTracker::new();
+        let mut cache = SolutionCache::new();
+        let mut pipeline = SolvePipeline::default();
+
+        tracker.mark_entity_added(eid);
+        tracker.mark_constraint_added(ConstraintId::new(0, 0));
+        tracker.mark_constraint_added(ConstraintId::new(1, 0));
+
+        let result = pipeline.run(
+            &constraints,
+            &entities,
+            &mut store,
+            &config,
+            &mut tracker,
+            &mut cache,
+        );
+
+        assert!(
+            matches!(result.status, SystemStatus::Solved),
+            "Expected Solved, got {:?}",
+            result.status,
+        );
+        assert!(
+            (store.get(px) - 3.0).abs() < 1e-6,
+            "px = {}, expected 3.0",
+            store.get(px),
+        );
+        assert!(
+            (store.get(py) - 7.0).abs() < 1e-6,
+            "py = {}, expected 7.0",
+            store.get(py),
+        );
+
+        // Params should NOT be permanently fixed after solve.
+        assert!(
+            !store.is_fixed(px),
+            "px should not remain fixed after solve"
+        );
+        assert!(
+            !store.is_fixed(py),
+            "py should not remain fixed after solve"
+        );
+
+        // Second run with the same system should still produce correct
+        // results (verifies that un-fixing works properly).
+        pipeline.invalidate();
+        let result2 = pipeline.run(
+            &constraints,
+            &entities,
+            &mut store,
+            &config,
+            &mut tracker,
+            &mut cache,
+        );
+        assert!(
+            matches!(result2.status, SystemStatus::Solved),
+            "Second run: expected Solved, got {:?}",
+            result2.status,
+        );
+        assert!(
+            (store.get(px) - 3.0).abs() < 1e-6,
+            "Second run: px = {}, expected 3.0",
+            store.get(px),
+        );
+        assert!(
+            (store.get(py) - 7.0).abs() < 1e-6,
+            "Second run: py = {}, expected 7.0",
+            store.get(py),
+        );
     }
 }

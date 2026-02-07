@@ -80,16 +80,29 @@ impl GeometricConstraint<2> for LineTangentConstraint {
         // Raw cross product (can be negative)
         let cross_raw = acx * dy - acy * dx;
         let cross_sign = if cross_raw >= 0.0 { 1.0 } else { -1.0 };
-        let cross = cross_raw.abs().max(MIN_EPSILON);
+        // Use unclamped abs(cross) to stay consistent with residuals().
+        // cross appears in the numerator (not as a denominator), so
+        // epsilon-clamping would make the Jacobian inconsistent.
+        let cross = cross_raw.abs();
 
         // perp_dist = cross / line_len
         // f = perp_dist - radius
         let ll3 = line_len * line_len_sq;
 
-        // Simplified Jacobian using chain rule and quotient rule
+        // Jacobian via quotient rule on f = |cross| / line_len - radius.
+        //
+        // d(cross_raw)/d(ax) = acy - dy,   d(line_len)/d(ax) = -dx/line_len
+        // d(cross_raw)/d(ay) = dx - acx,   d(line_len)/d(ay) = -dy/line_len
+        // d(cross_raw)/d(bx) = -acy,        d(line_len)/d(bx) = dx/line_len
+        // d(cross_raw)/d(by) = acx,          d(line_len)/d(by) = dy/line_len
+        // d(cross_raw)/d(cx) = dy,           d(line_len)/d(cx) = 0
+        // d(cross_raw)/d(cy) = -dx,          d(line_len)/d(cy) = 0
+        //
+        // df/dv = cross_sign * d(cross_raw)/dv / line_len
+        //       - cross * d(line_len)/dv / line_len^2
         vec![
-            (0, var_col::<2>(self.line_start, 0), cross_sign * (-dy) / line_len + cross * dx / ll3),
-            (0, var_col::<2>(self.line_start, 1), cross_sign * dx / line_len + cross * dy / ll3),
+            (0, var_col::<2>(self.line_start, 0), cross_sign * (acy - dy) / line_len + cross * dx / ll3),
+            (0, var_col::<2>(self.line_start, 1), cross_sign * (dx - acx) / line_len + cross * dy / ll3),
             (0, var_col::<2>(self.line_end, 0), -cross_sign * acy / line_len - cross * dx / ll3),
             (0, var_col::<2>(self.line_end, 1), cross_sign * acx / line_len - cross * dy / ll3),
             (0, var_col::<2>(self.center, 0), cross_sign * dy / line_len),
