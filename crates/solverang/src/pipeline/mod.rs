@@ -378,6 +378,9 @@ impl Default for PipelineBuilder {
 // ===========================================================================
 
 #[cfg(test)]
+mod integration_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::constraint::Constraint;
