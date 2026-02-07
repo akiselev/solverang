@@ -290,6 +290,7 @@ pub mod system;
 pub mod sketch2d;
 pub mod sketch3d;
 pub mod assembly;
+pub mod pipeline;
 
 // --- Existing modules (kept as-is) ---
 pub mod constraints;

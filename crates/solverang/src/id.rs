@@ -47,7 +47,7 @@ pub struct ConstraintId {
 /// Clusters are groups of constraints that share parameters (directly or
 /// transitively) and must be solved together. Independent clusters can be
 /// solved in parallel.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ClusterId(pub usize);
 
 // --- Debug implementations ---
