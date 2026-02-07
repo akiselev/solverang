@@ -5,7 +5,7 @@
 The JIT module is an **architecturally disconnected proof-of-concept**. It compiles,
 all 23 unit tests pass, and the Cranelift codegen works for simple cases — but it is
 unreachable from the actual public API, has correctness bugs in trigonometric functions,
-and covers only 6 of 16 geometric constraint types. The `JITSolver.solve()` method
+and covers only 6 of 18 geometric constraint types. The `JITSolver.solve()` method
 literally hard-codes a fallback to interpreted evaluation on every call.
 
 The deeper question — *is there even a point to JIT-compiling the solver?* — has a
@@ -76,11 +76,12 @@ Geometric Constraints     ConstraintOp IR      Cranelift IR       Native x86_64/
    Jacobian store opcode reads the source register but discards it. Only
    `StoreJacobianIndexed` actually writes to memory.
 
-5. **Missing constraint coverage**: Only 6 of 16 geometric constraints have
+5. **Missing constraint coverage**: Only 6 of 18 geometric constraints have
    `Lowerable` implementations:
    - **Have**: Distance, Coincident, Fixed, Horizontal, Vertical, Angle
    - **Missing**: Parallel, Perpendicular, Midpoint, PointOnLine, PointOnCircle,
-     Tangent, Symmetric, Collinear, EqualLength, plus all 3D-only variants
+     PointOnCircleVariableRadius, CircleTangent, LineTangent, Symmetric,
+     SymmetricAboutLine, Collinear, EqualLength
 
 6. **No performance validation**: Zero benchmarks exercise the JIT path. The
    claimed "2-5x speedup on 1000+ variables" is unsubstantiated.
@@ -97,13 +98,14 @@ For a constraint system with N variables, M residuals, and I iterations:
 |-------|------|----------------|
 | Residual evaluation | O(M) per iteration | Never (linear, fast) |
 | Jacobian evaluation | O(M × nnz_per_row) per iter | Rarely |
-| Linear solve (J·δ = -r) | O(N²·M) dense, O(nnz·N) sparse | Almost always |
+| Linear solve (J·δ = -r) | O(N³) square dense, O(MN²) QR, O(nnz·N) sparse | Almost always |
 | Decomposition/graph | O(N + M) one-time | Never |
 
 **The current JIT targets residual and Jacobian evaluation** — which is almost never
 the bottleneck. For a 100-variable problem with 100 constraints and 50 iterations,
-residual evaluation does ~5,000 arithmetic ops but the LU/SVD linear solve does
-~50,000,000. JIT-compiling the residuals saves microseconds in a millisecond solve.
+residual evaluation does ~5,000 arithmetic ops but the LU factorization (O(N³) ≈
+1,000,000) dominates. JIT-compiling the residuals saves microseconds in a
+millisecond solve.
 
 ### When JIT Actually Helps
 
@@ -164,7 +166,7 @@ the opcode entirely (the indexed variant works).
     a constraint enum. Each variant can be pattern-matched for lowering. This is
     faster and JIT-friendly but less extensible.
 
-**D. Complete constraint coverage** — Implement `Lowerable` for the remaining 10
+**D. Complete constraint coverage** — Implement `Lowerable` for the remaining 12
 constraint types. Most are simple (Parallel, Perpendicular, Midpoint are just
 linear combinations).
 

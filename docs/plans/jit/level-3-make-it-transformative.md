@@ -67,10 +67,28 @@ we create a tangent register `dr` that holds `∂r/∂x_i`.
 | `Sin { dst, src }` | `r = sin(s)` | `dr = cos(s) * ds` |
 | `Cos { dst, src }` | `r = cos(s)` | `dr = -sin(s) * ds` |
 | `Atan2 { dst, y, x }` | `r = atan2(y,x)` | `dr = (x*dy - y*dx) / (x²+y²)` |
-| `Abs { dst, src }` | `r = |s|` | `dr = sign(s) * ds` |
-| `Max { dst, a, b }` | `r = max(a,b)` | `dr = (a>=b) ? da : db` |
-| `Min { dst, a, b }` | `r = min(a,b)` | `dr = (a<=b) ? da : db` |
+| `Abs { dst, src }` | `r = \|s\|` | `dr = (s > 0) ? ds : (s < 0) ? -ds : 0` |
+| `Max { dst, a, b }` | `r = max(a,b)` | `dr = (a >= b) ? da : db` |
+| `Min { dst, a, b }` | `r = min(a,b)` | `dr = (a <= b) ? da : db` |
 | `StoreResidual { idx, src }` | output[idx] = r | `J[idx][i] = dr` |
+
+**Non-differentiable cases (conventions)**:
+
+These opcodes have points where the mathematical derivative is undefined. We
+adopt deterministic conventions that are stable for Newton/LM iteration:
+
+- **`Abs` at `s = 0`**: Define `abs'(0) = 0`. This is the subgradient convention
+  and avoids injecting spurious non-zero derivatives at the origin.
+- **`Max(a, b)` when `a == b`**: Break ties in favor of the first operand `a`
+  (the `a >= b` condition is true). The AD pass must implement the same
+  deterministic tie-breaking as the primal to keep behavior stable and
+  reproducible.
+- **`Min(a, b)` when `a == b`**: Same convention — ties go to `a` (the `a <= b`
+  condition is true).
+- **`Sqrt` at `s = 0`**: Returns `+∞`, which will propagate as NaN/Inf. The
+  `safe_distance` opcode (used in distance constraints) already guards against
+  this by clamping the input to `max(s, ε²)`. Constraints should use
+  `safe_distance` rather than raw `Sqrt` for distance computations.
 
 ### 1b. The `differentiate` function
 
@@ -95,8 +113,18 @@ pub fn differentiate(
 ```
 
 **Key optimization**: Not every residual depends on every variable. The
-`active_vars` parameter (populated from `Lowerable::variable_indices()`) avoids
-generating zero-derivative traces. For a distance constraint on 2 points out of
+`active_vars` parameter avoids generating zero-derivative traces.
+
+**Important**: `active_vars` contains *flat variable indices* into the solver's
+variable array (i.e., the indices used by `LoadVar` opcodes), **not** point
+indices. The existing `Lowerable::variable_indices()` returns *point indices*
+(e.g., `vec![self.point1, self.point2]`), which must be expanded to per-coordinate
+variable indices via `point_idx * dimension + coord` for each coordinate `coord`
+in `0..D`. Alternatively, `active_vars` can be derived directly from the opcode
+stream by collecting all `var_idx` values from `LoadVar` instructions — this is
+simpler and always correct regardless of how the lowering works.
+
+For a distance constraint on 2 points out of
 1000, we only differentiate w.r.t. 4 variables, not 2000.
 
 ### 1c. Sparse tangent propagation

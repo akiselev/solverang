@@ -36,24 +36,36 @@ In `JITCompiler::new()`, after creating the `JITBuilder`:
 ```rust
 let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
 
-// Register libm math functions as callable symbols.
-// These are linked from the process's libc — no additional dependencies needed.
-builder.symbol("libm_sin", f64::sin as *const u8);
-builder.symbol("libm_cos", f64::cos as *const u8);
+// Register libm math functions as callable symbols via extern "C" wrappers.
+// IMPORTANT: Rust's f64::sin/cos/atan2 use Rust ABI, NOT C ABI. Cranelift
+// emits calls using the platform C calling convention, so we must wrap every
+// function in an extern "C" shim to guarantee ABI compatibility. Passing
+// Rust-ABI function pointers directly can crash or produce wrong results on
+// targets where the ABIs differ (this is not detected at compile time).
+builder.symbol("libm_sin", libm_sin_wrapper as *const u8);
+builder.symbol("libm_cos", libm_cos_wrapper as *const u8);
 builder.symbol("libm_atan2", libm_atan2_wrapper as *const u8);
 ```
 
-Where `libm_atan2_wrapper` is a thin `extern "C"` wrapper:
+All three functions need `extern "C"` wrappers — not just `atan2`:
 
 ```rust
+extern "C" fn libm_sin_wrapper(x: f64) -> f64 {
+    x.sin()
+}
+
+extern "C" fn libm_cos_wrapper(x: f64) -> f64 {
+    x.cos()
+}
+
 extern "C" fn libm_atan2_wrapper(y: f64, x: f64) -> f64 {
     y.atan2(x)
 }
 ```
 
-(Rust's `f64::sin`/`f64::cos` already have the right C ABI on all platforms.
-`atan2` needs a wrapper because it takes two args and Rust's method form
-`y.atan2(x)` may not have C calling convention.)
+On Windows, also verify that these delegate to the correct libm implementation
+(MSVC's `sin`/`cos` may have different precision characteristics). Consider
+using the `libm` crate for cross-platform consistency if needed.
 
 ### 1b. Declare functions in the module
 
