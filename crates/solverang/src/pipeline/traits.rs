@@ -60,13 +60,18 @@ pub trait Analyze: Send + Sync {
 ///
 /// Reduction passes eliminate fixed parameters, merge coincident parameters,
 /// and solve trivial single-variable constraints analytically.
+///
+/// The store is passed mutably so that stages can write determined values
+/// and temporarily mark parameters as fixed, enabling cascading reductions
+/// (e.g. eliminating `p1` lets a subsequent constraint with `p1` and `p2`
+/// become single-free-param and therefore also eliminable).
 pub trait Reduce: Send + Sync {
     /// Reduce a cluster, returning a simplified version.
     fn reduce(
         &self,
         cluster: &ClusterData,
         constraints: &[Option<Box<dyn Constraint>>],
-        store: &ParamStore,
+        store: &mut ParamStore,
     ) -> ReducedCluster;
 }
 
