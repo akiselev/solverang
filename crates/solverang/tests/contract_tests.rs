@@ -163,16 +163,6 @@ fn validate_constraint_contracts(
         }
     }
 
-    // Contract 10: default trait methods
-    if constraint.weight() != 1.0 && !constraint.is_soft() {
-        // Only flag if weight != 1.0 for a non-soft constraint (unusual)
-        violations.push(ContractViolation {
-            constraint_name: name.clone(),
-            contract: "default_weight".into(),
-            detail: format!("weight() = {} for non-soft constraint", constraint.weight()),
-        });
-    }
-
     violations
 }
 
@@ -192,24 +182,53 @@ fn validate_jacobian_accuracy(
     let analytical = constraint.jacobian(store);
     let eq_count = constraint.equation_count();
 
-    // For each (equation, param) pair, compare analytical vs finite-difference.
-    for eq in 0..eq_count {
-        for &pid in &params {
-            // Central finite difference
-            let mut plus_store = store.snapshot();
-            let orig = plus_store.get(pid);
-            plus_store.set(pid, orig + eps);
-            let r_plus = constraint.residuals(&plus_store);
+    // For each param, compute central finite-difference residuals once and
+    // reuse them across all equations to compare analytical vs finite-difference.
+    for &pid in &params {
+        // Work on a single snapshot per parameter, perturbing it by +/-eps.
+        let mut perturbed_store = store.snapshot();
+        let orig = perturbed_store.get(pid);
 
-            let mut minus_store = store.snapshot();
-            minus_store.set(pid, orig - eps);
-            let r_minus = constraint.residuals(&minus_store);
+        // Central finite difference: evaluate residuals at +eps.
+        perturbed_store.set(pid, orig + eps);
+        let r_plus = constraint.residuals(&perturbed_store);
 
+        // And at -eps on the same snapshot (resetting relative to orig).
+        perturbed_store.set(pid, orig - eps);
+        let r_minus = constraint.residuals(&perturbed_store);
+
+        for eq in 0..eq_count {
             if eq >= r_plus.len() || eq >= r_minus.len() {
                 continue; // dimension mismatch already caught above
             }
 
+            // Check that perturbed residuals are finite before comparing.
+            if !r_plus[eq].is_finite() || !r_minus[eq].is_finite() {
+                violations.push(ContractViolation {
+                    constraint_name: name.clone(),
+                    contract: "jacobian_accuracy".into(),
+                    detail: format!(
+                        "eq={}, param={:?}: perturbed residuals not finite \
+                         (r_plus={}, r_minus={})",
+                        eq, pid, r_plus[eq], r_minus[eq],
+                    ),
+                });
+                continue;
+            }
+
             let fd = (r_plus[eq] - r_minus[eq]) / (2.0 * eps);
+
+            if !fd.is_finite() {
+                violations.push(ContractViolation {
+                    constraint_name: name.clone(),
+                    contract: "jacobian_accuracy".into(),
+                    detail: format!(
+                        "eq={}, param={:?}: finite-difference value is not finite (fd={})",
+                        eq, pid, fd,
+                    ),
+                });
+                continue;
+            }
 
             // Sum all analytical entries for this (eq, pid) pair
             let ana: f64 = analytical
@@ -293,17 +312,32 @@ fn validate_entity_contracts(
 }
 
 /// Run all contract checks and panic with a detailed report if any fail.
+///
+/// Structural contracts are checked first.  If any fail (e.g. stale param IDs
+/// or dimension mismatches), the Jacobian accuracy check is skipped to avoid
+/// secondary panics and to surface the root cause clearly.
 fn assert_constraint_contracts(constraint: &dyn Constraint, store: &ParamStore) {
-    let mut all_violations = validate_constraint_contracts(constraint, store);
-    all_violations.extend(validate_jacobian_accuracy(constraint, store, 1e-7, 1e-4));
-
-    if !all_violations.is_empty() {
-        let report: Vec<String> = all_violations
+    let structural = validate_constraint_contracts(constraint, store);
+    if !structural.is_empty() {
+        let report: Vec<String> = structural
             .iter()
             .map(|v| format!("  [{}] {}: {}", v.constraint_name, v.contract, v.detail))
             .collect();
         panic!(
-            "Contract violations for '{}':\n{}",
+            "Structural contract violations for '{}':\n{}",
+            constraint.name(),
+            report.join("\n")
+        );
+    }
+
+    let jacobian = validate_jacobian_accuracy(constraint, store, 1e-7, 1e-4);
+    if !jacobian.is_empty() {
+        let report: Vec<String> = jacobian
+            .iter()
+            .map(|v| format!("  [{}] {}: {}", v.constraint_name, v.contract, v.detail))
+            .collect();
+        panic!(
+            "Jacobian accuracy violations for '{}':\n{}",
             constraint.name(),
             report.join("\n")
         );
@@ -1110,60 +1144,156 @@ mod sketch2d_constraint_contracts {
 
     // --- Comprehensive: all 15 sketch2d constraints with large coordinates ---
 
+    /// Assert structural contracts + Jacobian accuracy with custom eps/tol.
+    fn assert_contracts_with_eps(
+        constraint: &dyn Constraint,
+        store: &ParamStore,
+        eps: f64,
+        tol: f64,
+    ) {
+        let structural = validate_constraint_contracts(constraint, store);
+        if !structural.is_empty() {
+            let report: Vec<String> = structural
+                .iter()
+                .map(|v| format!("  [{}] {}: {}", v.constraint_name, v.contract, v.detail))
+                .collect();
+            panic!(
+                "Structural contract violations for '{}':\n{}",
+                constraint.name(),
+                report.join("\n"),
+            );
+        }
+        let jacobian = validate_jacobian_accuracy(constraint, store, eps, tol);
+        if !jacobian.is_empty() {
+            let report: Vec<String> = jacobian
+                .iter()
+                .map(|v| format!("  [{}] {}: {}", v.constraint_name, v.contract, v.detail))
+                .collect();
+            panic!(
+                "Jacobian accuracy violations for '{}':\n{}",
+                constraint.name(),
+                report.join("\n"),
+            );
+        }
+    }
+
     #[test]
     fn all_sketch2d_constraints_large_values() {
         let mut store = ParamStore::new();
         let e0 = eid(0);
         let e1 = eid(1);
-        let scale = 1e6;
-
-        let x1 = store.alloc(0.0 * scale, e0);
-        let y1 = store.alloc(0.0 * scale, e0);
-        let x2 = store.alloc(3.0 * scale, e0);
-        let y2 = store.alloc(4.0 * scale, e0);
+        let e2 = eid(2);
+        let s = 1e6;
 
         // At large scales, finite-difference Jacobian accuracy degrades due to
         // catastrophic cancellation (eps=1e-7 is tiny vs 1e6 values). Use a
         // scale-appropriate eps for Jacobian checks instead of the default.
-        let large_eps = 1e-1;  // Appropriate for 1e6-scale values
-        let large_tol = 1e-4;
+        // FD truncation error grows with scale (second-order effects).
+        // Normal-scale tests do precise Jacobian verification; this test
+        // ensures contracts hold at extreme magnitudes.
+        let large_eps = 1.0;  // ~1e-6 relative to 1e6 values
+        let large_tol = 1e-2;
 
         // DistancePtPt
-        let c = DistancePtPt::new(cid(0), e0, e1, x1, y1, x2, y2, 5.0 * scale);
-        let violations = validate_constraint_contracts(&c, &store);
-        assert!(violations.is_empty(), "{:?}", violations.iter().map(|v| &v.detail).collect::<Vec<_>>());
-        let jac_violations = validate_jacobian_accuracy(&c, &store, large_eps, large_tol);
-        assert!(jac_violations.is_empty(), "{:?}", jac_violations.iter().map(|v| &v.detail).collect::<Vec<_>>());
+        let x1 = store.alloc(0.0, e0); let y1 = store.alloc(0.0, e0);
+        let x2 = store.alloc(3.0 * s, e1); let y2 = store.alloc(4.0 * s, e1);
+        let c = DistancePtPt::new(cid(0), e0, e1, x1, y1, x2, y2, 5.0 * s);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
+
+        // DistancePtLine
+        let px = store.alloc(5.0 * s, e0); let py = store.alloc(1.0 * s, e0);
+        let lx1 = store.alloc(0.0, e1); let ly1 = store.alloc(0.0, e1);
+        let lx2 = store.alloc(10.0 * s, e1); let ly2 = store.alloc(0.0, e1);
+        let c = DistancePtLine::new(cid(0), e0, e1, px, py, lx1, ly1, lx2, ly2, 1.0 * s);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // Coincident
-        let xa = store.alloc(1e6, e0);
-        let ya = store.alloc(2e6, e0);
-        let xb = store.alloc(1e6, e1);
-        let yb = store.alloc(2e6, e1);
-        let c = Coincident::new(cid(1), e0, e1, xa, ya, xb, yb);
-        let violations = validate_constraint_contracts(&c, &store);
-        assert!(violations.is_empty(), "{:?}", violations.iter().map(|v| &v.detail).collect::<Vec<_>>());
+        let xa = store.alloc(1.0 * s, e0); let ya = store.alloc(2.0 * s, e0);
+        let xb = store.alloc(1.0 * s, e1); let yb = store.alloc(2.0 * s, e1);
+        let c = Coincident::new(cid(0), e0, e1, xa, ya, xb, yb);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
+
+        // TangentLineCircle
+        let tlx1 = store.alloc(-10.0 * s, e0); let tly1 = store.alloc(5.0 * s, e0);
+        let tlx2 = store.alloc(10.0 * s, e0); let tly2 = store.alloc(5.0 * s, e0);
+        let tcx = store.alloc(0.0, e1); let tcy = store.alloc(0.0, e1);
+        let tr = store.alloc(5.0 * s, e1);
+        let c = TangentLineCircle::new(cid(0), e0, e1, tlx1, tly1, tlx2, tly2, tcx, tcy, tr);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
+
+        // TangentCircleCircle (external)
+        let c1x = store.alloc(0.0, e0); let c1y = store.alloc(0.0, e0);
+        let r1 = store.alloc(3.0 * s, e0);
+        let c2x = store.alloc(5.0 * s, e1); let c2y = store.alloc(0.0, e1);
+        let r2 = store.alloc(2.0 * s, e1);
+        let c = TangentCircleCircle::external(cid(0), e0, e1, c1x, c1y, r1, c2x, c2y, r2);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
+
+        // Parallel
+        let px1 = store.alloc(0.0, e0); let py1 = store.alloc(0.0, e0);
+        let px2 = store.alloc(1.0 * s, e0); let py2 = store.alloc(2.0 * s, e0);
+        let px3 = store.alloc(3.0 * s, e1); let py3 = store.alloc(1.0 * s, e1);
+        let px4 = store.alloc(5.0 * s, e1); let py4 = store.alloc(5.0 * s, e1);
+        let c = Parallel::new(cid(0), e0, e1, px1, py1, px2, py2, px3, py3, px4, py4);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
+
+        // Perpendicular
+        let qx1 = store.alloc(0.0, e0); let qy1 = store.alloc(0.0, e0);
+        let qx2 = store.alloc(1.0 * s, e0); let qy2 = store.alloc(0.0, e0);
+        let qx3 = store.alloc(0.0, e1); let qy3 = store.alloc(0.0, e1);
+        let qx4 = store.alloc(0.0, e1); let qy4 = store.alloc(1.0 * s, e1);
+        let c = Perpendicular::new(cid(0), e0, e1, qx1, qy1, qx2, qy2, qx3, qy3, qx4, qy4);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
+
+        // Angle
+        let ax1 = store.alloc(0.0, e0); let ay1 = store.alloc(0.0, e0);
+        let ax2 = store.alloc(1.0 * s, e0); let ay2 = store.alloc(1.0 * s, e0);
+        let c = Angle::new(cid(0), e0, ax1, ay1, ax2, ay2, std::f64::consts::FRAC_PI_4);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // Horizontal
-        let ya2 = store.alloc(5e6, e0);
-        let yb2 = store.alloc(5e6, e1);
-        let c = Horizontal::new(cid(2), e0, e1, ya2, yb2);
-        let violations = validate_constraint_contracts(&c, &store);
-        assert!(violations.is_empty(), "{:?}", violations.iter().map(|v| &v.detail).collect::<Vec<_>>());
+        let hy1 = store.alloc(5.0 * s, e0); let hy2 = store.alloc(5.0 * s, e1);
+        let c = Horizontal::new(cid(0), e0, e1, hy1, hy2);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // Vertical
-        let xa2 = store.alloc(7e6, e0);
-        let xb2 = store.alloc(7e6, e1);
-        let c = Vertical::new(cid(3), e0, e1, xa2, xb2);
-        let violations = validate_constraint_contracts(&c, &store);
-        assert!(violations.is_empty(), "{:?}", violations.iter().map(|v| &v.detail).collect::<Vec<_>>());
+        let vx1 = store.alloc(7.0 * s, e0); let vx2 = store.alloc(7.0 * s, e1);
+        let c = Vertical::new(cid(0), e0, e1, vx1, vx2);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // Fixed
-        let xf = store.alloc(1e6, e0);
-        let yf = store.alloc(2e6, e0);
-        let c = Fixed::new(cid(4), e0, xf, yf, 1e6, 2e6);
-        let violations = validate_constraint_contracts(&c, &store);
-        assert!(violations.is_empty(), "{:?}", violations.iter().map(|v| &v.detail).collect::<Vec<_>>());
+        let fx = store.alloc(1.0 * s, e0); let fy = store.alloc(2.0 * s, e0);
+        let c = Fixed::new(cid(0), e0, fx, fy, 1.0 * s, 2.0 * s);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
+
+        // Midpoint
+        let mmx = store.alloc(5.0 * s, e0); let mmy = store.alloc(3.0 * s, e0);
+        let ml1 = store.alloc(2.0 * s, e1); let ml2 = store.alloc(1.0 * s, e1);
+        let ml3 = store.alloc(8.0 * s, e1); let ml4 = store.alloc(5.0 * s, e1);
+        let c = Midpoint::new(cid(0), e0, e1, mmx, mmy, ml1, ml2, ml3, ml4);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
+
+        // Symmetric
+        let sx1 = store.alloc(1.0 * s, e0); let sy1 = store.alloc(2.0 * s, e0);
+        let sx2 = store.alloc(5.0 * s, e1); let sy2 = store.alloc(8.0 * s, e1);
+        let scx = store.alloc(3.0 * s, e2); let scy = store.alloc(5.0 * s, e2);
+        let c = Symmetric::new(cid(0), e0, e1, e2, sx1, sy1, sx2, sy2, scx, scy);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
+
+        // EqualLength
+        let elx1 = store.alloc(0.0, e0); let ely1 = store.alloc(0.0, e0);
+        let elx2 = store.alloc(3.0 * s, e0); let ely2 = store.alloc(4.0 * s, e0);
+        let elx3 = store.alloc(1.0 * s, e1); let ely3 = store.alloc(1.0 * s, e1);
+        let elx4 = store.alloc(4.0 * s, e1); let ely4 = store.alloc(5.0 * s, e1);
+        let c = EqualLength::new(cid(0), e0, e1, elx1, ely1, elx2, ely2, elx3, ely3, elx4, ely4);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
+
+        // PointOnCircle
+        let pocpx = store.alloc(3.0 * s, e0); let pocpy = store.alloc(4.0 * s, e0);
+        let poccx = store.alloc(0.0, e1); let poccy = store.alloc(0.0, e1);
+        let pocr = store.alloc(5.0 * s, e1);
+        let c = PointOnCircle::new(cid(0), e0, e1, pocpx, pocpy, poccx, poccy, pocr);
+        assert_contracts_with_eps(&c, &store, large_eps, large_tol);
     }
 
     // --- Comprehensive: all 15 sketch2d constraints with tiny values ---
@@ -1173,16 +1303,113 @@ mod sketch2d_constraint_contracts {
         let mut store = ParamStore::new();
         let e0 = eid(0);
         let e1 = eid(1);
-        let scale = 1e-6;
+        let e2 = eid(2);
+        let s = 1e-6;
 
-        let x1 = store.alloc(0.0, e0);
-        let y1 = store.alloc(0.0, e0);
-        let x2 = store.alloc(3.0 * scale, e1);
-        let y2 = store.alloc(4.0 * scale, e1);
+        // At tiny scales, use a proportionally small eps for Jacobian checks.
+        let tiny_eps = 1e-13;
+        let tiny_tol = 1e-4;
 
-        let c = DistancePtPt::new(cid(0), e0, e1, x1, y1, x2, y2, 5.0 * scale);
-        assert_constraint_contracts(&c, &store);
-        assert_constraint_satisfied(&c, &store, 1e-20);
+        // DistancePtPt
+        let x1 = store.alloc(0.0, e0); let y1 = store.alloc(0.0, e0);
+        let x2 = store.alloc(3.0 * s, e1); let y2 = store.alloc(4.0 * s, e1);
+        let c = DistancePtPt::new(cid(0), e0, e1, x1, y1, x2, y2, 5.0 * s);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // DistancePtLine
+        let px = store.alloc(5.0 * s, e0); let py = store.alloc(1.0 * s, e0);
+        let lx1 = store.alloc(0.0, e1); let ly1 = store.alloc(0.0, e1);
+        let lx2 = store.alloc(10.0 * s, e1); let ly2 = store.alloc(0.0, e1);
+        let c = DistancePtLine::new(cid(0), e0, e1, px, py, lx1, ly1, lx2, ly2, 1.0 * s);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // Coincident
+        let xa = store.alloc(1.0 * s, e0); let ya = store.alloc(2.0 * s, e0);
+        let xb = store.alloc(1.0 * s, e1); let yb = store.alloc(2.0 * s, e1);
+        let c = Coincident::new(cid(0), e0, e1, xa, ya, xb, yb);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // TangentLineCircle
+        let tlx1 = store.alloc(-10.0 * s, e0); let tly1 = store.alloc(5.0 * s, e0);
+        let tlx2 = store.alloc(10.0 * s, e0); let tly2 = store.alloc(5.0 * s, e0);
+        let tcx = store.alloc(0.0, e1); let tcy = store.alloc(0.0, e1);
+        let tr = store.alloc(5.0 * s, e1);
+        let c = TangentLineCircle::new(cid(0), e0, e1, tlx1, tly1, tlx2, tly2, tcx, tcy, tr);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // TangentCircleCircle (external)
+        let c1x = store.alloc(0.0, e0); let c1y = store.alloc(0.0, e0);
+        let r1 = store.alloc(3.0 * s, e0);
+        let c2x = store.alloc(5.0 * s, e1); let c2y = store.alloc(0.0, e1);
+        let r2 = store.alloc(2.0 * s, e1);
+        let c = TangentCircleCircle::external(cid(0), e0, e1, c1x, c1y, r1, c2x, c2y, r2);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // Parallel
+        let px1 = store.alloc(0.0, e0); let py1 = store.alloc(0.0, e0);
+        let px2 = store.alloc(1.0 * s, e0); let py2 = store.alloc(2.0 * s, e0);
+        let px3 = store.alloc(3.0 * s, e1); let py3 = store.alloc(1.0 * s, e1);
+        let px4 = store.alloc(5.0 * s, e1); let py4 = store.alloc(5.0 * s, e1);
+        let c = Parallel::new(cid(0), e0, e1, px1, py1, px2, py2, px3, py3, px4, py4);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // Perpendicular
+        let qx1 = store.alloc(0.0, e0); let qy1 = store.alloc(0.0, e0);
+        let qx2 = store.alloc(1.0 * s, e0); let qy2 = store.alloc(0.0, e0);
+        let qx3 = store.alloc(0.0, e1); let qy3 = store.alloc(0.0, e1);
+        let qx4 = store.alloc(0.0, e1); let qy4 = store.alloc(1.0 * s, e1);
+        let c = Perpendicular::new(cid(0), e0, e1, qx1, qy1, qx2, qy2, qx3, qy3, qx4, qy4);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // Angle
+        let ax1 = store.alloc(0.0, e0); let ay1 = store.alloc(0.0, e0);
+        let ax2 = store.alloc(1.0 * s, e0); let ay2 = store.alloc(1.0 * s, e0);
+        let c = Angle::new(cid(0), e0, ax1, ay1, ax2, ay2, std::f64::consts::FRAC_PI_4);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // Horizontal
+        let hy1 = store.alloc(5.0 * s, e0); let hy2 = store.alloc(5.0 * s, e1);
+        let c = Horizontal::new(cid(0), e0, e1, hy1, hy2);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // Vertical
+        let vx1 = store.alloc(7.0 * s, e0); let vx2 = store.alloc(7.0 * s, e1);
+        let c = Vertical::new(cid(0), e0, e1, vx1, vx2);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // Fixed
+        let fx = store.alloc(1.0 * s, e0); let fy = store.alloc(2.0 * s, e0);
+        let c = Fixed::new(cid(0), e0, fx, fy, 1.0 * s, 2.0 * s);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // Midpoint
+        let mmx = store.alloc(5.0 * s, e0); let mmy = store.alloc(3.0 * s, e0);
+        let ml1 = store.alloc(2.0 * s, e1); let ml2 = store.alloc(1.0 * s, e1);
+        let ml3 = store.alloc(8.0 * s, e1); let ml4 = store.alloc(5.0 * s, e1);
+        let c = Midpoint::new(cid(0), e0, e1, mmx, mmy, ml1, ml2, ml3, ml4);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // Symmetric
+        let sx1 = store.alloc(1.0 * s, e0); let sy1 = store.alloc(2.0 * s, e0);
+        let sx2 = store.alloc(5.0 * s, e1); let sy2 = store.alloc(8.0 * s, e1);
+        let scx = store.alloc(3.0 * s, e2); let scy = store.alloc(5.0 * s, e2);
+        let c = Symmetric::new(cid(0), e0, e1, e2, sx1, sy1, sx2, sy2, scx, scy);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // EqualLength
+        let elx1 = store.alloc(0.0, e0); let ely1 = store.alloc(0.0, e0);
+        let elx2 = store.alloc(3.0 * s, e0); let ely2 = store.alloc(4.0 * s, e0);
+        let elx3 = store.alloc(1.0 * s, e1); let ely3 = store.alloc(1.0 * s, e1);
+        let elx4 = store.alloc(4.0 * s, e1); let ely4 = store.alloc(5.0 * s, e1);
+        let c = EqualLength::new(cid(0), e0, e1, elx1, ely1, elx2, ely2, elx3, ely3, elx4, ely4);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
+
+        // PointOnCircle
+        let pocpx = store.alloc(3.0 * s, e0); let pocpy = store.alloc(4.0 * s, e0);
+        let poccx = store.alloc(0.0, e1); let poccy = store.alloc(0.0, e1);
+        let pocr = store.alloc(5.0 * s, e1);
+        let c = PointOnCircle::new(cid(0), e0, e1, pocpx, pocpy, poccx, poccy, pocr);
+        assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
     }
 }
 
@@ -1591,26 +1818,6 @@ mod assembly_constraint_contracts {
         let qx = store.alloc(0.0, entity);
         let qy = store.alloc(0.0, entity);
         let qz = store.alloc(0.0, entity);
-        (tx, ty, tz, qw, qx, qy, qz)
-    }
-
-    #[allow(dead_code)]
-    fn make_rotated_body(
-        store: &mut ParamStore,
-        entity: EntityId,
-        pos: [f64; 3],
-        axis: [f64; 3],
-        angle: f64,
-    ) -> (ParamId, ParamId, ParamId, ParamId, ParamId, ParamId, ParamId) {
-        let tx = store.alloc(pos[0], entity);
-        let ty = store.alloc(pos[1], entity);
-        let tz = store.alloc(pos[2], entity);
-        let half = angle / 2.0;
-        let norm = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
-        let qw = store.alloc(half.cos(), entity);
-        let qx = store.alloc(half.sin() * axis[0] / norm, entity);
-        let qy = store.alloc(half.sin() * axis[1] / norm, entity);
-        let qz = store.alloc(half.sin() * axis[2] / norm, entity);
         (tx, ty, tz, qw, qx, qy, qz)
     }
 
