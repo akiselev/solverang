@@ -3,12 +3,16 @@
 //! Tests quaternion-based rigid body constraints: Mate, CoaxialAssembly,
 //! Insert, Gear, and UnitQuaternion.
 
+mod common;
+
 use proptest::prelude::*;
 use solverang::assembly::{CoaxialAssembly, Gear, Insert, Mate, UnitQuaternion};
 use solverang::constraint::Constraint;
 use solverang::id::{ConstraintId, EntityId, ParamId};
 use solverang::param::ParamStore;
 use solverang::ConstraintSystem;
+
+use common::check_jacobian_fd;
 
 // =============================================================================
 // Helpers
@@ -45,42 +49,6 @@ fn alloc_body(ctx: &mut TestCtx, entity: EntityId, pos: [f64; 3], quat: [f64; 4]
     let qy = ctx.alloc(quat[2], entity);
     let qz = ctx.alloc(quat[3], entity);
     BodyParams { tx, ty, tz, qw, qx, qy, qz }
-}
-
-/// Central finite-difference Jacobian check with scaled step and relative tolerance.
-fn check_jacobian_fd(constraint: &dyn Constraint, store: &ParamStore, eps: f64, tol: f64) -> bool {
-    let params = constraint.param_ids().to_vec();
-    let analytical = constraint.jacobian(store);
-
-    for eq in 0..constraint.equation_count() {
-        for &pid in &params {
-            let orig = store.get(pid);
-            let h = eps * (1.0 + orig.abs());
-
-            let mut plus = store.clone();
-            plus.set(pid, orig + h);
-            let r_plus = constraint.residuals(&plus);
-
-            let mut minus = store.clone();
-            minus.set(pid, orig - h);
-            let r_minus = constraint.residuals(&minus);
-
-            let fd = (r_plus[eq] - r_minus[eq]) / (2.0 * h);
-
-            let ana: f64 = analytical
-                .iter()
-                .filter(|&&(r, p, _)| r == eq && p == pid)
-                .map(|&(_, _, v)| v)
-                .sum();
-
-            let error = (fd - ana).abs();
-            let scale = 1.0 + fd.abs().max(ana.abs());
-            if error >= tol * scale {
-                return false;
-            }
-        }
-    }
-    true
 }
 
 // =============================================================================

@@ -1,9 +1,11 @@
+#![cfg(feature = "geometry")]
 //! Property-based tests for the geometry module constraints.
 //!
 //! The geometry module uses `GeometricConstraint<D>` trait which operates on
 //! `&[Point<D>]` instead of `ParamStore`. This test file covers both 2D and 3D
 //! variants with satisfaction, Jacobian correctness, and invariance properties.
 
+use std::collections::HashMap;
 use proptest::prelude::*;
 use solverang::geometry::constraints::{
     CoincidentConstraint, CollinearConstraint, DistanceConstraint, EqualLengthConstraint,
@@ -20,6 +22,7 @@ use solverang::geometry::{Point, Point2D, Point3D};
 /// Central finite-difference Jacobian check for `GeometricConstraint<D>`.
 ///
 /// The Jacobian entries are `(row, col, value)` where `col = point_idx * D + coord`.
+/// Uses a `HashMap<(usize, usize), f64>` for O(1) analytical Jacobian lookup.
 fn check_jacobian_fd<const D: usize>(
     constraint: &dyn GeometricConstraint<D>,
     points: &[Point<D>],
@@ -29,6 +32,12 @@ fn check_jacobian_fd<const D: usize>(
     let analytical = constraint.jacobian(points);
     let n_eq = constraint.equation_count();
     let n_cols = points.len() * D;
+
+    // Build HashMap for O(1) lookup: (equation_index, column) -> value
+    let mut ana_map: HashMap<(usize, usize), f64> = HashMap::new();
+    for &(eq, col, val) in &analytical {
+        *ana_map.entry((eq, col)).or_insert(0.0) += val;
+    }
 
     for eq in 0..n_eq {
         for col in 0..n_cols {
@@ -48,11 +57,7 @@ fn check_jacobian_fd<const D: usize>(
 
             let fd = (r_plus[eq] - r_minus[eq]) / (2.0 * h);
 
-            let ana: f64 = analytical
-                .iter()
-                .filter(|&&(r, c, _)| r == eq && c == col)
-                .map(|&(_, _, v)| v)
-                .sum();
+            let ana = ana_map.get(&(eq, col)).copied().unwrap_or(0.0);
 
             let error = (fd - ana).abs();
             let scale = 1.0 + fd.abs().max(ana.abs());

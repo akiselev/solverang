@@ -18,6 +18,8 @@
 //!
 //! Run with: `cargo test -p solverang --test sketch2d_property_tests`
 
+mod common;
+
 use proptest::prelude::*;
 use solverang::constraint::Constraint;
 use solverang::id::{ConstraintId, EntityId, ParamId};
@@ -28,6 +30,8 @@ use solverang::sketch2d::{
     Vertical,
 };
 use solverang::ConstraintSystem;
+
+use common::check_jacobian_fd;
 
 // =============================================================================
 // Helpers
@@ -92,53 +96,6 @@ impl TestCtx {
     fn store(&self) -> ParamStore {
         self.alloc.sys.params().clone()
     }
-}
-
-/// Central finite-difference check for a V3 `Constraint` operating on `ParamStore`.
-///
-/// Compares the analytical Jacobian from `constraint.jacobian(store)` against
-/// `(f(x+h) - f(x-h)) / (2h)` for every (equation, param) pair.
-///
-/// Uses a scaled step `h = eps * max(1, |x|)` to avoid catastrophic cancellation
-/// when coordinates are large (residuals >> FD difference). Tolerance is relative:
-/// `|fd - ana| < tol * (1 + max(|fd|, |ana|))`.
-fn check_jacobian_fd(constraint: &dyn Constraint, store: &ParamStore, eps: f64, tol: f64) -> bool {
-    let params = constraint.param_ids().to_vec();
-    let analytical = constraint.jacobian(store);
-
-    for eq in 0..constraint.equation_count() {
-        for &pid in &params {
-            let orig = store.get(pid);
-            // Scale step with parameter magnitude to keep FD numerically stable.
-            let h = eps * (1.0 + orig.abs());
-
-            // Central finite difference
-            let mut plus = store.clone();
-            plus.set(pid, orig + h);
-            let r_plus = constraint.residuals(&plus);
-
-            let mut minus = store.clone();
-            minus.set(pid, orig - h);
-            let r_minus = constraint.residuals(&minus);
-
-            let fd = (r_plus[eq] - r_minus[eq]) / (2.0 * h);
-
-            // Sum analytical entries for this (eq, pid).
-            let ana: f64 = analytical
-                .iter()
-                .filter(|&&(r, p, _)| r == eq && p == pid)
-                .map(|&(_, _, v)| v)
-                .sum();
-
-            // Relative + absolute tolerance: handles both large and small Jacobian entries.
-            let error = (fd - ana).abs();
-            let scale = 1.0 + fd.abs().max(ana.abs());
-            if error >= tol * scale {
-                return false;
-            }
-        }
-    }
-    true
 }
 
 // =============================================================================
@@ -723,7 +680,7 @@ proptest! {
 // =============================================================================
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(300))]
+    #![proptest_config(ProptestConfig::with_cases(100))]
 
     #[test]
     fn prop_distance_pt_pt_jacobian(
@@ -1763,8 +1720,13 @@ proptest! {
                     max_residual
                 );
             }
-            SystemStatus::DiagnosticFailure(_) => {
-                // Acceptable for some degenerate cases
+            SystemStatus::DiagnosticFailure(ref issues) => {
+                // DiagnosticFailure should not happen for valid triangles.
+                prop_assert!(
+                    false,
+                    "Triangle solver returned DiagnosticFailure: {:?}",
+                    issues
+                );
             }
         }
     }

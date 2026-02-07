@@ -4,6 +4,8 @@
 //! constraint types, including constraint satisfaction, Jacobian correctness,
 //! and coordinate transformation invariance.
 
+mod common;
+
 use proptest::prelude::*;
 use solverang::constraint::Constraint;
 use solverang::id::{ConstraintId, EntityId, ParamId};
@@ -13,6 +15,8 @@ use solverang::sketch3d::{
     Perpendicular3D, PointOnPlane,
 };
 use solverang::ConstraintSystem;
+
+use common::check_jacobian_fd;
 
 // =============================================================================
 // Helpers
@@ -33,42 +37,6 @@ impl TestCtx {
         self.sys.alloc_param(value, owner)
     }
     fn store(&self) -> ParamStore { self.sys.params().clone() }
-}
-
-/// Central finite-difference Jacobian check with scaled step and relative tolerance.
-fn check_jacobian_fd(constraint: &dyn Constraint, store: &ParamStore, eps: f64, tol: f64) -> bool {
-    let params = constraint.param_ids().to_vec();
-    let analytical = constraint.jacobian(store);
-
-    for eq in 0..constraint.equation_count() {
-        for &pid in &params {
-            let orig = store.get(pid);
-            let h = eps * (1.0 + orig.abs());
-
-            let mut plus = store.clone();
-            plus.set(pid, orig + h);
-            let r_plus = constraint.residuals(&plus);
-
-            let mut minus = store.clone();
-            minus.set(pid, orig - h);
-            let r_minus = constraint.residuals(&minus);
-
-            let fd = (r_plus[eq] - r_minus[eq]) / (2.0 * h);
-
-            let ana: f64 = analytical
-                .iter()
-                .filter(|&&(r, p, _)| r == eq && p == pid)
-                .map(|&(_, _, v)| v)
-                .sum();
-
-            let error = (fd - ana).abs();
-            let scale = 1.0 + fd.abs().max(ana.abs());
-            if error >= tol * scale {
-                return false;
-            }
-        }
-    }
-    true
 }
 
 // =============================================================================
