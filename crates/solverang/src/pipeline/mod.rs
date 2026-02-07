@@ -18,6 +18,11 @@ pub mod post_process;
 pub mod reduce;
 pub mod solve_phase;
 
+#[cfg(test)]
+mod minpack_bridge_tests;
+#[cfg(test)]
+mod incremental_tests;
+
 // ---------------------------------------------------------------------------
 // Re-exports
 // ---------------------------------------------------------------------------
