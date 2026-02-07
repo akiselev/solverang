@@ -453,14 +453,21 @@ impl Constraint for G2ContinuityConstraint {
         // f = cross_a * mag_b³ - cross_b * mag_a³
 
         // Derivatives w.r.t. P1_a (affects v2 and cross_a)
-        let dcross_a_dp1a_x = -v1_y;
-        let dcross_a_dp1a_y = v1_x;
+        // v2 = P3_a - P1_a, so dv2/dp1a = -1
+        // cross_a = v1_x*v2_y - v1_y*v2_x
+        // dcross_a/dp1a_x = dcross_a/dv2_x * (-1) = (-v1_y)*(-1) = v1_y
+        // dcross_a/dp1a_y = dcross_a/dv2_y * (-1) = v1_x*(-1) = -v1_x
+        let dcross_a_dp1a_x = v1_y;
+        let dcross_a_dp1a_y = -v1_x;
         jac.push((3, self.bezier1.start + 2, dcross_a_dp1a_x * mag_b_cubed));
         jac.push((3, self.bezier1.start + 3, dcross_a_dp1a_y * mag_b_cubed));
 
         // Derivatives w.r.t. P2_a (affects v1, cross_a, mag_a)
-        let dcross_a_dp2a_x = v2_y;
-        let dcross_a_dp2a_y = -v2_x;
+        // v1 = P3_a - P2_a, so dv1/dp2a = -1
+        // dcross_a/dp2a_x = dcross_a/dv1_x * (-1) = v2_y * (-1) = -v2_y
+        // dcross_a/dp2a_y = dcross_a/dv1_y * (-1) = (-v2_x) * (-1) = v2_x
+        let dcross_a_dp2a_x = -v2_y;
+        let dcross_a_dp2a_y = v2_x;
         let dmag_a_cubed_dp2a_x = -3.0 * mag_a * v1_x;
         let dmag_a_cubed_dp2a_y = -3.0 * mag_a * v1_y;
         jac.push((3, self.bezier1.start + 4, dcross_a_dp2a_x * mag_b_cubed - cross_b * dmag_a_cubed_dp2a_x));
@@ -475,24 +482,33 @@ impl Constraint for G2ContinuityConstraint {
         jac.push((3, self.bezier1.start + 7, dcross_a_dp3a_y * mag_b_cubed - cross_b * dmag_a_cubed_dp3a_y));
 
         // Derivatives w.r.t. P0_b (affects u1, u2, cross_b, mag_b)
-        let dcross_b_dp0b_x = u2_y - u1_y;
-        let dcross_b_dp0b_y = -u2_x + u1_x;
+        // u1 = P1_b - P0_b, du1/dp0b = -1; u2 = P2_b - P0_b, du2/dp0b = -1
+        // dcross_b/dp0b_x = u2_y*(-1) + (-u1_y)*(-1) = -u2_y + u1_y = u1_y - u2_y
+        // dcross_b/dp0b_y = (-u2_x)*(-1) + u1_x*(-1) = u2_x - u1_x
+        let dcross_b_dp0b_x = u1_y - u2_y;
+        let dcross_b_dp0b_y = u2_x - u1_x;
         let dmag_b_cubed_dp0b_x = -3.0 * mag_b * u1_x;
         let dmag_b_cubed_dp0b_y = -3.0 * mag_b * u1_y;
         jac.push((3, self.bezier2.start, cross_a * dmag_b_cubed_dp0b_x - dcross_b_dp0b_x * mag_a_cubed));
         jac.push((3, self.bezier2.start + 1, cross_a * dmag_b_cubed_dp0b_y - dcross_b_dp0b_y * mag_a_cubed));
 
         // Derivatives w.r.t. P1_b (affects u1, cross_b, mag_b)
-        let dcross_b_dp1b_x = -u2_y;
-        let dcross_b_dp1b_y = u2_x;
+        // u1 = P1_b - P0_b, so du1/dp1b = +1
+        // dcross_b/dp1b_x = u2_y * (+1) = u2_y
+        // dcross_b/dp1b_y = (-u2_x) * (+1) = -u2_x
+        let dcross_b_dp1b_x = u2_y;
+        let dcross_b_dp1b_y = -u2_x;
         let dmag_b_cubed_dp1b_x = 3.0 * mag_b * u1_x;
         let dmag_b_cubed_dp1b_y = 3.0 * mag_b * u1_y;
         jac.push((3, self.bezier2.start + 2, cross_a * dmag_b_cubed_dp1b_x - dcross_b_dp1b_x * mag_a_cubed));
         jac.push((3, self.bezier2.start + 3, cross_a * dmag_b_cubed_dp1b_y - dcross_b_dp1b_y * mag_a_cubed));
 
         // Derivatives w.r.t. P2_b (affects u2 and cross_b)
-        let dcross_b_dp2b_x = u1_y;
-        let dcross_b_dp2b_y = -u1_x;
+        // u2 = P2_b - P0_b, so du2/dp2b = +1
+        // dcross_b/dp2b_x = (-u1_y) * (+1) = -u1_y
+        // dcross_b/dp2b_y = u1_x * (+1) = u1_x
+        let dcross_b_dp2b_x = -u1_y;
+        let dcross_b_dp2b_y = u1_x;
         jac.push((3, self.bezier2.start + 4, -dcross_b_dp2b_x * mag_a_cubed));
         jac.push((3, self.bezier2.start + 5, -dcross_b_dp2b_y * mag_a_cubed));
 
