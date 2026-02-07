@@ -48,8 +48,8 @@ name = "_solverang"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }
-numpy = "0.23"
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39"] }
+numpy = "0.22"
 solverang = { path = "../solverang", features = ["geometry", "parallel", "sparse"] }
 ```
 
@@ -123,6 +123,11 @@ problem = sr.Problem(
 ```
 
 ### Rust Implementation
+
+> **Note**: The code sketches below use `.unwrap()` for brevity. In the actual
+> implementation, all fallible operations will use proper error handling via
+> `PyResult` / `PyErr` propagation, as detailed in the Error Handling Strategy
+> section at the end of this document.
 
 ```rust
 #[pyclass(frozen)]
@@ -722,8 +727,9 @@ impl PyConstraintSystem2D {
 - **Larger API surface** than either A or B alone
 - **Two different mental models** for defining problems
 - **`solve()` function has many optional parameters** -- could be confusing
-- **Imperative geometry API loses Rust builder's fluent chaining** (methods return
-  `None` in Python, not `self`)
+- **Imperative geometry API loses Rust builder's fluent chaining** -- constraint
+  methods (`constrain_*`) return `None`, though entity creation methods like
+  `add_point` return a handle/index (which is actually more useful)
 
 ---
 
@@ -1323,29 +1329,25 @@ impl ExprProblem {
             let reg = expr.emit(&mut emitter);
             emitter.store_residual(i as u32, reg);
         }
-        let residual_ops = emitter.take_ops();
+        let residual_ops = emitter.into_ops();
 
         // Emit jacobian opcodes
+        // Uses the existing OpcodeEmitter API: store_jacobian(row, col, reg)
+        // manages the Jacobian pattern internally.
         let mut emitter = OpcodeEmitter::new();
-        let mut pattern = Vec::new();
         for (row, jac_row) in self.jacobian_exprs.iter().enumerate() {
             for (col, deriv_expr) in jac_row {
                 let reg = deriv_expr.emit(&mut emitter);
-                let idx = pattern.len() as u32;
-                emitter.store_jacobian_indexed(idx, reg);
-                pattern.push(JacobianEntry { row: row as u32, col: *col });
+                emitter.store_jacobian(row as u32, *col, reg);
             }
         }
-        let jacobian_ops = emitter.take_ops();
+        let jacobian_ops = emitter.into_ops();
 
         let compiled = CompiledConstraints {
             residual_ops,
             jacobian_ops,
             n_residuals: self.residual_exprs.len(),
             n_vars: self.num_vars,
-            jacobian_nnz: pattern.len(),
-            jacobian_pattern: pattern,
-            max_register: emitter.max_register(),
         };
 
         match JITCompiler::new().and_then(|c| c.compile(&compiled)) {

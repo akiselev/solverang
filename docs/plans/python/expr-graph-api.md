@@ -525,7 +525,23 @@ FCmp {
 },
 
 /// Branchless conditional select: dst = condition != 0 ? true_val : false_val.
-/// Both operands are always evaluated. Lowers to Cranelift select (cmov/csel).
+/// Lowers to Cranelift select (cmov/csel on hardware).
+///
+/// SAFETY NOTE: In the branchless opcode stream, both branches are computed
+/// before the select. For domain-restricted operations (sqrt of negative,
+/// division by zero), users must guard the branch inputs to avoid NaN/Inf.
+/// The library provides safe_div() and safe_sqrt() helpers for common cases.
+///
+/// ALTERNATIVE: For cases where branch evaluation cost or domain safety is
+/// critical, we can emit basic blocks with conditional jumps instead of
+/// cmov. This is a compilation strategy choice -- the RuntimeExpr::Select
+/// node can lower to either form. The branchless form is preferred for
+/// solver workloads because:
+///   1. No branch mispredictions (solver evaluates at many different x values)
+///   2. Flat opcode stream (simpler JIT, simpler interpreted fallback)
+///   3. Both branches are typically cheap arithmetic
+/// If profiling shows that lazy evaluation is needed (e.g., one branch is
+/// very expensive), we can add a LazySelect variant that uses basic blocks.
 Select {
     dst: Reg,
     condition: Reg,
@@ -660,8 +676,8 @@ name = "_solverang"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }
-numpy = "0.23"
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39"] }
+numpy = "0.22"
 solverang = { path = "../solverang", features = [
     "geometry", "jit", "runtime-expr", "parallel", "sparse"
 ] }
@@ -769,8 +785,28 @@ impl PyExpr {
     // ─── Comparison operators (return Expr, not bool) ───
     // Python's __gt__ etc. must return a type that Python can use.
     // We return PyExpr wrapping a Compare node.
-    // IMPORTANT: __eq__ and __ne__ returning non-bool breaks hashing;
-    // we use named methods instead of overloading __eq__/__ne__.
+    //
+    // __eq__ and __ne__ are overloaded to raise TypeError, preventing
+    // silent bugs where `x == y` would use Python's default identity
+    // comparison (always False) instead of building a Compare node.
+    // Users must use sr.eq(x, y) for equality comparisons in expressions
+    // and sr.ne(x, y) for inequality. This follows the "errors should
+    // never pass silently" principle from the Zen of Python.
+
+    fn __eq__(&self, _other: ExprOrFloat) -> PyResult<bool> {
+        Err(PyTypeError::new_err(
+            "Cannot use == on Expr objects (it would break hashing). \
+             Use sr.eq(a, b) to build an equality comparison expression, \
+             or sr.ne(a, b) for inequality."
+        ))
+    }
+
+    fn __ne__(&self, _other: ExprOrFloat) -> PyResult<bool> {
+        Err(PyTypeError::new_err(
+            "Cannot use != on Expr objects (it would break hashing). \
+             Use sr.ne(a, b) to build an inequality comparison expression."
+        ))
+    }
 
     fn __gt__(&self, other: ExprOrFloat) -> Self {
         PyExpr {
@@ -839,22 +875,45 @@ File: crates/solverang-python/src/functions.rs
 ```
 
 ```rust
-/// Create symbolic variables.
+use std::sync::atomic::{AtomicU32, Ordering};
+
+/// Global allocator for unique variable indices across all `variables()` calls.
+/// This prevents index collisions when variables are created in separate calls:
+///   x = sr.variables("x")   # Var(0)
+///   y = sr.variables("y")   # Var(1), not Var(0)!
+///
+/// Can be reset with sr.reset_variables() for a fresh problem.
+static NEXT_VAR_INDEX: AtomicU32 = AtomicU32::new(0);
+
+/// Create symbolic variables with globally unique indices.
 /// Usage: x, y = sr.variables("x y")
 ///        xs = sr.variables("x", count=10)
 #[pyfunction]
 #[pyo3(signature = (names, *, count=None))]
 fn variables(names: &str, count: Option<usize>) -> Vec<PyExpr> {
     match count {
-        Some(n) => (0..n).map(|i| PyExpr {
-            inner: RuntimeExpr::Var(i as u32),
-            name: Some(format!("{}_{}", names.trim(), i)),
+        Some(n) => (0..n).map(|i| {
+            let idx = NEXT_VAR_INDEX.fetch_add(1, Ordering::Relaxed);
+            PyExpr {
+                inner: RuntimeExpr::Var(idx),
+                name: Some(format!("{}_{}", names.trim(), i)),
+            }
         }).collect(),
-        None => names.split_whitespace().enumerate().map(|(i, name)| PyExpr {
-            inner: RuntimeExpr::Var(i as u32),
-            name: Some(name.to_string()),
+        None => names.split_whitespace().map(|name| {
+            let idx = NEXT_VAR_INDEX.fetch_add(1, Ordering::Relaxed);
+            PyExpr {
+                inner: RuntimeExpr::Var(idx),
+                name: Some(name.to_string()),
+            }
         }).collect(),
     }
+}
+
+/// Reset the global variable index counter. Call before defining a new problem
+/// to start variable indices from 0.
+#[pyfunction]
+fn reset_variables() {
+    NEXT_VAR_INDEX.store(0, Ordering::Relaxed);
 }
 
 /// Module-level math functions that operate on expressions.
@@ -923,6 +982,59 @@ fn smooth_abs(e: ExprOrFloat, epsilon: f64) -> PyExpr {
     }
 }
 
+/// Safe division: a / b when b != 0, else fill (default 0.0).
+/// Avoids NaN/Inf from division by zero in both-branches-evaluated Select nodes.
+#[pyfunction]
+#[pyo3(signature = (a, b, fill=0.0))]
+fn safe_div(a: ExprOrFloat, b: ExprOrFloat, fill: f64) -> PyExpr {
+    let a_expr = a.into_expr();
+    let b_expr = b.into_expr();
+    PyExpr {
+        inner: RuntimeExpr::Select {
+            condition: Box::new(RuntimeExpr::Compare {
+                a: Box::new(b_expr.clone()),
+                b: Box::new(RuntimeExpr::Const(0.0)),
+                cond: CmpCondition::Ne,
+            }),
+            on_true: Box::new(RuntimeExpr::Div(
+                Box::new(a_expr),
+                Box::new(b_expr),
+            )),
+            on_false: Box::new(RuntimeExpr::Const(fill)),
+        },
+        name: None,
+    }
+}
+
+/// Equality comparison as expression node: sr.eq(a, b) → Compare(a, b, Eq)
+/// Returns an Expr (not bool). Use instead of == which raises TypeError.
+#[pyfunction]
+#[pyo3(name = "eq")]
+fn expr_eq(a: ExprOrFloat, b: ExprOrFloat) -> PyExpr {
+    PyExpr {
+        inner: RuntimeExpr::Compare {
+            a: Box::new(a.into_expr()),
+            b: Box::new(b.into_expr()),
+            cond: CmpCondition::Eq,
+        },
+        name: None,
+    }
+}
+
+/// Inequality comparison as expression node: sr.ne(a, b) → Compare(a, b, Ne)
+/// Returns an Expr (not bool). Use instead of != which raises TypeError.
+#[pyfunction]
+fn ne(a: ExprOrFloat, b: ExprOrFloat) -> PyExpr {
+    PyExpr {
+        inner: RuntimeExpr::Compare {
+            a: Box::new(a.into_expr()),
+            b: Box::new(b.into_expr()),
+            cond: CmpCondition::Ne,
+        },
+        name: None,
+    }
+}
+
 /// Clamp: max(lo, min(hi, x))
 #[pyfunction]
 fn clamp(e: ExprOrFloat, lo: ExprOrFloat, hi: ExprOrFloat) -> PyExpr {
@@ -947,6 +1059,15 @@ File: crates/solverang-python/src/solve.rs
 ```
 
 ```rust
+/// Accept x0 as either a Python list or a numpy array.
+/// This matches user expectations from the examples (x0=[0.5, 0.5])
+/// while also supporting numpy arrays for larger problems.
+#[derive(FromPyObject)]
+enum InitialPoint<'py> {
+    Array(PyReadonlyArray1<'py, f64>),
+    List(Vec<f64>),
+}
+
 #[pyfunction]
 #[pyo3(signature = (*, residuals=None, equations=None, x0,
                     solver=None, tolerance=None, max_iterations=None))]
@@ -954,21 +1075,37 @@ fn solve(
     py: Python<'_>,
     residuals: Option<Vec<PyExpr>>,
     equations: Option<Vec<PyExpr>>,
-    x0: PyReadonlyArray1<'_, f64>,
+    x0: InitialPoint<'_>,
     solver: Option<&str>,
     tolerance: Option<f64>,
     max_iterations: Option<usize>,
 ) -> PyResult<PySolveResult> {
-    let exprs: Vec<RuntimeExpr> = residuals.or(equations)
-        .ok_or_else(|| PyValueError::new_err(
-            "must provide 'residuals' or 'equations'"
-        ))?
-        .into_iter()
+    // Error if both or neither residuals/equations provided
+    let expr_vec: Vec<PyExpr> = match (residuals, equations) {
+        (Some(res), None) => res,
+        (None, Some(eq)) => eq,
+        (Some(_), Some(_)) => {
+            return Err(PyValueError::new_err(
+                "must provide exactly one of 'residuals' or 'equations', not both",
+            ));
+        }
+        (None, None) => {
+            return Err(PyValueError::new_err(
+                "must provide 'residuals' or 'equations'",
+            ));
+        }
+    };
+
+    let exprs: Vec<RuntimeExpr> = expr_vec.into_iter()
         .map(|e| e.inner)
         .collect();
 
-    let x0_slice = x0.as_slice()?;
-    let num_vars = x0_slice.len();
+    // Convert x0 to Vec<f64> regardless of input type
+    let x0_vec: Vec<f64> = match x0 {
+        InitialPoint::Array(arr) => arr.as_slice()?.to_vec(),
+        InitialPoint::List(v) => v,
+    };
+    let num_vars = x0_vec.len();
 
     // Validate: all variable indices must be < num_vars
     for (i, expr) in exprs.iter().enumerate() {
@@ -986,7 +1123,6 @@ fn solve(
     let problem = ExprProblem::new("python_expr".into(), num_vars, exprs);
 
     // Solve with GIL released
-    let x0_vec = x0_slice.to_vec();
     let result = py.allow_threads(move || {
         match solver.unwrap_or("auto") {
             "auto" => AutoSolver::new().solve(&problem, &x0_vec),
@@ -999,7 +1135,14 @@ fn solve(
             "lm" | "levenberg-marquardt" => {
                 let mut config = LMConfig::default();
                 if let Some(tol) = tolerance { config = config.with_tol(tol); }
-                if let Some(max) = max_iterations { config.patience = max; }
+                if let Some(max) = max_iterations {
+                    // LMConfig.patience controls max function evaluations via:
+                    //   max_fev = patience * (num_vars + 1)
+                    // Translate the user-facing max_iterations into patience,
+                    // ensuring at least 1 unit of patience.
+                    let evals_per_unit = num_vars + 1;
+                    config.patience = std::cmp::max(1, max / evals_per_unit);
+                }
                 LMSolver::new(config).solve(&problem, &x0_vec)
             }
             _ => /* error */
@@ -1084,8 +1227,10 @@ fn _solverang(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySolveResult>()?;
 
     m.add_function(wrap_pyfunction!(variables, m)?)?;
+    m.add_function(wrap_pyfunction!(reset_variables, m)?)?;
     m.add_function(wrap_pyfunction!(solve, m)?)?;
     m.add_function(wrap_pyfunction!(eq, m)?)?;
+    m.add_function(wrap_pyfunction!(ne, m)?)?;
     m.add_function(wrap_pyfunction!(where_, m)?)?;
 
     // Math functions
@@ -1097,6 +1242,7 @@ fn _solverang(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(max, m)?)?;
     m.add_function(wrap_pyfunction!(min, m)?)?;
     m.add_function(wrap_pyfunction!(smooth_abs, m)?)?;
+    m.add_function(wrap_pyfunction!(safe_div, m)?)?;
     m.add_function(wrap_pyfunction!(clamp, m)?)?;
 
     // Exceptions
@@ -1120,23 +1266,27 @@ File: crates/solverang-python/python/solverang/__init__.py
 from ._solverang import (
     Expr,
     SolveResult,
-    variables,
+    variables, reset_variables,
     solve,
-    eq,
+    eq, ne,
+    where,
     sqrt, sin, cos, tan, atan2,
     max, min,
-    smooth_abs, clamp,
+    smooth_abs, safe_div, clamp,
     SolverError, ConvergenceError, DimensionError,
 )
 
-# Re-export where (reserved keyword in Python, aliased in Rust)
-from ._solverang import where as where_
+# Note: `where` is NOT a Python keyword (unlike `for`, `if`, `class`).
+# It can be used directly as an identifier. We also provide `where_`
+# as an alias for users who prefer the trailing-underscore convention.
+where_ = where
 
 __all__ = [
     "Expr", "SolveResult",
-    "variables", "solve", "eq", "where_",
+    "variables", "reset_variables", "solve",
+    "eq", "ne", "where", "where_",
     "sqrt", "sin", "cos", "tan", "atan2",
-    "max", "min", "smooth_abs", "clamp",
+    "max", "min", "smooth_abs", "safe_div", "clamp",
     "SolverError", "ConvergenceError", "DimensionError",
 ]
 ```
@@ -1468,13 +1618,25 @@ for any input. For example:
 # DANGEROUS: division by zero in false branch when x > 0
 r = sr.where(x > 0, x, 1.0 / x)  # 1/x is computed even when x > 0
 
-# SAFE: guard the denominator
-r = sr.where(x > 0, x, 1.0 / sr.where(x != 0, x, 1.0))
+# SAFE: use safe_div which guards against zero denominators
+r = sr.where(x > 0, x, sr.safe_div(1.0, x))
+
+# SAFE: or guard the denominator manually
+r = sr.where(x > 0, x, 1.0 / sr.where(sr.ne(x, 0), x, 1.0))
+
+# SAFE: use sqrt with safe_distance for domain safety
+r = sr.where(x > 0, sr.sqrt(x), 0.0)   # sqrt(neg) = NaN!
+r = sr.where(x > 0, sr.sqrt(sr.max(x, 0.0)), 0.0)  # guarded
 ```
 
+The library provides `sr.safe_div(a, b, fill=0.0)` which evaluates to
+`a / b` when `b != 0` and `fill` otherwise, using a single `Select` node
+internally. This makes guarded division ergonomic and less error-prone
+than nested `sr.where()` calls.
+
 This is the same constraint that PyTorch's `torch.where` has. Document it
-clearly and provide the `smooth_abs`/`smooth_max` alternatives for cases
-where the exact boundary matters.
+clearly and provide the `smooth_abs`/`smooth_max`/`safe_div` alternatives
+for cases where the exact boundary matters.
 
 ### Comparison to JAX/PyTorch
 
