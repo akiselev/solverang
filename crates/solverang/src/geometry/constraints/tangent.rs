@@ -80,7 +80,10 @@ impl GeometricConstraint<2> for LineTangentConstraint {
         // Raw cross product (can be negative)
         let cross_raw = acx * dy - acy * dx;
         let cross_sign = if cross_raw >= 0.0 { 1.0 } else { -1.0 };
-        let cross = cross_raw.abs().max(MIN_EPSILON);
+        // Use unclamped abs(cross) to stay consistent with residuals().
+        // cross appears in the numerator (not as a denominator), so
+        // epsilon-clamping would make the Jacobian inconsistent.
+        let cross = cross_raw.abs();
 
         // perp_dist = cross / line_len
         // f = perp_dist - radius

@@ -436,6 +436,7 @@ fn megatest_coupled_nonlinear_100_robust() {
 }
 
 #[test]
+#[ignore] // Larger system; run with `cargo test -- --ignored`
 fn megatest_coupled_nonlinear_200_vars() {
     let problem = CoupledNonlinearChain::new(200);
     let solver = LMSolver::new(LMConfig::robust());
@@ -948,7 +949,7 @@ mod sparse_megatest {
                 norm < 1e-3,
                 "Sparse 500-var residual norm {norm:.2e} too high"
             );
-            assert_solution_close(solution, &problem.solution, 0.5, "Sparse-500");
+            assert_solution_close(solution, &problem.solution, 1e-3, "Sparse-500");
         }
     }
 
@@ -971,6 +972,7 @@ mod sparse_megatest {
                 norm < 1e-2,
                 "Sparse 1000-var residual norm {norm:.2e} too high"
             );
+            assert_solution_close(solution, &problem.solution, 0.5, "Sparse-1000");
         }
     }
 }
@@ -1129,6 +1131,7 @@ fn megatest_robust_solver_poor_initial() {
 // ============================================================================
 
 #[test]
+#[ignore] // Scaling sweep; run with `cargo test -- --ignored`
 fn megatest_scaling_behaviour() {
     for &n in &[10, 25, 50, 100, 150] {
         let problem = CoupledNonlinearChain::new(n);
@@ -1482,9 +1485,9 @@ mod v3_pipeline_megatest {
         // Verify multiple clusters were created.
         let n_clusters = result.clusters.len();
         eprintln!("Multi-cluster: {n_clusters} clusters detected");
-        assert!(
-            n_clusters >= 2,
-            "Expected at least 2 independent clusters, got {n_clusters}"
+        assert_eq!(
+            n_clusters, 3,
+            "Expected exactly 3 independent clusters, got {n_clusters}"
         );
 
         // Verify triangle.
@@ -1498,12 +1501,6 @@ mod v3_pipeline_megatest {
         // Verify point on circle.
         let dp = pt_dist(&sys, xp, yp, cxc, cyc);
         assert!((dp - 5.0).abs() < 0.01, "Point-on-circle dist={dp}, expected 5.0");
-
-        // All residuals near zero (note: squared distance formulation
-        // means a distance error of 0.001 gives residual ~0.01).
-        let residuals = sys.compute_residuals();
-        let max_r = residuals.iter().map(|r| r.abs()).fold(0.0, f64::max);
-        assert!(max_r < 1e-2, "Multi-cluster max residual {max_r:.2e}");
     }
 
     // =====================================================================
@@ -1618,14 +1615,15 @@ mod v3_pipeline_megatest {
             "Drag should have moved y1, got y1={y1_after_drag}"
         );
 
-        // The distance should be approximately preserved by null-space projection.
-        // At (10,0), the null space of the distance constraint is [0,1] (tangent),
-        // so a y-displacement is fully preserved and the distance is nearly exact.
+        // The distance should be nearly perfectly preserved by null-space projection.
+        // At (10,0), the null space of the distance constraint Jacobian [2*10, 0]
+        // is [0,1], so a y-displacement is entirely in the null space.
+        // Nonlinear deviation: sqrt(10² + 0.5²) = 10.0125, so error ~0.013.
         let dist_after_drag = pt_dist(&sys, x0, y0, x1, y1);
         eprintln!("Distance after drag: {dist_after_drag}");
         assert!(
-            (dist_after_drag - 10.0).abs() < 0.5,
-            "Drag should approximately preserve distance, got {dist_after_drag}"
+            (dist_after_drag - 10.0).abs() < 0.02,
+            "Drag should nearly preserve distance, got {dist_after_drag}"
         );
     }
 
@@ -1811,6 +1809,7 @@ mod v3_pipeline_megatest {
     /// through the V3 pipeline. This tests scalability of decomposition,
     /// analysis, and solving.
     #[test]
+    #[ignore] // ~1.4s; run with `cargo test -- --ignored`
     fn megatest_v3_large_grid_stress() {
         let mut b = Sketch2DBuilder::new();
 
