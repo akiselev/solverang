@@ -28,7 +28,7 @@ impl Reduce for NoopReduce {
         &self,
         cluster: &ClusterData,
         _constraints: &[Option<Box<dyn Constraint>>],
-        _store: &ParamStore,
+        _store: &mut ParamStore,
     ) -> ReducedCluster {
         ReducedCluster::passthrough(cluster)
     }
@@ -55,7 +55,7 @@ impl Reduce for SubstituteReducer {
         &self,
         cluster: &ClusterData,
         constraints: &[Option<Box<dyn Constraint>>],
-        store: &ParamStore,
+        store: &mut ParamStore,
     ) -> ReducedCluster {
         let mut result = ReducedCluster::passthrough(cluster);
 
@@ -167,7 +167,7 @@ impl Reduce for MergeReducer {
         &self,
         cluster: &ClusterData,
         constraints: &[Option<Box<dyn Constraint>>],
-        store: &ParamStore,
+        store: &mut ParamStore,
     ) -> ReducedCluster {
         let mut result = ReducedCluster::passthrough(cluster);
 
@@ -245,54 +245,99 @@ impl Reduce for MergeReducer {
 /// constraints are added to `removed_constraints`.
 pub struct EliminateReducer;
 
+/// Tolerance for verifying that a linearised elimination actually satisfies
+/// the constraint (guards against approximate results on nonlinear constraints).
+const ELIMINATION_RESIDUAL_TOL: f64 = 1e-10;
+
 impl Reduce for EliminateReducer {
     fn reduce(
         &self,
         cluster: &ClusterData,
         constraints: &[Option<Box<dyn Constraint>>],
-        store: &ParamStore,
+        store: &mut ParamStore,
     ) -> ReducedCluster {
         let mut result = ReducedCluster::passthrough(cluster);
 
-        // Build (system_index, &dyn Constraint) pairs as expected by
-        // detect_trivial_eliminations.
-        let mut indexed_constraints: Vec<(usize, &dyn Constraint)> = Vec::new();
+        // Iterate until no more eliminations are possible. Each pass may
+        // determine parameter values that unlock further eliminations in
+        // remaining constraints (cascading reduction).
+        loop {
+            // Build (system_index, &dyn Constraint) pairs from the
+            // *currently active* constraints.
+            let indexed_constraints: Vec<(usize, &dyn Constraint)> = result
+                .active_constraint_indices
+                .iter()
+                .filter_map(|&ci| {
+                    constraints[ci].as_ref().map(|c| (ci, c.as_ref()))
+                })
+                .collect();
 
-        for &ci in &cluster.constraint_indices {
-            if let Some(ref c) = constraints[ci] {
-                indexed_constraints.push((ci, c.as_ref()));
+            if indexed_constraints.is_empty() {
+                break;
             }
-        }
 
-        if indexed_constraints.is_empty() {
-            return result;
-        }
+            let eliminations = detect_trivial_eliminations(&indexed_constraints, store);
 
-        let eliminations = detect_trivial_eliminations(&indexed_constraints, store);
+            if eliminations.is_empty() {
+                break;
+            }
 
-        if eliminations.is_empty() {
-            return result;
-        }
+            let mut any_accepted = false;
+            let mut eliminated_set = HashSet::new();
 
-        let mut eliminated_set = HashSet::new();
-        for elim in &eliminations {
+            for elim in &eliminations {
+                // Tentatively apply the determined value and verify that the
+                // constraint is actually satisfied. For linear constraints
+                // the linearisation is exact; for nonlinear constraints the
+                // result is only approximate — we must not freeze an
+                // inaccurate value.
+                let original = store.get(elim.param);
+                store.set(elim.param, elim.determined_value);
+
+                let satisfied = constraints[elim.constraint_index]
+                    .as_ref()
+                    .map(|c| {
+                        c.residuals(store)
+                            .iter()
+                            .all(|r| r.abs() < ELIMINATION_RESIDUAL_TOL)
+                    })
+                    .unwrap_or(false);
+
+                if satisfied {
+                    // Exact (or near-exact) elimination — keep the value
+                    // and mark the param fixed so later passes see it as
+                    // a known constant.
+                    store.fix(elim.param);
+
+                    result
+                        .eliminated_params
+                        .push((elim.param, elim.determined_value));
+                    eliminated_set.insert(elim.param);
+                    result.removed_constraints.push(elim.constraint_index);
+                    any_accepted = true;
+                } else {
+                    // Approximate result — restore original value and leave
+                    // the constraint for the numerical solver.
+                    store.set(elim.param, original);
+                }
+            }
+
+            if !any_accepted {
+                break;
+            }
+
+            // Remove eliminated params from active list.
             result
-                .eliminated_params
-                .push((elim.param, elim.determined_value));
-            eliminated_set.insert(elim.param);
-            result.removed_constraints.push(elim.constraint_index);
+                .active_param_ids
+                .retain(|p| !eliminated_set.contains(p));
+
+            // Remove consumed constraints from active list.
+            let removed: HashSet<usize> =
+                result.removed_constraints.iter().copied().collect();
+            result
+                .active_constraint_indices
+                .retain(|ci| !removed.contains(ci));
         }
-
-        // Remove eliminated params from active list.
-        result
-            .active_param_ids
-            .retain(|p| !eliminated_set.contains(p));
-
-        // Remove consumed constraints from active list.
-        let removed: HashSet<usize> = result.removed_constraints.iter().copied().collect();
-        result
-            .active_constraint_indices
-            .retain(|ci| !removed.contains(ci));
 
         result
     }
@@ -331,7 +376,7 @@ impl Reduce for ChainedReducer {
         &self,
         cluster: &ClusterData,
         constraints: &[Option<Box<dyn Constraint>>],
-        store: &ParamStore,
+        store: &mut ParamStore,
     ) -> ReducedCluster {
         if self.stages.is_empty() {
             return ReducedCluster::passthrough(cluster);
@@ -392,7 +437,7 @@ impl Reduce for DefaultReduce {
         &self,
         cluster: &ClusterData,
         constraints: &[Option<Box<dyn Constraint>>],
-        store: &ParamStore,
+        store: &mut ParamStore,
     ) -> ReducedCluster {
         let chain = ChainedReducer::new(vec![
             Box::new(SubstituteReducer),
@@ -518,7 +563,7 @@ mod tests {
         let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c)];
         let cluster = make_cluster(vec![0], vec![p1, p2]);
 
-        let result = NoopReduce.reduce(&cluster, &constraints, &store);
+        let result = NoopReduce.reduce(&cluster, &constraints, &mut store);
 
         assert_eq!(result.cluster_id, ClusterId(0));
         assert_eq!(result.active_constraint_indices, vec![0]);
@@ -549,7 +594,7 @@ mod tests {
         let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c)];
         let cluster = make_cluster(vec![0], vec![p]);
 
-        let result = SubstituteReducer.reduce(&cluster, &constraints, &store);
+        let result = SubstituteReducer.reduce(&cluster, &constraints, &mut store);
 
         assert_eq!(result.removed_constraints, vec![0]);
         assert!(result.active_constraint_indices.is_empty());
@@ -572,7 +617,7 @@ mod tests {
         let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c)];
         let cluster = make_cluster(vec![0], vec![p]);
 
-        let result = SubstituteReducer.reduce(&cluster, &constraints, &store);
+        let result = SubstituteReducer.reduce(&cluster, &constraints, &mut store);
 
         // Violated constraints stay active but are flagged.
         assert!(result.removed_constraints.is_empty());
@@ -605,7 +650,7 @@ mod tests {
             vec![None, None, Some(c1), None, None, Some(c2)];
         let cluster = make_cluster(vec![2, 5], vec![p1, p2]);
 
-        let result = SubstituteReducer.reduce(&cluster, &constraints, &store);
+        let result = SubstituteReducer.reduce(&cluster, &constraints, &mut store);
 
         assert_eq!(result.removed_constraints, vec![2]);
         assert_eq!(result.trivially_violated, vec![5]);
@@ -627,7 +672,7 @@ mod tests {
         let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c)];
         let cluster = make_cluster(vec![0], vec![p]);
 
-        let result = SubstituteReducer.reduce(&cluster, &constraints, &store);
+        let result = SubstituteReducer.reduce(&cluster, &constraints, &mut store);
 
         // Free-param constraint is neither satisfied nor violated.
         assert!(result.removed_constraints.is_empty());
@@ -655,7 +700,7 @@ mod tests {
         let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c)];
         let cluster = make_cluster(vec![0], vec![a, b]);
 
-        let result = MergeReducer.reduce(&cluster, &constraints, &store);
+        let result = MergeReducer.reduce(&cluster, &constraints, &mut store);
 
         // b (higher raw index) maps to a (lower raw index).
         assert_eq!(result.merge_map.get(&b), Some(&a));
@@ -681,7 +726,7 @@ mod tests {
         let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c)];
         let cluster = make_cluster(vec![0], vec![a]);
 
-        let result = MergeReducer.reduce(&cluster, &constraints, &store);
+        let result = MergeReducer.reduce(&cluster, &constraints, &mut store);
 
         assert!(result.merge_map.is_empty());
         assert!(result.removed_constraints.is_empty());
@@ -704,7 +749,7 @@ mod tests {
         let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c)];
         let cluster = make_cluster(vec![0], vec![a, b]);
 
-        let result = MergeReducer.reduce(&cluster, &constraints, &store);
+        let result = MergeReducer.reduce(&cluster, &constraints, &mut store);
 
         // One param is fixed -> no merge.
         assert!(result.merge_map.is_empty());
@@ -730,7 +775,7 @@ mod tests {
         let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c)];
         let cluster = make_cluster(vec![0], vec![p]);
 
-        let result = EliminateReducer.reduce(&cluster, &constraints, &store);
+        let result = EliminateReducer.reduce(&cluster, &constraints, &mut store);
 
         assert_eq!(result.eliminated_params.len(), 1);
         assert_eq!(result.eliminated_params[0].0, p);
@@ -756,7 +801,7 @@ mod tests {
             vec![None, None, None, None, Some(c)];
         let cluster = make_cluster(vec![4], vec![p]);
 
-        let result = EliminateReducer.reduce(&cluster, &constraints, &store);
+        let result = EliminateReducer.reduce(&cluster, &constraints, &mut store);
 
         assert_eq!(result.removed_constraints, vec![4]);
         assert_eq!(result.eliminated_params.len(), 1);
@@ -779,7 +824,7 @@ mod tests {
         let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c)];
         let cluster = make_cluster(vec![0], vec![a, b]);
 
-        let result = EliminateReducer.reduce(&cluster, &constraints, &store);
+        let result = EliminateReducer.reduce(&cluster, &constraints, &mut store);
 
         assert!(result.eliminated_params.is_empty());
         assert!(result.removed_constraints.is_empty());
@@ -818,7 +863,7 @@ mod tests {
             Box::new(SubstituteReducer),
             Box::new(EliminateReducer),
         ]);
-        let result = chain.reduce(&cluster, &constraints, &store);
+        let result = chain.reduce(&cluster, &constraints, &mut store);
 
         // Both constraints removed.
         assert!(result.removed_constraints.contains(&0));
@@ -846,7 +891,7 @@ mod tests {
         let cluster = make_cluster(vec![0], vec![p]);
 
         let chain = ChainedReducer::new(vec![]);
-        let result = chain.reduce(&cluster, &constraints, &store);
+        let result = chain.reduce(&cluster, &constraints, &mut store);
 
         assert_eq!(result.active_constraint_indices, vec![0]);
         assert_eq!(result.active_param_ids, vec![p]);
@@ -876,7 +921,7 @@ mod tests {
             Box::new(SubstituteReducer),
             Box::new(EliminateReducer),
         ]);
-        let result = chain.reduce(&cluster, &constraints, &store);
+        let result = chain.reduce(&cluster, &constraints, &mut store);
 
         // Constraint 0 removed exactly once (by SubstituteReducer).
         assert_eq!(
@@ -922,7 +967,7 @@ mod tests {
         let cluster =
             make_cluster(vec![0, 1, 2], vec![p_fixed, p_a, p_b, p_free]);
 
-        let result = DefaultReduce.reduce(&cluster, &constraints, &store);
+        let result = DefaultReduce.reduce(&cluster, &constraints, &mut store);
 
         // All three constraints removed by their respective passes.
         assert!(result.removed_constraints.contains(&0));
@@ -963,12 +1008,518 @@ mod tests {
         let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c)];
         let cluster = make_cluster(vec![0], vec![a, b]);
 
-        let result = DefaultReduce.reduce(&cluster, &constraints, &store);
+        let result = DefaultReduce.reduce(&cluster, &constraints, &mut store);
 
         // The equality constraint IS detected by MergeReducer, so it should
         // be removed and a merge map produced.
         assert_eq!(result.removed_constraints, vec![0]);
         assert_eq!(result.merge_map.get(&b), Some(&a));
         assert!(result.active_constraint_indices.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // Additional test constraint helpers
+    // -----------------------------------------------------------------------
+
+    /// Constraint: `param_a + param_b - target = 0`.
+    /// Jacobian: `[(0, a, 1.0), (0, b, 1.0)]`.
+    struct SumConstraint {
+        id: ConstraintId,
+        params: [ParamId; 2],
+        target: f64,
+    }
+
+    impl Constraint for SumConstraint {
+        fn id(&self) -> ConstraintId {
+            self.id
+        }
+        fn name(&self) -> &str {
+            "sum"
+        }
+        fn entity_ids(&self) -> &[EntityId] {
+            &[]
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            &self.params
+        }
+        fn equation_count(&self) -> usize {
+            1
+        }
+        fn residuals(&self, store: &ParamStore) -> Vec<f64> {
+            vec![store.get(self.params[0]) + store.get(self.params[1]) - self.target]
+        }
+        fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
+            vec![
+                (0, self.params[0], 1.0),
+                (0, self.params[1], 1.0),
+            ]
+        }
+    }
+
+    /// Constraint: `param_a - param_b - target = 0` (difference).
+    /// Jacobian: `[(0, a, 1.0), (0, b, -1.0)]`.
+    struct DiffConstraint {
+        id: ConstraintId,
+        params: [ParamId; 2],
+        target: f64,
+    }
+
+    impl Constraint for DiffConstraint {
+        fn id(&self) -> ConstraintId {
+            self.id
+        }
+        fn name(&self) -> &str {
+            "diff"
+        }
+        fn entity_ids(&self) -> &[EntityId] {
+            &[]
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            &self.params
+        }
+        fn equation_count(&self) -> usize {
+            1
+        }
+        fn residuals(&self, store: &ParamStore) -> Vec<f64> {
+            vec![store.get(self.params[0]) - store.get(self.params[1]) - self.target]
+        }
+        fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
+            vec![
+                (0, self.params[0], 1.0),
+                (0, self.params[1], -1.0),
+            ]
+        }
+    }
+
+    /// Nonlinear constraint: `param^2 - target = 0`.
+    /// Jacobian: `[(0, param, 2*param)]`.
+    struct QuadraticConstraint {
+        id: ConstraintId,
+        param: ParamId,
+        target: f64,
+    }
+
+    impl Constraint for QuadraticConstraint {
+        fn id(&self) -> ConstraintId {
+            self.id
+        }
+        fn name(&self) -> &str {
+            "quadratic"
+        }
+        fn entity_ids(&self) -> &[EntityId] {
+            &[]
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            std::slice::from_ref(&self.param)
+        }
+        fn equation_count(&self) -> usize {
+            1
+        }
+        fn residuals(&self, store: &ParamStore) -> Vec<f64> {
+            let v = store.get(self.param);
+            vec![v * v - self.target]
+        }
+        fn jacobian(&self, store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
+            vec![(0, self.param, 2.0 * store.get(self.param))]
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Regression tests — cascading elimination
+    // -----------------------------------------------------------------------
+
+    /// Core coupling scenario: fixing p1 via C1 should cascade to make
+    /// C2 (which depends on p1 and p2) also eliminable, since C2 is
+    /// linear and has exactly one remaining free param after p1 is known.
+    #[test]
+    fn eliminate_cascades_through_linear_constraints() {
+        let mut store = ParamStore::new();
+        let owner = dummy_owner();
+        let p1 = store.alloc(0.0, owner);
+        let p2 = store.alloc(0.0, owner);
+
+        // C0: p1 = 5.0  (single free param -> eliminable first pass)
+        let c0: Box<dyn Constraint> = Box::new(FixValueConstraint {
+            id: ConstraintId::new(0, 0),
+            param: p1,
+            target: 5.0,
+        });
+        // C1: p1 + p2 = 10.0  (two free params initially, but after p1
+        //     is eliminated, becomes single free param -> eliminable)
+        let c1: Box<dyn Constraint> = Box::new(SumConstraint {
+            id: ConstraintId::new(1, 0),
+            params: [p1, p2],
+            target: 10.0,
+        });
+
+        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c0), Some(c1)];
+        let cluster = make_cluster(vec![0, 1], vec![p1, p2]);
+
+        let result = EliminateReducer.reduce(&cluster, &constraints, &mut store);
+
+        // Both constraints should be eliminated.
+        assert!(
+            result.removed_constraints.contains(&0),
+            "C0 should be eliminated"
+        );
+        assert!(
+            result.removed_constraints.contains(&1),
+            "C1 should be eliminated via cascading"
+        );
+        assert!(result.active_constraint_indices.is_empty());
+
+        // Both params should be determined.
+        assert_eq!(result.eliminated_params.len(), 2);
+
+        let p1_val = result
+            .eliminated_params
+            .iter()
+            .find(|(pid, _)| *pid == p1)
+            .map(|(_, v)| *v)
+            .expect("p1 should be eliminated");
+        let p2_val = result
+            .eliminated_params
+            .iter()
+            .find(|(pid, _)| *pid == p2)
+            .map(|(_, v)| *v)
+            .expect("p2 should be eliminated");
+
+        assert!(
+            (p1_val - 5.0).abs() < 1e-12,
+            "p1 = {p1_val}, expected 5.0"
+        );
+        assert!(
+            (p2_val - 5.0).abs() < 1e-12,
+            "p2 = {p2_val}, expected 5.0"
+        );
+
+        // Both params should be removed from the active set.
+        assert!(!result.active_param_ids.contains(&p1));
+        assert!(!result.active_param_ids.contains(&p2));
+    }
+
+    /// Three-step cascading chain: C0 determines p1, which lets C1
+    /// determine p2, which lets C2 determine p3.
+    #[test]
+    fn eliminate_cascades_three_deep() {
+        let mut store = ParamStore::new();
+        let owner = dummy_owner();
+        let p1 = store.alloc(0.0, owner);
+        let p2 = store.alloc(0.0, owner);
+        let p3 = store.alloc(0.0, owner);
+
+        // C0: p1 = 3.0
+        let c0: Box<dyn Constraint> = Box::new(FixValueConstraint {
+            id: ConstraintId::new(0, 0),
+            param: p1,
+            target: 3.0,
+        });
+        // C1: p1 + p2 = 7.0  -> p2 = 4.0 after p1 is known
+        let c1: Box<dyn Constraint> = Box::new(SumConstraint {
+            id: ConstraintId::new(1, 0),
+            params: [p1, p2],
+            target: 7.0,
+        });
+        // C2: p2 - p3 = 1.0  -> p3 = 3.0 after p2 is known
+        let c2: Box<dyn Constraint> = Box::new(DiffConstraint {
+            id: ConstraintId::new(2, 0),
+            params: [p2, p3],
+            target: 1.0,
+        });
+
+        let constraints: Vec<Option<Box<dyn Constraint>>> =
+            vec![Some(c0), Some(c1), Some(c2)];
+        let cluster = make_cluster(vec![0, 1, 2], vec![p1, p2, p3]);
+
+        let result = EliminateReducer.reduce(&cluster, &constraints, &mut store);
+
+        // All three constraints should be eliminated.
+        assert_eq!(result.removed_constraints.len(), 3);
+        assert!(result.active_constraint_indices.is_empty());
+
+        // All three params determined.
+        assert_eq!(result.eliminated_params.len(), 3);
+        assert!(!result.active_param_ids.contains(&p1));
+        assert!(!result.active_param_ids.contains(&p2));
+        assert!(!result.active_param_ids.contains(&p3));
+
+        let val = |pid: ParamId| -> f64 {
+            result
+                .eliminated_params
+                .iter()
+                .find(|(p, _)| *p == pid)
+                .unwrap()
+                .1
+        };
+        assert!((val(p1) - 3.0).abs() < 1e-12, "p1 = {}", val(p1));
+        assert!((val(p2) - 4.0).abs() < 1e-12, "p2 = {}", val(p2));
+        assert!((val(p3) - 3.0).abs() < 1e-12, "p3 = {}", val(p3));
+    }
+
+    /// Cascading elimination through the full DefaultReduce pipeline
+    /// (Substitute → Merge → Eliminate): a user-fixed param makes a
+    /// constraint trivially satisfied (Substitute removes it), then an
+    /// equality constraint merges two free params (Merge), then the
+    /// eliminate pass cascades through remaining linear constraints.
+    #[test]
+    fn default_reduce_cascading_through_all_stages() {
+        let mut store = ParamStore::new();
+        let owner = dummy_owner();
+        let p_fixed = store.alloc(10.0, owner);
+        let p1 = store.alloc(0.0, owner);
+        let p2 = store.alloc(0.0, owner);
+        store.fix(p_fixed);
+
+        // C0: p_fixed = 10.0  -> trivially satisfied (Substitute removes it)
+        let c0: Box<dyn Constraint> = Box::new(FixValueConstraint {
+            id: ConstraintId::new(0, 0),
+            param: p_fixed,
+            target: 10.0,
+        });
+        // C1: p1 = 6.0  -> single free param (Eliminate, first pass)
+        let c1: Box<dyn Constraint> = Box::new(FixValueConstraint {
+            id: ConstraintId::new(1, 0),
+            param: p1,
+            target: 6.0,
+        });
+        // C2: p1 + p2 = 11.0  -> after p1 is eliminated, p2 = 5.0 (cascade)
+        let c2: Box<dyn Constraint> = Box::new(SumConstraint {
+            id: ConstraintId::new(2, 0),
+            params: [p1, p2],
+            target: 11.0,
+        });
+
+        let constraints: Vec<Option<Box<dyn Constraint>>> =
+            vec![Some(c0), Some(c1), Some(c2)];
+        let cluster =
+            make_cluster(vec![0, 1, 2], vec![p_fixed, p1, p2]);
+
+        let result = DefaultReduce.reduce(&cluster, &constraints, &mut store);
+
+        // All three constraints should be removed.
+        assert_eq!(result.removed_constraints.len(), 3);
+        assert!(result.active_constraint_indices.is_empty());
+
+        // p1 and p2 should be in eliminated_params.
+        assert_eq!(result.eliminated_params.len(), 2);
+
+        let p1_val = result
+            .eliminated_params
+            .iter()
+            .find(|(pid, _)| *pid == p1)
+            .map(|(_, v)| *v)
+            .expect("p1 should be eliminated");
+        let p2_val = result
+            .eliminated_params
+            .iter()
+            .find(|(pid, _)| *pid == p2)
+            .map(|(_, v)| *v)
+            .expect("p2 should be eliminated");
+
+        assert!(
+            (p1_val - 6.0).abs() < 1e-12,
+            "p1 = {p1_val}, expected 6.0"
+        );
+        assert!(
+            (p2_val - 5.0).abs() < 1e-12,
+            "p2 = {p2_val}, expected 5.0"
+        );
+    }
+
+    /// Nonlinear single-free-param constraints should NOT be eliminated
+    /// when their linearised solution is approximate (residual not near zero).
+    #[test]
+    fn eliminate_skips_nonlinear_approximate_elimination() {
+        let mut store = ParamStore::new();
+        let owner = dummy_owner();
+        // Start with p at a value where linearised solve is inaccurate.
+        let p = store.alloc(3.0, owner);
+
+        // C0: p^2 = 25  (nonlinear; exact solutions are ±5, but
+        //     linearisation around 3.0 gives 3.0 - (9-25)/6 = 5.666...,
+        //     which doesn't satisfy p^2=25.)
+        let c: Box<dyn Constraint> = Box::new(QuadraticConstraint {
+            id: ConstraintId::new(0, 0),
+            param: p,
+            target: 25.0,
+        });
+
+        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c)];
+        let cluster = make_cluster(vec![0], vec![p]);
+
+        let result = EliminateReducer.reduce(&cluster, &constraints, &mut store);
+
+        // The constraint should NOT be eliminated because the linearised
+        // result is approximate and doesn't satisfy the nonlinear residual.
+        assert!(
+            result.eliminated_params.is_empty(),
+            "nonlinear constraint should not be eliminated when linearised solution is approximate"
+        );
+        assert_eq!(result.active_constraint_indices, vec![0]);
+        assert_eq!(result.active_param_ids, vec![p]);
+    }
+
+    /// Cascading elimination does NOT freeze approximate nonlinear results.
+    /// After fixing p1 linearly, if the remaining constraint on p2 is
+    /// nonlinear, p2 should be left for the numerical solver.
+    #[test]
+    fn cascading_stops_at_nonlinear_constraint() {
+        let mut store = ParamStore::new();
+        let owner = dummy_owner();
+        let p1 = store.alloc(0.0, owner);
+        let p2 = store.alloc(3.0, owner);
+
+        // C0: p1 = 5.0  (linear, exact elimination)
+        let c0: Box<dyn Constraint> = Box::new(FixValueConstraint {
+            id: ConstraintId::new(0, 0),
+            param: p1,
+            target: 5.0,
+        });
+        // C1: p2^2 - 25 = 0  (nonlinear; even though p2 is now the only free
+        //     param, the linearised result at p2=3 is approximate)
+        let c1: Box<dyn Constraint> = Box::new(QuadraticConstraint {
+            id: ConstraintId::new(1, 0),
+            param: p2,
+            target: 25.0,
+        });
+
+        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c0), Some(c1)];
+        let cluster = make_cluster(vec![0, 1], vec![p1, p2]);
+
+        let result = EliminateReducer.reduce(&cluster, &constraints, &mut store);
+
+        // C0 should be eliminated (linear, exact).
+        assert!(result.removed_constraints.contains(&0));
+        assert_eq!(result.eliminated_params.len(), 1);
+        assert_eq!(result.eliminated_params[0].0, p1);
+        assert!((result.eliminated_params[0].1 - 5.0).abs() < 1e-12);
+
+        // C1 should remain active (nonlinear, approximate).
+        assert!(
+            result.active_constraint_indices.contains(&1),
+            "nonlinear constraint C1 should remain active"
+        );
+        assert!(
+            result.active_param_ids.contains(&p2),
+            "p2 should remain in the active solve set"
+        );
+    }
+
+    /// After reduce, eliminated params are temporarily fixed in the store.
+    /// Verify that the store state is consistent: eliminated params have
+    /// their determined values set and are marked fixed.
+    #[test]
+    fn eliminate_updates_store_for_cascading() {
+        let mut store = ParamStore::new();
+        let owner = dummy_owner();
+        let p1 = store.alloc(0.0, owner);
+        let p2 = store.alloc(0.0, owner);
+
+        let c0: Box<dyn Constraint> = Box::new(FixValueConstraint {
+            id: ConstraintId::new(0, 0),
+            param: p1,
+            target: 5.0,
+        });
+        let c1: Box<dyn Constraint> = Box::new(SumConstraint {
+            id: ConstraintId::new(1, 0),
+            params: [p1, p2],
+            target: 10.0,
+        });
+
+        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c0), Some(c1)];
+        let cluster = make_cluster(vec![0, 1], vec![p1, p2]);
+
+        let _result = EliminateReducer.reduce(&cluster, &constraints, &mut store);
+
+        // After reduce, the store should contain determined values and
+        // params should be marked fixed (for the solver to see them as
+        // known constants).
+        assert!((store.get(p1) - 5.0).abs() < 1e-12);
+        assert!((store.get(p2) - 5.0).abs() < 1e-12);
+        assert!(store.is_fixed(p1));
+        assert!(store.is_fixed(p2));
+    }
+
+    /// ChainedReducer propagates store mutations across stages: params
+    /// eliminated in an early stage are visible to later stages as fixed.
+    #[test]
+    fn chained_propagates_eliminations_across_stages() {
+        let mut store = ParamStore::new();
+        let owner = dummy_owner();
+        let p1 = store.alloc(0.0, owner);
+        let p2 = store.alloc(0.0, owner);
+
+        // C0: p1 = 5.0  -> eliminated by first EliminateReducer stage
+        let c0: Box<dyn Constraint> = Box::new(FixValueConstraint {
+            id: ConstraintId::new(0, 0),
+            param: p1,
+            target: 5.0,
+        });
+        // C1: p1 + p2 = 10.0  -> after p1 is fixed by first stage,
+        //     the second stage (or cascade within the same stage)
+        //     can eliminate p2
+        let c1: Box<dyn Constraint> = Box::new(SumConstraint {
+            id: ConstraintId::new(1, 0),
+            params: [p1, p2],
+            target: 10.0,
+        });
+
+        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c0), Some(c1)];
+        let cluster = make_cluster(vec![0, 1], vec![p1, p2]);
+
+        // Use two separate EliminateReducer stages to verify cross-stage
+        // propagation (the first stage eliminates p1 and fixes it in the
+        // store; the second stage should then see p1 as fixed and eliminate
+        // p2 from C1).
+        let chain = ChainedReducer::new(vec![
+            Box::new(EliminateReducer),
+            Box::new(EliminateReducer),
+        ]);
+        let result = chain.reduce(&cluster, &constraints, &mut store);
+
+        // Both constraints should be removed.
+        assert!(result.removed_constraints.contains(&0));
+        assert!(result.removed_constraints.contains(&1));
+        assert!(result.active_constraint_indices.is_empty());
+
+        assert_eq!(result.eliminated_params.len(), 2);
+    }
+
+    /// After the full DefaultReduce pipeline, eliminated params should
+    /// NOT remain permanently fixed in the store (the orchestrator
+    /// un-fixes them). This test verifies the reduce phase itself does
+    /// fix them (for correct cascading), which the orchestrator then
+    /// reverses.
+    #[test]
+    fn eliminate_does_not_permanently_alter_non_eliminated_params() {
+        let mut store = ParamStore::new();
+        let owner = dummy_owner();
+        let p1 = store.alloc(0.0, owner);
+        let p2 = store.alloc(0.0, owner);
+        let p3 = store.alloc(0.0, owner);
+
+        // C0: p1 = 5.0  (eliminable)
+        let c0: Box<dyn Constraint> = Box::new(FixValueConstraint {
+            id: ConstraintId::new(0, 0),
+            param: p1,
+            target: 5.0,
+        });
+        // C1: p2 + p3 = 10.0  (two free params, not eliminable)
+        let c1: Box<dyn Constraint> = Box::new(SumConstraint {
+            id: ConstraintId::new(1, 0),
+            params: [p2, p3],
+            target: 10.0,
+        });
+
+        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c0), Some(c1)];
+        let cluster = make_cluster(vec![0, 1], vec![p1, p2, p3]);
+
+        let _result = EliminateReducer.reduce(&cluster, &constraints, &mut store);
+
+        // p1 should be fixed (it was eliminated).
+        assert!(store.is_fixed(p1));
+        // p2 and p3 should remain free (not touched by elimination).
+        assert!(!store.is_fixed(p2), "p2 should remain free");
+        assert!(!store.is_fixed(p3), "p3 should remain free");
     }
 }
