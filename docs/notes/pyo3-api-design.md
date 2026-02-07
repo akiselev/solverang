@@ -1025,85 +1025,872 @@ def problem(fn=None, *, variables=None):
 
 ---
 
-## Comparison Matrix
+## Design F: Expression Graph via Operator Overloading (Best of All Worlds)
 
-| Criterion                     | A: Callback | B: Pre-built | C: Hybrid | D: Protocol | E: Decorator |
-|-------------------------------|:-----------:|:------------:|:---------:|:-----------:|:------------:|
-| **Performance (GIL-free)**    | No          | Yes          | Both      | No          | No*          |
-| **Custom problems**           | Yes         | No           | Yes       | Yes         | Yes          |
-| **Geometry support**          | Manual      | Native       | Native    | Native      | Native       |
-| **API surface size**          | Small       | Large        | Medium    | Small       | Small        |
-| **Discoverability**           | Good        | Good         | Good      | Fair        | Fair         |
-| **scipy familiarity**         | High        | Low          | High      | High        | Medium       |
-| **Boilerplate**               | Low         | Low          | Low       | Lowest      | Lowest       |
-| **Type safety**               | Medium      | High         | Medium    | Low         | Low          |
-| **JIT potential**             | No          | Yes          | Partial   | No          | Strings only |
-| **Batch/parallel solve**      | No          | Yes          | Partial   | No          | No           |
-| **Publish complexity**        | Low         | Medium       | Medium    | Low         | Low          |
+Python's operator overloading (`__add__`, `__mul__`, `__pow__`, etc.) builds a
+**Rust-side expression tree** -- not a Python AST, but actual Rust `Expr` nodes
+stored in `#[pyclass]` objects. When `solve()` is called, the tree is:
 
-*Design E with expression strings could be GIL-free if compiled to native code.
+1. **Symbolically differentiated** to compute the Jacobian automatically
+2. **Lowered** to `ConstraintOp` opcodes via `OpcodeEmitter`
+3. **JIT-compiled** to native code via Cranelift
+4. **Solved entirely in Rust** with the GIL released
+
+This is the same approach used by SymPy, PyTorch, JAX, and TensorFlow: Python
+code *describes* computation but never *executes* it. All actual math happens in
+Rust/native code.
+
+**Key insight**: solverang already has all the infrastructure for this:
+- `Expr` enum in the macro crate (with symbolic differentiation)
+- `ConstraintOp` opcodes + `OpcodeEmitter` (register-based IR)
+- `Lowerable` trait (expression → opcodes)
+- `JITCompiler` (opcodes → native code via Cranelift)
+
+We just need a **runtime** `Expr` type (the macro crate's is compile-time only)
+and PyO3 operator overloads to construct it from Python.
+
+### Python API
+
+```python
+import solverang as sr
+
+# ─── Create symbolic variables ───
+x, y = sr.variables("x y")
+# or: x, y = sr.variables(2)
+# or: x = sr.Variable("x"); y = sr.Variable("y")
+
+# ─── Build expressions with normal Python operators ───
+# These DO NOT compute anything -- they build a Rust-side expression graph
+r1 = x**2 + y**2 - 1.0       # unit circle
+r2 = x - y                    # line y = x
+
+# ─── Solve: expression tree → differentiate → JIT compile → solve ───
+result = sr.solve(
+    residuals=[r1, r2],
+    x0=[0.5, 0.5],
+)
+# Jacobian is computed automatically via symbolic differentiation.
+# Entire solve runs in Rust with GIL released.
+# JIT-compiled to native code -- no Python callbacks at all.
+
+print(result.x)  # [0.7071..., 0.7071...]
+
+# ─── Math functions ───
+r = sr.sqrt(x**2 + y**2) - 1.0     # module-level functions
+r = (x**2 + y**2).sqrt() - 1.0     # or method syntax
+
+# Full set: sqrt, sin, cos, tan, atan2, abs, pow
+r = sr.sin(x) * sr.cos(y)
+r = sr.atan2(y, x) - 0.7854
+r = abs(x - y)                      # Python's abs() works too
+
+# ─── Expressions are inspectable ───
+print(r1)           # "x**2 + y**2 - 1"
+print(r1.diff(x))   # "2*x"  (symbolic derivative)
+print(r1.variables)  # [Variable("x"), Variable("y")]
+
+# ─── Constants and parameters ───
+a = sr.Parameter("a", value=1.0)    # named constant, can be changed
+b = sr.Parameter("b", value=100.0)
+
+# Rosenbrock function
+r1 = a - x
+r2 = b * (y - x**2)
+
+result = sr.solve(residuals=[r1, r2], x0=[0.0, 0.0])
+
+# Change parameter and re-solve (re-uses JIT-compiled code if structure unchanged)
+a.value = 2.0
+result = sr.solve(residuals=[r1, r2], x0=[0.0, 0.0])
+
+# ─── Works with geometry system too ───
+system = sr.ConstraintSystem2D("custom")
+p0 = system.add_point(0.0, 0.0, fixed=True)
+p1 = system.add_point(5.0, 5.0)
+
+# Access point coordinates as symbolic expressions
+px, py = system.coords(p1)  # returns (Expr, Expr) bound to point 1
+
+# Add a custom expression-based constraint alongside built-in ones
+system.constrain_distance(p0, p1, 7.0)
+system.add_residual(px + py - 10.0)  # custom: x1 + y1 = 10
+
+result = system.solve()
+
+# ─── Vectorized operations ───
+xs = sr.variables("x", count=100)  # x_0, x_1, ..., x_99
+residuals = []
+for i in range(99):
+    residuals.append(10.0 * (xs[i+1] - xs[i]**2))  # Rosenbrock
+    residuals.append(1.0 - xs[i])
+
+result = sr.solve(residuals=residuals, x0=[0.0]*100)
+
+# ─── Equation syntax sugar ───
+x, y = sr.variables("x y")
+
+# Use == to create a residual (lhs - rhs = 0)
+eq1 = sr.eq(x**2 + y**2, 1.0)    # x^2 + y^2 - 1 = 0
+eq2 = sr.eq(x, y)                 # x - y = 0
+
+result = sr.solve(equations=[eq1, eq2], x0=[0.5, 0.5])
+```
+
+### Rust Data Structures
+
+```rust
+/// Runtime expression tree -- mirrors the macro crate's Expr but is
+/// constructable at runtime from Python operator overloads.
+///
+/// This lives in the main solverang crate (not the macro crate) so it
+/// can implement Lowerable and integrate with the JIT pipeline.
+#[derive(Clone, Debug)]
+pub enum RuntimeExpr {
+    Var(u32),                                    // variable index
+    Const(f64),                                  // literal constant
+    Param { id: u32, value: Arc<AtomicU64> },    // mutable parameter (shared)
+    Neg(Box<RuntimeExpr>),
+    Add(Box<RuntimeExpr>, Box<RuntimeExpr>),
+    Sub(Box<RuntimeExpr>, Box<RuntimeExpr>),
+    Mul(Box<RuntimeExpr>, Box<RuntimeExpr>),
+    Div(Box<RuntimeExpr>, Box<RuntimeExpr>),
+    Pow(Box<RuntimeExpr>, f64),                  // constant exponent
+    Sqrt(Box<RuntimeExpr>),
+    Sin(Box<RuntimeExpr>),
+    Cos(Box<RuntimeExpr>),
+    Tan(Box<RuntimeExpr>),
+    Atan2(Box<RuntimeExpr>, Box<RuntimeExpr>),
+    Abs(Box<RuntimeExpr>),
+}
+
+impl RuntimeExpr {
+    /// Symbolic differentiation with respect to variable `var_idx`.
+    /// Reuses the same algorithm as the macro crate's Expr::differentiate.
+    pub fn differentiate(&self, var_idx: u32) -> RuntimeExpr { /* ... */ }
+
+    /// Algebraic simplification (constant folding, identity elimination).
+    pub fn simplify(&self) -> RuntimeExpr { /* ... */ }
+
+    /// Collect all variable indices referenced in this expression.
+    pub fn variables(&self) -> BTreeSet<u32> { /* ... */ }
+
+    /// Lower this expression to ConstraintOp opcodes.
+    pub fn emit(&self, emitter: &mut OpcodeEmitter) -> Reg { /* ... */ }
+
+    /// Evaluate directly (interpreted, no JIT). Useful for debugging.
+    pub fn evaluate(&self, vars: &[f64]) -> f64 { /* ... */ }
+}
+```
+
+### Lowering RuntimeExpr to Opcodes
+
+```rust
+impl RuntimeExpr {
+    /// Recursively emit opcodes for this expression, returning the register
+    /// holding the result.
+    pub fn emit(&self, emitter: &mut OpcodeEmitter) -> Reg {
+        match self {
+            RuntimeExpr::Var(idx) => emitter.load_var(*idx),
+            RuntimeExpr::Const(v) => emitter.const_f64(*v),
+            RuntimeExpr::Param { value, .. } => {
+                // Load parameter's current value as a constant
+                let bits = value.load(Ordering::Relaxed);
+                emitter.const_f64(f64::from_bits(bits))
+            }
+            RuntimeExpr::Neg(inner) => {
+                let r = inner.emit(emitter);
+                emitter.neg(r)
+            }
+            RuntimeExpr::Add(a, b) => {
+                let ra = a.emit(emitter);
+                let rb = b.emit(emitter);
+                emitter.add(ra, rb)
+            }
+            RuntimeExpr::Sub(a, b) => {
+                let ra = a.emit(emitter);
+                let rb = b.emit(emitter);
+                emitter.sub(ra, rb)
+            }
+            RuntimeExpr::Mul(a, b) => {
+                let ra = a.emit(emitter);
+                let rb = b.emit(emitter);
+                emitter.mul(ra, rb)
+            }
+            RuntimeExpr::Div(a, b) => {
+                let ra = a.emit(emitter);
+                let rb = b.emit(emitter);
+                emitter.div(ra, rb)
+            }
+            RuntimeExpr::Pow(base, exp) => {
+                let rb = base.emit(emitter);
+                if *exp == 2.0 {
+                    emitter.square(rb)  // x^2 → mul(x, x)
+                } else if *exp == 0.5 {
+                    emitter.sqrt(rb)    // x^0.5 → sqrt(x)
+                } else {
+                    // General power: expand as exp(exp * ln(base))
+                    // or handle specific integer cases
+                    todo!("general power")
+                }
+            }
+            RuntimeExpr::Sqrt(inner) => {
+                let r = inner.emit(emitter);
+                emitter.sqrt(r)
+            }
+            RuntimeExpr::Sin(inner) => {
+                let r = inner.emit(emitter);
+                emitter.sin(r)
+            }
+            RuntimeExpr::Cos(inner) => {
+                let r = inner.emit(emitter);
+                emitter.cos(r)
+            }
+            RuntimeExpr::Atan2(y, x) => {
+                let ry = y.emit(emitter);
+                let rx = x.emit(emitter);
+                emitter.atan2(ry, rx)
+            }
+            RuntimeExpr::Abs(inner) => {
+                let r = inner.emit(emitter);
+                emitter.abs(r)
+            }
+            RuntimeExpr::Tan(inner) => {
+                // tan(x) = sin(x) / cos(x)
+                let r = inner.emit(emitter);
+                let s = emitter.sin(r);
+                let c = emitter.cos(r);
+                emitter.div(s, c)
+            }
+        }
+    }
+}
+```
+
+### Problem Construction from Expression Graphs
+
+```rust
+/// A Problem built entirely from RuntimeExpr trees.
+/// Implements Problem trait -- residuals and jacobians are computed via
+/// JIT-compiled native code. No Python callbacks.
+pub struct ExprProblem {
+    name: String,
+    num_vars: usize,
+    residual_exprs: Vec<RuntimeExpr>,
+    jacobian_exprs: Vec<Vec<(u32, RuntimeExpr)>>,  // sparse: (col, d_residual/d_var)
+    // Optionally JIT-compiled for maximum performance:
+    jit_fn: Option<JITFunction>,
+}
+
+impl ExprProblem {
+    pub fn new(
+        name: String,
+        num_vars: usize,
+        residuals: Vec<RuntimeExpr>,
+    ) -> Self {
+        // Auto-differentiate each residual w.r.t. each variable it references
+        let jacobian_exprs: Vec<Vec<(u32, RuntimeExpr)>> = residuals.iter()
+            .map(|r| {
+                r.variables().into_iter()
+                    .map(|var_idx| {
+                        let deriv = r.differentiate(var_idx).simplify();
+                        (var_idx, deriv)
+                    })
+                    .filter(|(_, d)| !matches!(d, RuntimeExpr::Const(v) if *v == 0.0))
+                    .collect()
+            })
+            .collect();
+
+        let mut problem = Self {
+            name,
+            num_vars,
+            residual_exprs: residuals,
+            jacobian_exprs,
+            jit_fn: None,
+        };
+
+        // Try to JIT compile (falls back to interpreted if platform unsupported)
+        problem.try_jit_compile();
+        problem
+    }
+
+    fn try_jit_compile(&mut self) {
+        if !jit_available() { return; }
+
+        let mut emitter = OpcodeEmitter::new();
+
+        // Emit residual opcodes
+        for (i, expr) in self.residual_exprs.iter().enumerate() {
+            let reg = expr.emit(&mut emitter);
+            emitter.store_residual(i as u32, reg);
+        }
+        let residual_ops = emitter.take_ops();
+
+        // Emit jacobian opcodes
+        let mut emitter = OpcodeEmitter::new();
+        let mut pattern = Vec::new();
+        for (row, jac_row) in self.jacobian_exprs.iter().enumerate() {
+            for (col, deriv_expr) in jac_row {
+                let reg = deriv_expr.emit(&mut emitter);
+                let idx = pattern.len() as u32;
+                emitter.store_jacobian_indexed(idx, reg);
+                pattern.push(JacobianEntry { row: row as u32, col: *col });
+            }
+        }
+        let jacobian_ops = emitter.take_ops();
+
+        let compiled = CompiledConstraints {
+            residual_ops,
+            jacobian_ops,
+            n_residuals: self.residual_exprs.len(),
+            n_vars: self.num_vars,
+            jacobian_nnz: pattern.len(),
+            jacobian_pattern: pattern,
+            max_register: emitter.max_register(),
+        };
+
+        match JITCompiler::new().and_then(|c| c.compile(&compiled)) {
+            Ok(jit_fn) => self.jit_fn = Some(jit_fn),
+            Err(_) => {} // fall back to interpreted evaluation
+        }
+    }
+}
+
+impl Problem for ExprProblem {
+    fn name(&self) -> &str { &self.name }
+    fn residual_count(&self) -> usize { self.residual_exprs.len() }
+    fn variable_count(&self) -> usize { self.num_vars }
+
+    fn residuals(&self, x: &[f64]) -> Vec<f64> {
+        if let Some(ref jit) = self.jit_fn {
+            let mut out = vec![0.0; self.residual_exprs.len()];
+            unsafe { jit.evaluate_residuals(x, &mut out); }
+            out
+        } else {
+            // Interpreted fallback
+            self.residual_exprs.iter()
+                .map(|expr| expr.evaluate(x))
+                .collect()
+        }
+    }
+
+    fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+        if let Some(ref jit) = self.jit_fn {
+            let mut values = vec![0.0; self.jacobian_exprs.iter().map(|r| r.len()).sum()];
+            unsafe { jit.evaluate_jacobian(x, &mut values); }
+            jit.jacobian_to_coo(&values)
+        } else {
+            // Interpreted fallback
+            let mut triplets = Vec::new();
+            for (row, jac_row) in self.jacobian_exprs.iter().enumerate() {
+                for (col, deriv) in jac_row {
+                    let val = deriv.evaluate(x);
+                    if val != 0.0 {
+                        triplets.push((row, *col as usize, val));
+                    }
+                }
+            }
+            triplets
+        }
+    }
+
+    fn initial_point(&self, factor: f64) -> Vec<f64> {
+        vec![factor; self.num_vars]
+    }
+}
+```
+
+### PyO3 Bindings: The `Expr` PyClass
+
+```rust
+/// Python-visible expression node. Each instance wraps a Rust RuntimeExpr.
+/// All operator overloads return new PyExpr instances (immutable expression DAG).
+#[pyclass(frozen, name = "Expr")]
+#[derive(Clone)]
+struct PyExpr {
+    inner: RuntimeExpr,
+    name: Option<String>,  // for display: "x", "y", etc.
+}
+
+#[pymethods]
+impl PyExpr {
+    // ─── Arithmetic operators (build tree, don't compute) ───
+
+    fn __add__(&self, other: ExprOrFloat) -> Self {
+        PyExpr { inner: RuntimeExpr::Add(
+            Box::new(self.inner.clone()),
+            Box::new(other.into_expr()),
+        ), name: None }
+    }
+
+    fn __radd__(&self, other: ExprOrFloat) -> Self {
+        PyExpr { inner: RuntimeExpr::Add(
+            Box::new(other.into_expr()),
+            Box::new(self.inner.clone()),
+        ), name: None }
+    }
+
+    fn __sub__(&self, other: ExprOrFloat) -> Self {
+        PyExpr { inner: RuntimeExpr::Sub(
+            Box::new(self.inner.clone()),
+            Box::new(other.into_expr()),
+        ), name: None }
+    }
+
+    fn __rsub__(&self, other: ExprOrFloat) -> Self {
+        PyExpr { inner: RuntimeExpr::Sub(
+            Box::new(other.into_expr()),
+            Box::new(self.inner.clone()),
+        ), name: None }
+    }
+
+    fn __mul__(&self, other: ExprOrFloat) -> Self {
+        PyExpr { inner: RuntimeExpr::Mul(
+            Box::new(self.inner.clone()),
+            Box::new(other.into_expr()),
+        ), name: None }
+    }
+
+    fn __rmul__(&self, other: ExprOrFloat) -> Self {
+        PyExpr { inner: RuntimeExpr::Mul(
+            Box::new(other.into_expr()),
+            Box::new(self.inner.clone()),
+        ), name: None }
+    }
+
+    fn __truediv__(&self, other: ExprOrFloat) -> Self {
+        PyExpr { inner: RuntimeExpr::Div(
+            Box::new(self.inner.clone()),
+            Box::new(other.into_expr()),
+        ), name: None }
+    }
+
+    fn __rtruediv__(&self, other: ExprOrFloat) -> Self {
+        PyExpr { inner: RuntimeExpr::Div(
+            Box::new(other.into_expr()),
+            Box::new(self.inner.clone()),
+        ), name: None }
+    }
+
+    fn __pow__(&self, exp: f64, _modulo: Option<PyObject>) -> Self {
+        PyExpr { inner: RuntimeExpr::Pow(
+            Box::new(self.inner.clone()), exp,
+        ), name: None }
+    }
+
+    fn __neg__(&self) -> Self {
+        PyExpr { inner: RuntimeExpr::Neg(
+            Box::new(self.inner.clone()),
+        ), name: None }
+    }
+
+    fn __abs__(&self) -> Self {
+        PyExpr { inner: RuntimeExpr::Abs(
+            Box::new(self.inner.clone()),
+        ), name: None }
+    }
+
+    // ─── Math methods ───
+
+    fn sqrt(&self) -> Self {
+        PyExpr { inner: RuntimeExpr::Sqrt(Box::new(self.inner.clone())), name: None }
+    }
+
+    fn sin(&self) -> Self {
+        PyExpr { inner: RuntimeExpr::Sin(Box::new(self.inner.clone())), name: None }
+    }
+
+    fn cos(&self) -> Self {
+        PyExpr { inner: RuntimeExpr::Cos(Box::new(self.inner.clone())), name: None }
+    }
+
+    fn tan(&self) -> Self {
+        PyExpr { inner: RuntimeExpr::Tan(Box::new(self.inner.clone())), name: None }
+    }
+
+    // ─── Symbolic differentiation ───
+
+    fn diff(&self, var: &PyExpr) -> PyResult<Self> {
+        match &var.inner {
+            RuntimeExpr::Var(idx) => Ok(PyExpr {
+                inner: self.inner.differentiate(*idx).simplify(),
+                name: None,
+            }),
+            _ => Err(PyValueError::new_err("can only differentiate w.r.t. a variable")),
+        }
+    }
+
+    // ─── Inspection ───
+
+    #[getter]
+    fn variables(&self) -> Vec<u32> {
+        self.inner.variables().into_iter().collect()
+    }
+
+    fn __repr__(&self) -> String {
+        // Pretty-print the expression tree
+        format_expr(&self.inner)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
+/// Accept either a PyExpr or a plain float from Python.
+/// This lets users write `x + 1.0` without explicit wrapping.
+#[derive(FromPyObject)]
+enum ExprOrFloat {
+    Expr(PyExpr),
+    Float(f64),
+}
+
+impl ExprOrFloat {
+    fn into_expr(self) -> RuntimeExpr {
+        match self {
+            ExprOrFloat::Expr(e) => e.inner,
+            ExprOrFloat::Float(v) => RuntimeExpr::Const(v),
+        }
+    }
+}
+```
+
+### Module-Level Functions
+
+```rust
+/// Create named symbolic variables.
+/// Usage: x, y = sr.variables("x y")
+///        xs = sr.variables("x", count=5)  -> [x_0, x_1, ..., x_4]
+#[pyfunction]
+#[pyo3(signature = (names, *, count=None))]
+fn variables(names: &str, count: Option<usize>) -> Vec<PyExpr> {
+    match count {
+        Some(n) => (0..n).map(|i| PyExpr {
+            inner: RuntimeExpr::Var(i as u32),
+            name: Some(format!("{}_{}", names.trim(), i)),
+        }).collect(),
+        None => names.split_whitespace().enumerate().map(|(i, name)| PyExpr {
+            inner: RuntimeExpr::Var(i as u32),
+            name: Some(name.to_string()),
+        }).collect(),
+    }
+}
+
+/// Module-level math functions that work on expressions.
+#[pyfunction]
+fn sqrt(expr: ExprOrFloat) -> PyExpr {
+    PyExpr { inner: RuntimeExpr::Sqrt(Box::new(expr.into_expr())), name: None }
+}
+
+#[pyfunction]
+fn sin(expr: ExprOrFloat) -> PyExpr {
+    PyExpr { inner: RuntimeExpr::Sin(Box::new(expr.into_expr())), name: None }
+}
+
+// ... cos, tan, atan2, abs similarly
+
+/// Create a residual from an equation: sr.eq(lhs, rhs) → lhs - rhs
+#[pyfunction]
+fn eq(lhs: ExprOrFloat, rhs: ExprOrFloat) -> PyExpr {
+    PyExpr {
+        inner: RuntimeExpr::Sub(
+            Box::new(lhs.into_expr()),
+            Box::new(rhs.into_expr()),
+        ),
+        name: None,
+    }
+}
+
+/// Top-level solve that handles expression-based problems.
+#[pyfunction]
+#[pyo3(signature = (*, residuals=None, equations=None, x0, solver=None,
+                    tolerance=None, max_iterations=None))]
+fn solve(
+    py: Python<'_>,
+    residuals: Option<Vec<PyExpr>>,
+    equations: Option<Vec<PyExpr>>,
+    x0: Vec<f64>,
+    solver: Option<&str>,
+    tolerance: Option<f64>,
+    max_iterations: Option<usize>,
+) -> PyResult<PySolveResult> {
+    let exprs = residuals.or(equations)
+        .ok_or_else(|| PyValueError::new_err("must provide residuals or equations"))?;
+
+    let rust_exprs: Vec<RuntimeExpr> = exprs.into_iter()
+        .map(|e| e.inner)
+        .collect();
+
+    let num_vars = x0.len();
+
+    // Build problem: differentiate + (optionally) JIT compile
+    let problem = ExprProblem::new("python_expr".into(), num_vars, rust_exprs);
+
+    // Solve with GIL released -- no Python callbacks needed!
+    let result = py.allow_threads(|| {
+        let solver = AutoSolver::new();
+        solver.solve(&problem, &x0)
+    });
+
+    Ok(PySolveResult::from(result))
+}
+```
+
+### The Complete Pipeline (What Happens at `solve()` Time)
+
+```
+Python: x, y = sr.variables("x y")         # → Var(0), Var(1)
+Python: r = x**2 + y**2 - 1.0              # → Sub(Add(Pow(Var(0),2), Pow(Var(1),2)), Const(1))
+Python: sr.solve(residuals=[r, x-y], ...)   # triggers:
+
+  ┌──────────────────────────────────────────────────┐
+  │ 1. DIFFERENTIATE (symbolic, in Rust)             │
+  │    d(r1)/dx = 2*x    d(r1)/dy = 2*y             │
+  │    d(r2)/dx = 1      d(r2)/dy = -1              │
+  ├──────────────────────────────────────────────────┤
+  │ 2. LOWER to opcodes (OpcodeEmitter)              │
+  │    LoadVar r0, 0          ; x                    │
+  │    LoadVar r1, 1          ; y                    │
+  │    Mul    r2, r0, r0      ; x^2                  │
+  │    Mul    r3, r1, r1      ; y^2                  │
+  │    Add    r4, r2, r3      ; x^2 + y^2            │
+  │    LoadConst r5, 1.0                             │
+  │    Sub    r6, r4, r5      ; x^2 + y^2 - 1        │
+  │    StoreResidual 0, r6                           │
+  │    Sub    r7, r0, r1      ; x - y                │
+  │    StoreResidual 1, r7                           │
+  ├──────────────────────────────────────────────────┤
+  │ 3. JIT COMPILE (Cranelift → native x86/ARM)     │
+  │    fn(vars: *const f64, residuals: *mut f64)     │
+  │    fn(vars: *const f64, jacobian: *mut f64)      │
+  ├──────────────────────────────────────────────────┤
+  │ 4. SOLVE (GIL released, pure Rust)              │
+  │    Newton-Raphson / Levenberg-Marquardt          │
+  │    Calls JIT-compiled native code each iteration │
+  │    No Python interaction whatsoever              │
+  └──────────────────────────────────────────────────┘
+        ↓
+  PySolveResult { x: [0.7071, 0.7071], converged: True, ... }
+```
+
+### Advanced: Parameter Sweep (Zero Recompilation)
+
+```python
+import solverang as sr
+
+x, y = sr.variables("x y")
+r = sr.Parameter("r", value=1.0)  # mutable parameter
+
+residuals = [
+    x**2 + y**2 - r**2,   # circle of radius r
+    x - y,                  # line y = x
+]
+
+# First solve: compiles the expression graph
+result1 = sr.solve(residuals=residuals, x0=[0.5, 0.5])
+
+# Change parameter -- expression structure unchanged, reuses compiled code
+r.value = 2.0
+result2 = sr.solve(residuals=residuals, x0=[1.0, 1.0])
+
+r.value = 5.0
+result3 = sr.solve(residuals=residuals, x0=[3.0, 3.0])
+
+# All three solves use the same JIT-compiled native code.
+# Only the parameter value is different each time.
+```
+
+The `Parameter` type uses `Arc<AtomicU64>` (storing f64 bits) so the compiled
+code can load the current parameter value at each iteration without
+recompilation. This is critical for parameter sweeps, optimization loops, and
+interactive applications.
+
+### Integration with Geometry System
+
+```python
+import solverang as sr
+
+system = sr.ConstraintSystem2D("custom shape")
+p0 = system.add_point(0.0, 0.0, fixed=True)
+p1 = system.add_point(3.0, 0.0)
+p2 = system.add_point(3.0, 4.0)
+
+# Built-in constraints (already fast, already Lowerable)
+system.constrain_distance(p0, p1, 5.0)
+
+# Custom constraint via expression: hypotenuse = 5
+x1, y1 = system.coords(p1)  # symbolic refs to point 1's coordinates
+x2, y2 = system.coords(p2)  # symbolic refs to point 2's coordinates
+
+system.add_residual(sr.sqrt((x2 - x1)**2 + (y2 - y1)**2) - 3.0)
+system.add_residual(y1)  # p1 on x-axis
+
+result = system.solve()
+```
+
+When `system.coords(p1)` is called, it returns `PyExpr` objects with
+`RuntimeExpr::Var(idx)` where `idx` maps to the correct position in the
+constraint system's flat variable array. This allows expression-based custom
+constraints to be mixed freely with built-in geometric constraints. Both are
+lowered to the same opcode stream, JIT-compiled together, and solved as a
+single problem.
+
+### Pros
+
+- **Custom math with zero Python overhead**: user writes Python expressions,
+  but solve runs entirely in Rust with GIL released
+- **Automatic Jacobians**: symbolic differentiation is exact (no finite
+  differences, no user-supplied jacobian)
+- **JIT compilation**: expressions are compiled to native code via Cranelift,
+  matching hand-written Rust performance
+- **Inspectable**: users can print expressions, check derivatives, debug
+  symbolically
+- **Parameter sweeps**: change constants without recompilation
+- **Composable with geometry**: expression constraints mix with built-in
+  constraints in the same solve
+- **Familiar pattern**: similar to SymPy, PyTorch, JAX expression building
+- **Infrastructure already exists**: `ConstraintOp`, `OpcodeEmitter`,
+  `JITCompiler`, `Lowerable`, symbolic differentiation
+
+### Cons
+
+- **No control flow**: expressions can't contain `if/else`, loops, or
+  conditionals (same limitation as JAX's tracing). A `max(a, b)` function
+  provides some workaround.
+- **Expression tree bloat**: complex expressions create large Rust-side object
+  graphs. A 1000-variable Rosenbrock has ~4000 expression nodes. This is fine
+  for construction but uses more memory than a callback.
+- **Constant exponents only**: `x**y` where both are variables isn't supported
+  (would need `exp(y * ln(x))` which requires adding `Exp` and `Ln` opcodes).
+  `x**2`, `x**0.5`, `x**(-1)` all work fine.
+- **New Rust code needed**: `RuntimeExpr` type, differentiation, simplification,
+  lowering -- about 500-800 lines of Rust. However, the algorithms already exist
+  in the macro crate and can be adapted.
+- **Debugging opacity**: when something goes wrong numerically, the user can't
+  step through the computation with a Python debugger (it's running as native
+  code). Need good error messages and `expr.evaluate(x)` for manual checking.
+- **`__pow__` signature restriction**: Python's `__pow__` takes 3 args
+  (base, exp, mod). The exp must be extractable as a constant `f64` at
+  expression-build time. `x ** y` where `y` is a `PyExpr` would need special
+  handling.
+
+### What New Rust Code Is Needed
+
+| Component | Lines (est.) | Notes |
+|-----------|-------------|-------|
+| `RuntimeExpr` enum | ~50 | Mirrors macro crate `Expr` |
+| `RuntimeExpr::differentiate()` | ~120 | Port from macro crate, adapt for runtime |
+| `RuntimeExpr::simplify()` | ~100 | Port from macro crate |
+| `RuntimeExpr::emit()` | ~80 | Lower to `ConstraintOp` via `OpcodeEmitter` |
+| `RuntimeExpr::evaluate()` | ~60 | Interpreted fallback |
+| `RuntimeExpr::display()` | ~50 | Pretty-printing |
+| `ExprProblem` impl | ~100 | `Problem` trait impl with JIT |
+| PyO3 `PyExpr` bindings | ~200 | Operator overloads, methods |
+| `variables()`, `solve()`, math fns | ~100 | Module-level Python API |
+| **Total** | **~860** | |
+
+Most of this is mechanical porting from the macro crate's `Expr` (which already
+has differentiation, simplification, and code generation). The main work is
+adapting it from compile-time `TokenStream` generation to runtime opcode
+emission.
 
 ---
 
-## Recommendation: Design C (Hybrid) with Protocol Extraction from D
+## Comparison Matrix
 
-The recommended approach combines the **hybrid architecture of Design C** with
-the **protocol-based problem extraction from Design D** and the **convenience
-decorators from Design E** as a pure-Python layer.
+| Criterion                     | A: Callback | B: Pre-built | C: Hybrid | D: Protocol | E: Decorator | **F: Expr Graph** |
+|-------------------------------|:-----------:|:------------:|:---------:|:-----------:|:------------:|:-----------------:|
+| **Performance (GIL-free)**    | No          | Yes          | Both      | No          | No*          | **Yes**           |
+| **Custom problems**           | Yes         | No           | Yes       | Yes         | Yes          | **Yes**           |
+| **Auto Jacobian**             | No          | Yes          | Partial   | No          | No           | **Yes**           |
+| **JIT-compiled**              | No          | Yes          | Partial   | No          | No           | **Yes**           |
+| **Geometry support**          | Manual      | Native       | Native    | Native      | Native       | **Native+custom** |
+| **API surface size**          | Small       | Large        | Medium    | Small       | Small        | **Medium**        |
+| **Discoverability**           | Good        | Good         | Good      | Fair        | Fair         | **Good**          |
+| **scipy familiarity**         | High        | Low          | High      | High        | Medium       | **Medium**        |
+| **Boilerplate**               | Low         | Low          | Low       | Lowest      | Lowest       | **Lowest**        |
+| **Type safety**               | Medium      | High         | Medium    | Low         | Low          | **High**          |
+| **Control flow**              | Yes         | N/A          | Yes       | Yes         | Yes          | **No**            |
+| **Batch/parallel solve**      | No          | Yes          | Partial   | No          | No           | **Yes**           |
+| **Publish complexity**        | Low         | Medium       | Medium    | Low         | Low          | **Medium**        |
+| **New Rust code**             | ~200 LOC    | ~400 LOC     | ~600 LOC  | ~300 LOC    | ~100 LOC     | **~860 LOC**      |
+
+*Design E with expression strings could be GIL-free if compiled to native code.
+
+Design F uniquely achieves **both** custom user-defined math **and** full
+GIL-free JIT-compiled performance. It is the only design where users write
+arbitrary math in Python but get Rust-native execution speed.
+
+---
+
+## Recommendation: Design F (Expression Graph) + B (Pre-built Geometry)
+
+The expression graph approach (Design F) is the clear winner for the core
+problem-definition API. It is the **only design that gives users both custom
+math and GIL-free JIT-compiled performance**. Combined with pre-built geometry
+types (Design B) for the common case, this gives an API that is:
+
+- **As flexible as callbacks** (user writes arbitrary math)
+- **As fast as hand-written Rust** (JIT-compiled, GIL released)
+- **Jacobian-free** (automatic symbolic differentiation)
+- **Composable** (expression constraints mix with geometry constraints)
 
 ### Layered Architecture
 
 ```
-Layer 3: Pure Python convenience (decorators, context managers)
+Layer 3: Pure Python convenience (optional, later)
   │  solverang/__init__.py
   │  @sr.problem decorator, Sketch context manager
   │
-Layer 2: PyO3 bindings (thin, fast)
+Layer 2: PyO3 bindings
   │  solverang/_solverang.so
-  │  PyConstraintSystem2D/3D, solve(), PySolveResult
+  │  PyExpr (operator overloads), variables(), solve()
+  │  PyConstraintSystem2D/3D (pre-built geometry)
+  │  PySolveResult, SolverConfig, exceptions
   │
-Layer 1: Rust solver (unchanged)
+Layer 1: Rust solver + RuntimeExpr
      solverang crate
-     Problem trait, all solvers, geometry, JIT
+     RuntimeExpr → differentiate → lower → JIT compile → solve
+     Problem trait, all solvers, geometry, JIT (existing)
 ```
 
 ### Core Principles
 
-1. **`solve()` accepts anything problem-shaped** (protocol extraction from D).
-   A `PyProblem`, a dict, or any object with `residuals`/`num_variables`/
-   `num_residuals`.
+1. **Expressions are the primary API**. Users build math with Python operators;
+   the result is a Rust-side expression tree that gets JIT-compiled.
 
-2. **Pre-built geometry types are first-class** and release the GIL. These are
-   the performance path.
+2. **Jacobians are always automatic**. Users never write jacobian functions.
+   Symbolic differentiation produces exact, sparse jacobians.
 
-3. **The `@sr.problem` decorator** is pure Python sugar -- it creates an object
-   that satisfies the protocol. Zero Rust complexity for this feature.
+3. **The GIL is always released during solve**. Whether using expressions or
+   pre-built geometry, the entire solve loop runs in Rust.
 
-4. **Result objects are rich** with numpy arrays, truthiness, `raise_on_failure()`,
-   and good `__repr__`.
+4. **Pre-built geometry types exist for convenience**, not necessity. Users
+   *could* build all geometric constraints from expressions, but
+   `constrain_distance()` is more ergonomic for the common case.
 
-5. **Config uses keyword arguments** on `solve()` for simple cases and a
-   `SolverConfig` object for advanced cases. No need to pre-create config objects
-   for common usage.
+5. **Expression constraints compose with geometry constraints**. A single
+   `ConstraintSystem2D` can have both built-in distance constraints and custom
+   expression-based constraints, all JIT-compiled together.
 
 ### Minimal Initial Scope
 
-For a first release, implement only:
+For a first release:
 
-1. `solve(residuals=..., x0=...)` -- callback path
-2. `solve(problem, x0=...)` -- protocol path
-3. `ConstraintSystem2D` -- geometry with all 2D constraints
-4. `ConstraintSystem3D` -- geometry with all 3D constraints
-5. `SolveResult` -- rich result type
-6. `SolverConfig` -- optional config object
-7. Custom exceptions: `SolverError`, `ConvergenceError`, `DimensionError`
+1. `RuntimeExpr` in the solverang crate (differentiate, simplify, emit, evaluate)
+2. `ExprProblem` implementing `Problem` with JIT compilation
+3. PyO3 `Expr` class with operator overloads
+4. `variables()`, `solve()`, `eq()`, math functions (`sqrt`, `sin`, etc.)
+5. `ConstraintSystem2D` with `add_residual(expr)` support
+6. `SolveResult` -- rich result type
+7. Custom exceptions
 
 Defer to later:
-- `@sr.problem` decorator (pure Python, can add without Rust changes)
-- Expression string problems
-- JIT compilation from Python
+- `ConstraintSystem3D` (same pattern as 2D)
+- `Parameter` type for mutable constants
+- `@sr.problem` decorator
+- Callback fallback path (Design A) for control-flow-heavy problems
 - Batch/parallel solve from Python
-- Inequality constraints
+- Expression caching and structural hashing
 
 ---
 
@@ -1322,22 +2109,39 @@ class SingularJacobianError(SolverError): ...
 
 ## Open Questions
 
-1. **Should `solve()` accept both positional `residuals` and protocol objects?**
-   Having one function do both is convenient but complex. Alternative: two
-   functions `solve(problem, x0)` and `solve_function(residuals, x0)`.
+1. **Should `RuntimeExpr` live in the main `solverang` crate or the Python crate?**
+   Putting it in the main crate means it can be used from pure Rust too (e.g.,
+   runtime-defined problems from config files). But it adds a dependency on JIT
+   infrastructure. Recommendation: main crate, behind a `runtime-expr` feature
+   flag.
 
-2. **Should geometry results return point objects or tuples?** Returning
-   `[(0.0, 0.0), (10.0, 0.0)]` is simple; returning `Point2D` objects with
-   methods is richer but heavier.
+2. **Variable-exponent powers**: `x**y` where both are expressions needs `Exp`
+   and `Ln` opcodes in `ConstraintOp`. These don't exist yet. Should we add them
+   to the opcode set, or restrict `**` to constant exponents? Constant-only is
+   simpler and covers 95% of use cases.
 
-3. **How to handle the jacobian format?** Sparse triplets `[(row, col, val)]`
-   are efficient but unfamiliar. Dense `list[list[float]]` is familiar but
-   wasteful. Support both and auto-detect?
+3. **Expression deduplication/CSE**: Should we perform common subexpression
+   elimination before lowering? For `d = sqrt(dx^2 + dy^2)`, the distance
+   computation appears in both the residual and its derivative. CSE would reduce
+   redundant computation but adds complexity. The JIT compiler may handle some
+   of this already.
 
-4. **Should we support scipy.sparse matrices** for jacobian input/output?
-   This would add a runtime dependency but would be familiar to scientific
-   Python users.
+4. **Callback fallback**: Should v1 also include the callback path (Design A)
+   for problems that need control flow? Or should we ship expressions-only first
+   and add callbacks later? Callbacks are simpler to implement but create a
+   "two-class" API.
 
-5. **Version 1 scope**: Is the geometry path enough for v1, or do we need the
-   callback path from day one? The geometry path is simpler to implement and
-   doesn't have the GIL complications.
+5. **How should `system.coords(p1)` work internally?** The expressions need
+   variable indices that map into the constraint system's flat variable array.
+   This coupling means expression-based constraints must be aware of the
+   geometry system's variable layout. Need a clean abstraction boundary.
+
+6. **Error messages for unsupported operations**: If a user writes
+   `sr.solve(residuals=[x if x > 0 else -x], ...)`, the Python `if` evaluates
+   eagerly and bypasses the expression graph. We can't catch this at build time.
+   Should we document this clearly, or try to provide runtime diagnostics?
+
+7. **Thread safety of expression trees**: `PyExpr` is `#[pyclass(frozen)]` so
+   the expression tree is immutable and can be shared across threads. But
+   `Parameter` has interior mutability (`AtomicU64`). Is this the right model,
+   or should parameter changes create a new expression tree?
