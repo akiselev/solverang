@@ -2107,6 +2107,219 @@ class SingularJacobianError(SolverError): ...
 
 ---
 
+## Appendix: AST Extraction vs Operator Overloading
+
+This section analyzes whether Python AST extraction (via decorator/`inspect.getsource()`)
+would be better than the operator overloading approach (Design F) for solverang's Python API.
+The short answer: **operator overloading is the better choice for solverang**, but AST could
+be a complementary future addition.
+
+### Approach Comparison
+
+#### Operator Overloading (Design F, our approach)
+
+Python operators (`+`, `*`, `**`) are overloaded on `Expr` objects to build a Rust-side
+expression tree. No Python code runs during solve -- the tree is differentiated, JIT-compiled,
+and solved entirely in Rust.
+
+```python
+x, y = sr.variables("x y")
+r = x**2 + y**2 - 1.0   # builds Rust Expr tree
+result = sr.solve(residuals=[r], x0=[0.5, 0.5])
+```
+
+#### AST Extraction (alternative approach)
+
+A decorator uses `inspect.getsource()` + `ast.parse()` to extract the Python function's
+AST, then compiles that AST to Rust data structures. Users write plain Python functions;
+the decorator "magically" converts them.
+
+```python
+@sr.compile
+def residuals(x, y):
+    if x > 0:
+        r1 = x**2 + y**2 - 1
+    else:
+        r1 = -x + y**2 - 1
+    return [r1, x - y]
+
+result = sr.solve(residuals, x0=[0.5, 0.5])
+```
+
+### What the Industry Learned
+
+Five major projects have tried variations of these approaches. Their experiences are
+instructive:
+
+**JAX (Google) -- chose tracing (operator overloading), abandoned AST**
+
+Google's Tangent project (2017-2018) attempted AST-based automatic differentiation for
+Python. It was abandoned because Python's dynamism made it impractical -- closures capturing
+runtime state, called functions with unknown implementations, and dynamic attribute access
+all defeated AST analysis. JAX succeeded by using tracing (operator overloading with abstract
+tracers), and this approach scales to TPU compilation, XLA optimization, and vmap/pmap
+transformations. JAX's tracing is the closest analog to our Design F.
+
+**PyTorch -- evolved from eager to bytecode interception**
+
+PyTorch started with eager evaluation, then added `torch.compile` via TorchDynamo, which
+intercepts Python **bytecode** (not AST) via PEP 523's frame evaluation API. This is
+fundamentally different from AST extraction -- it works at the bytecode level and handles
+"graph breaks" gracefully (falling back to Python for unsupported operations). This is a
+massive engineering effort (tens of thousands of lines) and tightly coupled to CPython
+internals. Not practical for us to replicate.
+
+**Numba -- bytecode analysis (not AST)**
+
+Numba uses `__code__` bytecode analysis, not `inspect.getsource()`. This avoids many AST
+limitations but has its own pain: type inference at control flow merge points, limited
+support for Python objects, and the "numba-mode" learning curve (users must learn which
+Python features are supported).
+
+**Taichi -- genuine AST extraction with @ti.kernel**
+
+Taichi is the closest to the AST extraction approach. It uses `inspect.getsource()` +
+`ast.parse()` to extract the function body, then compiles it to GPU/CPU code. It supports
+`if/for/while` but with significant restrictions:
+- Block scoping only (no arbitrary Python in loop bodies)
+- No arbitrary Python objects (only Taichi types)
+- No calling arbitrary Python functions from within the kernel
+- REPL/Jupyter support required special workarounds
+- Lambda functions are not supported
+
+**SymPy -- symbolic expressions (operator overloading)**
+
+SymPy uses operator overloading to build symbolic expression trees, the same pattern as
+Design F. It's been successful for 15+ years. Users understand that `x + 1` builds a
+symbolic expression rather than computing a value.
+
+### Detailed Tradeoff Analysis
+
+| Criterion | Operator Overloading | AST Extraction |
+|-----------|:-------------------:|:--------------:|
+| **Native control flow** (`if/for/while`) | No (use `sr.where()`) | Yes |
+| **Jupyter/REPL support** | Full | Broken (`inspect.getsource()` fails for `<stdin>` input) |
+| **Lambda support** | Full | Broken (lambdas have no parseable source) |
+| **`exec()`/`eval()` support** | Full | Broken (dynamically generated code has no source) |
+| **Closures capturing state** | Works (constants become `Const` nodes) | Problematic (captured vars invisible to AST) |
+| **Calling other functions** | Compose expressions | Only if called function is also AST-compatible |
+| **Decorator magic** | None (explicit tree building) | Significant (function becomes object) |
+| **Implementation complexity** | ~860 LOC Rust | ~2000+ LOC (parser, compiler, error handling) |
+| **Error messages** | Clear (type errors at operator call site) | Confusing (errors reference AST nodes, not user code) |
+| **IDE support** | Full (operators are method calls) | Limited (IDE doesn't know about AST transform) |
+| **Debugging** | `.eval()` on any subexpression | Black box (transformed function, not original) |
+| **Python version sensitivity** | None (operators stable since Python 2) | High (AST format changes between Python versions) |
+| **Composability** | Excellent (expressions are values, can be passed around) | Poor (only whole decorated functions) |
+| **User learning curve** | Low (SymPy/JAX pattern) | Medium (must learn restrictions) |
+
+### The Critical Breakdowns of AST Extraction
+
+1. **Jupyter notebooks** -- the primary use case for scientific Python. `inspect.getsource()`
+   fails for functions defined in notebook cells because they're executed via `exec()` in
+   a synthetic module. Taichi had to add special-case workarounds; Numba uses bytecode
+   specifically to avoid this.
+
+2. **Closures and captured variables** -- when a user writes:
+   ```python
+   radius = compute_radius(params)
+
+   @sr.compile
+   def residuals(x, y):
+       return [x**2 + y**2 - radius**2]  # radius captured from outer scope
+   ```
+   The AST sees `radius` as a `Name` node but has no way to know its value at parse time.
+   We'd need to reach into the function's `__closure__` or `__globals__` to resolve it,
+   which is fragile and doesn't work for complex expressions (`radius = np.sqrt(a**2 + b**2)`
+   where `a` and `b` are also closured).
+
+3. **Function calls within the body** -- if the user writes:
+   ```python
+   @sr.compile
+   def residuals(x, y):
+       d = compute_distance(x, y)  # What is compute_distance?
+       return [d - 1.0]
+   ```
+   The AST only sees `Call(Name('compute_distance'), ...)`. We'd need to recursively
+   parse `compute_distance` too, but it might be a C extension, a lambda, a method on
+   an object, or dynamically generated. Tracing (operator overloading) handles this
+   naturally: `compute_distance` receives `Expr` objects and returns an `Expr`, building
+   the tree automatically.
+
+4. **Python version instability** -- the `ast` module's node structure changes between
+   Python versions. For example, Python 3.8 added `ast.NamedExpr` (walrus operator), 3.10
+   added `ast.Match`, 3.12 changed constant representation. Each Python version requires
+   AST parser updates and testing.
+
+### Where AST Extraction Wins
+
+The one genuine advantage of AST extraction is **native control flow**:
+
+```python
+# With AST extraction:
+@sr.compile
+def residuals(x, y):
+    if x > 0:                    # real Python if
+        return [x**2 - 1]
+    else:
+        return [-x - 1]
+
+# With operator overloading:
+x, y = sr.variables("x y")
+r = sr.where(x > 0, x**2 - 1, -x - 1)  # explicit select
+```
+
+However, this advantage is smaller than it appears:
+
+- `sr.where()` handles the majority of piecewise function use cases
+- `sr.max()` / `sr.min()` / `sr.clamp()` handle clamping/bounding
+- Smooth approximations (`smooth_abs`, `smooth_max`) handle cases where exact
+  switching points cause solver convergence issues
+- The branchless `Select` approach is actually **better for the solver** because
+  both branches are always evaluated, avoiding discontinuities in the Jacobian
+- For **loops** that build residuals, users write Python `for` loops that create
+  expression nodes -- this works perfectly with operator overloading:
+  ```python
+  xs = sr.variables("x", count=100)
+  residuals = [10*(xs[i+1] - xs[i]**2) for i in range(99)]
+  ```
+
+### Recommendation: Operator Overloading (Design F), with AST as Possible Future Add-on
+
+**Operator overloading is the clear winner for solverang** because:
+
+1. It works everywhere Python works (REPL, Jupyter, lambdas, exec, closures)
+2. It's proven at scale (JAX, SymPy, PyTorch's tensor operations)
+3. It's simpler to implement (~860 LOC vs ~2000+ LOC)
+4. It composes naturally (expressions are values that can be stored, passed, combined)
+5. Google explicitly tried and abandoned the AST approach (Tangent → JAX)
+6. IDE support and error messages are better
+7. No Python version sensitivity
+
+The control flow limitation is addressed by `sr.where()`, `sr.max()`, `sr.min()`,
+and smooth approximations, which are sufficient for the nonlinear solver use case.
+
+**If AST extraction is ever added**, it should be as a **complementary layer** on top
+of operator overloading, not a replacement:
+
+```python
+# Future optional sugar (Phase 5+):
+@sr.compile  # extracts AST → builds Expr tree → falls back to operator overloading
+def residuals(x, y):
+    return [x**2 + y**2 - 1, x - y]
+
+# Equivalent to:
+x, y = sr.variables("x y")
+residuals = [x**2 + y**2 - 1, x - y]
+```
+
+The decorator would be pure Python that parses the AST and emits the equivalent
+operator overloading calls. This gets some of the AST ergonomics while keeping
+operator overloading as the robust foundation. Control flow in the AST could be
+lowered to `sr.where()` calls. But this is strictly optional and should not block
+the initial release.
+
+---
+
 ## Open Questions
 
 1. **Should `RuntimeExpr` live in the main `solverang` crate or the Python crate?**
