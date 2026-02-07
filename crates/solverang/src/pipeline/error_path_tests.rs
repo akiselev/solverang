@@ -14,9 +14,7 @@
 use crate::id::{EntityId, ParamId};
 use crate::sketch2d::constraints::*;
 use crate::sketch2d::entities::*;
-use crate::system::{
-    ClusterSolveStatus, ConstraintSystem, DiagnosticIssue, SystemResult, SystemStatus,
-};
+use crate::system::{ConstraintSystem, DiagnosticIssue, SystemStatus};
 
 // =========================================================================
 // Tolerance
@@ -274,21 +272,24 @@ fn test_conflicting_fixed_positions() {
         issues,
     );
 
-    // Solve should NOT report Solved (the system is unsatisfiable).
+    // Solve: the reduce phase may trivially eliminate params from one Fixed
+    // constraint, making the cluster appear "solved" even though the second
+    // constraint is unsatisfied.  So we verify via residuals rather than
+    // relying solely on the status enum.
     let result = sys.solve();
     match &result.status {
-        SystemStatus::Solved => {
-            // If it reports Solved, verify residuals are large (unsatisfied).
+        SystemStatus::Solved | SystemStatus::PartiallySolved => {
+            // If the solver claims convergence, the residuals must still
+            // reflect the unsatisfied constraint.
             let residuals = sys.compute_residuals();
-            let max_r = residuals.iter().map(|r| r.abs()).fold(0.0f64, f64::max);
-            // At least one residual must be large since the targets differ by 10.
+            let max_r = residuals.iter().map(|r| r.abs()).max_by(f64::total_cmp).unwrap_or(0.0);
             assert!(
                 max_r > 1.0,
-                "Conflicting system should not fully satisfy both constraints, max_r = {max_r}",
+                "Conflicting system should have large residuals, max_r = {max_r}",
             );
         }
-        SystemStatus::PartiallySolved | SystemStatus::DiagnosticFailure(_) => {
-            // Expected: the solver correctly signals non-convergence.
+        SystemStatus::DiagnosticFailure(_) => {
+            // Best outcome: the pipeline propagated the structural problem.
         }
     }
 }
@@ -346,8 +347,8 @@ fn test_conflicting_horizontal_with_fixed() {
 
     let issues = sys.diagnose();
     assert!(
-        has_conflicts(&issues) || has_redundancies(&issues),
-        "Expected conflict or redundancy for impossible horizontal, got: {:?}",
+        has_conflicts(&issues),
+        "Expected conflict for impossible horizontal, got: {:?}",
         issues,
     );
 
@@ -403,7 +404,7 @@ fn test_conflicting_parallel_and_perpendicular() {
             // unless the line collapsed to zero length (which makes both
             // constraints trivially satisfied).
             let residuals = sys.compute_residuals();
-            let max_r = residuals.iter().map(|r| r.abs()).fold(0.0f64, f64::max);
+            let max_r = residuals.iter().map(|r| r.abs()).max_by(f64::total_cmp).unwrap_or(0.0);
             if max_r < TOL {
                 // The solver found a degenerate solution (zero-length line).
                 // That's acceptable — the solver handles it.
@@ -453,14 +454,15 @@ fn test_under_constrained_free_point() {
     );
 }
 
-/// A point constrained only in x (via Vertical alignment with a fixed
-/// point) still has 1 free direction in y.
+/// A point constrained only in x (via Vertical alignment with a fully
+/// fixed reference point) still has 1 free direction in y.
 #[test]
 fn test_under_constrained_one_direction() {
     let mut sys = ConstraintSystem::new();
 
-    let (e_ref, x_ref, _y_ref) = add_point(&mut sys, 0.0, 0.0);
+    let (e_ref, x_ref, y_ref) = add_point(&mut sys, 0.0, 0.0);
     sys.fix_param(x_ref);
+    sys.fix_param(y_ref);
     let (e_tgt, x_tgt, _y_tgt) = add_point(&mut sys, 5.0, 5.0);
 
     // Vertical: x_ref == x_tgt.  This constrains x_tgt but not y_tgt.
@@ -775,18 +777,28 @@ fn test_degenerate_tangent_line_through_center() {
 
     // If converged, the distance from center to line should equal radius.
     if let SystemStatus::Solved | SystemStatus::PartiallySolved = &result.status {
-        // Line is now y=ly1 (horizontal, since lx are fixed and ly should match).
-        let ly1_val = sys.get_param(ly1);
-        let ly2_val = sys.get_param(ly2);
-        // The line may not stay perfectly horizontal, but if it does:
-        if (ly1_val - ly2_val).abs() < 1e-2 {
-            let dist_to_center = ly1_val.abs(); // center is at y=0
-            if result.clusters.iter().all(|c| c.residual_norm < 1e-3) {
-                assert!(
-                    (dist_to_center - 3.0).abs() < 1e-2,
-                    "Tangent distance should be ~3.0 (radius), got {dist_to_center}",
-                );
-            }
+        if result.clusters.iter().all(|c| c.residual_norm < 1e-3) {
+            let lx1_val = sys.get_param(lx1);
+            let ly1_val = sys.get_param(ly1);
+            let lx2_val = sys.get_param(lx2);
+            let ly2_val = sys.get_param(ly2);
+            let cx_val = sys.get_param(cx);
+            let cy_val = sys.get_param(cy);
+            let r_val = sys.get_param(cr);
+
+            // General point-to-line distance formula:
+            // |cross| / line_length where cross = (x2-x1)(cy-y1) - (y2-y1)(cx-x1)
+            let dx = lx2_val - lx1_val;
+            let dy = ly2_val - ly1_val;
+            let cross = dx * (cy_val - ly1_val) - dy * (cx_val - lx1_val);
+            let line_len = (dx * dx + dy * dy).sqrt();
+            let dist_to_center = cross.abs() / line_len;
+
+            assert!(
+                (dist_to_center - r_val).abs() < 1e-2,
+                "Tangent distance should be ~{} (radius), got {}",
+                r_val, dist_to_center,
+            );
         }
     }
 }
@@ -974,6 +986,10 @@ fn test_diagnose_aggregates_redundancy_and_dof() {
 
 /// Verify the solver's SystemResult carries diagnostics when there's a
 /// conflicting system that doesn't converge.
+///
+/// With a large target gap (0,0) vs (100,100), the solver cannot converge,
+/// and the pipeline should report `DiagnosticFailure` with non-empty issues
+/// because the analyze phase detects both conflicts and non-convergence.
 #[test]
 fn test_solve_reports_diagnostic_failure_on_conflict() {
     let mut sys = ConstraintSystem::new();
@@ -989,28 +1005,38 @@ fn test_solve_reports_diagnostic_failure_on_conflict() {
 
     let result = sys.solve();
 
-    // The system should not report Solved.
+    // The pipeline may report Solved (if the reduce phase eliminates params
+    // from one Fixed constraint, the cluster appears trivially solved), or
+    // DiagnosticFailure if analysis results are propagated alongside
+    // non-convergence.  We verify the important invariant: diagnostics
+    // correctly detect the conflict regardless of solve status.
     match &result.status {
-        SystemStatus::Solved => {
-            // Even if Solved, the residuals cannot all be small.
+        SystemStatus::Solved | SystemStatus::PartiallySolved => {
+            // The solver claimed some form of convergence; verify residuals
+            // are large (both constraints cannot be satisfied).
             let residuals = sys.compute_residuals();
-            let max_r = residuals.iter().map(|r| r.abs()).fold(0.0f64, f64::max);
+            let max_r = residuals.iter().map(|r| r.abs()).max_by(f64::total_cmp).unwrap_or(0.0);
             assert!(
                 max_r > 1.0,
                 "Conflicting constraints: max residual should be large, got {max_r}",
             );
         }
-        SystemStatus::PartiallySolved => {
-            // At least one cluster didn't converge — expected.
-        }
         SystemStatus::DiagnosticFailure(issues) => {
-            // Best outcome: the solver detected the structural problem.
+            // Best outcome: the pipeline propagated the structural problem.
             assert!(
                 !issues.is_empty(),
                 "DiagnosticFailure should carry issues",
             );
         }
     }
+
+    // Regardless of solve status, diagnose() should detect the conflict.
+    let issues = sys.diagnose();
+    assert!(
+        has_conflicts(&issues),
+        "diagnose() should detect conflicts for Fixed(0,0) vs Fixed(100,100), got: {:?}",
+        issues,
+    );
 }
 
 /// After a failed solve on a conflicting system, diagnostics should still
@@ -1068,14 +1094,7 @@ fn test_dof_transition_under_to_well_constrained() {
     // Initially under-constrained.
     assert_eq!(sys.degrees_of_freedom(), 2);
 
-    // Add one constraint: DOF should drop.
-    let cid = sys.alloc_constraint_id();
-    sys.add_constraint(Box::new(Horizontal::new(cid, e0, e0, y0, y0)));
-
-    // That's a degenerate constraint (y0 == y0 always), so DOF might not drop.
-    // Instead, add a proper Fixed constraint.
-    sys.remove_constraint(cid);
-
+    // Add a Fixed constraint: DOF should drop to 0.
     let cid = sys.alloc_constraint_id();
     sys.add_constraint(Box::new(Fixed::new(cid, e0, x0, y0, 1.0, 2.0)));
 
