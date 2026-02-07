@@ -149,11 +149,17 @@ impl ParamStore {
     }
 
     /// Build a solver mapping restricted to only the given param IDs (that are free).
+    ///
+    /// Duplicate `ParamId`s in the input are deduplicated so each parameter
+    /// appears at most once in the mapping.
     pub fn build_solver_mapping_for(&self, params: &[ParamId]) -> SolverMapping {
         let mut param_to_col = HashMap::new();
         let mut col_to_param = Vec::new();
 
         for &id in params {
+            if param_to_col.contains_key(&id) {
+                continue;
+            }
             if let Some(entry) = self.entry(id) {
                 if !entry.fixed {
                     let col = col_to_param.len();

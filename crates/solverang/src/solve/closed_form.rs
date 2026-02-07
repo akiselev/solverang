@@ -195,28 +195,12 @@ fn solve_two_distances(
             }
         }
 
-        // The gradient of distance w.r.t. the entity's parameters is the
-        // unit direction vector from the reference to the entity. So:
-        //   (grad_x, grad_y) = (dx, dy) / d
-        // where dx = cur_x - refx, dy = cur_y - refy, d = sqrt(dx^2 + dy^2).
-        //
-        // d = 1 / ||(grad_x, grad_y)||  only if the constraint gradient is
-        // the distance gradient directly. For a standard distance constraint,
-        // the Jacobian entries for the entity's own params are exactly
-        // (dx/d, dy/d), so ||(grad_x, grad_y)|| = 1 (unit vector). Then
-        // d can be recovered from the residual: residual = d - target =>
-        // d = residual + target. But we don't know target directly.
-        //
-        // Alternative approach: use the fact that for a distance constraint,
-        //   d^2 = dx^2 + dy^2
-        // and  dx = grad_x * d,  dy = grad_y * d.
-        // Also, grad_norm = sqrt(grad_x^2 + grad_y^2) should be ~1 for a
-        // properly formulated distance constraint.
-
+        // For a standard distance constraint f = sqrt((x-cx)^2 + (y-cy)^2) - r:
+        //   grad = (dx/d, dy/d) where dx = x-cx, dy = y-cy, d = sqrt(dx^2+dy^2)
+        //   grad_norm should be ~1 for a non-degenerate case.
         let grad_norm = (grad_x * grad_x + grad_y * grad_y).sqrt();
 
         if grad_norm < 1e-12 {
-            // Degenerate: points are coincident. Fall back.
             return Some(ClosedFormResult {
                 values: vec![(px, cur_x), (py, cur_y)],
                 solved: false,
@@ -224,166 +208,34 @@ fn solve_two_distances(
             });
         }
 
-        // Normalize the gradient.
         let ux = grad_x / grad_norm;
         let uy = grad_y / grad_norm;
 
-        // d = current distance between entity and reference.
-        // For a distance constraint: residual = d - target, so d = residual + target.
-        // But we also know grad_norm = 1 when d != 0 for a standard distance constraint.
-        // We compute d from the Jacobian: the gradient of sqrt(dx^2+dy^2) has
-        // magnitude 1, and the Jacobian entries we see have magnitude grad_norm.
-        // If the constraint is formulated as (d - target) then grad_norm = 1.
-        //
-        // Compute d directly: dx = ux * d_actual, dy = uy * d_actual
-        // We need to know d_actual. From grad_x = dx / d_actual = ux, so
-        // dx = ux * d_actual. But we can also compute d_actual as:
-        //   d_actual = |residual + target_distance|
-        // We don't have target_distance explicitly. Instead, we use a
-        // different approach: we know the reference point (cx, cy) and compute
-        // the target distance.
-        //
-        // Actually, a simpler approach: from the structure of a standard distance
-        // constraint, we know that at the current (x,y):
-        //   f = sqrt((x - cx)^2 + (y - cy)^2) - r = residual
-        //   df/dx = (x - cx) / d_actual   (where d_actual = sqrt(...))
-        //   df/dy = (y - cy) / d_actual
-        //
-        // So:  (x - cx) = grad_x * d_actual
-        //      (y - cy) = grad_y * d_actual
-        //      d_actual = (x - cx) / grad_x  (or from y)
-        //
-        // With grad_norm = 1:
-        //      d_actual = (x - cx) * grad_x + (y - cy) * grad_y
-        //               = (grad_x * d) * grad_x + (grad_y * d) * grad_y
-        //               = d * (grad_x^2 + grad_y^2) = d * grad_norm^2 = d
-        //
-        // And r = d_actual - residual.
-
-        // Recover d_actual using the dot product approach.
-        // We have: df/dx = grad_x, df/dy = grad_y (already unnormalized).
-        // For standard distance: df/dx = (x - cx) / d_actual
-        // So (x - cx) = grad_x * d_actual
-        //    (y - cy) = grad_y * d_actual
-        //    d_actual^2 = (grad_x * d_actual)^2 + (grad_y * d_actual)^2
-        //               = d_actual^2 * grad_norm^2
-        // => grad_norm = 1 (confirmed for unit-gradient distance constraints).
-
-        // d_actual from: (x-cx)^2 + (y-cy)^2 = d_actual^2
-        // and (x-cx) = grad_x * d_actual
-        // => d_actual * grad_x = x - cx  =>  cx = x - grad_x * d_actual
-        // Similarly cy = y - grad_y * d_actual.
-        //
-        // And residual = d_actual - r  =>  r = d_actual - residual.
-        //
-        // We still need d_actual. Since grad_norm ≈ 1, d_actual can be any
-        // positive value. We recover it from:
-        //   d_actual = sqrt((x-cx)^2 + (y-cy)^2)
-        // But we don't know cx, cy yet -- circular!
-        //
-        // Break the circularity: note that d_actual satisfies
-        //   grad_norm^2 * d_actual^2 = d_actual^2  =>  true for any d_actual.
-        //
-        // We need more info. Since we observe grad_x and grad_y at the current
-        // point, and residual, we can compute:
-        //   d_actual  (unknown)
-        //   r = d_actual - residual
-        //   cx = x - grad_x * d_actual
-        //   cy = y - grad_y * d_actual
-        //
-        // But d_actual cancels from the circle-circle intersection. Actually
-        // wait -- we know the gradient entries as returned by the Jacobian, and
-        // for a normalised distance constraint they satisfy grad_norm = 1, so
-        // we can pick any consistent d_actual. Let's compute it.
-        //
-        // Actually: if grad_norm is exactly 1 and we don't have target, we're
-        // stuck. Let's use the finite-difference trick: evaluate the residual
-        // at the current point, and use a small perturbation to find the target.
-        //
-        // Simpler: evaluate the constraint at a point where (x,y) = (cx,cy),
-        // i.e., distance = 0 => residual = -r. But we don't want to mutate store.
-        //
-        // Best practical approach: use the constraint API with a snapshot.
-        // Perturb x by epsilon to get a second residual and determine d_actual.
-        // f(x + eps) ≈ f(x) + grad_x * eps
-        // But we already have grad_x. We need d_actual.
-        //
-        // Since d_actual = sqrt((x-cx)^2 + (y-cy)^2) and the gradient at the
-        // current point has magnitude 1 (for a non-degenerate distance constraint),
-        // we cannot determine d_actual from the gradient alone. We need a
-        // second evaluation.
-        //
-        // Let's use a concrete approach: create a snapshot, set (x,y) = (0,0),
-        // evaluate residual there. residual_at_origin = sqrt(cx^2 + cy^2) - r.
-        // Combined with residual_at_cur = d_actual - r => d_actual = residual + r.
-        // Two equations, two unknowns (d_actual, r). But we still can't solve.
-        //
-        // Actually the simplest is: set x -> x+h, evaluate residual, numerical
-        // difference gives the actual Jacobian value, and the ratio tells us
-        // how the residual changes with position. Combined with the known
-        // gradient, we can find d_actual by observing that:
-        //   d_actual = ||(x-cx, y-cy)||
-        // and the gradient gives us the unit direction.
-        // We just need one more relationship.
-        //
-        // OK, let's just use a trick: evaluate the residual at a second point
-        // using a temporary store. Set one param to a known value and compute.
-
+        // Recover d_actual (current distance from entity to reference point)
+        // by probing the constraint at a shifted position. From the algebra:
+        //   delta = f(x+1, y) - f(x, y)
+        //   d = (1 - delta^2) / (2 * (delta - ux))
         let mut snap = store.snapshot();
-        let probe_x = cur_x + 1.0;
-        snap.set(px, probe_x);
+        snap.set(px, cur_x + 1.0);
         let probe_residual = c.residuals(&snap)[0];
-
-        // residual at (cur_x, cur_y) = d_actual - r
-        // residual at (cur_x+1, cur_y) = sqrt((cur_x+1-cx)^2 + (cur_y-cy)^2) - r
-        // d_actual = sqrt((cur_x - cx)^2 + (cur_y - cy)^2)
-        //
-        // Let dx0 = cur_x - cx, dy0 = cur_y - cy  (so d_actual = sqrt(dx0^2+dy0^2))
-        // Then:
-        //   residual  = sqrt(dx0^2 + dy0^2) - r
-        //   probe_res = sqrt((dx0+1)^2 + dy0^2) - r
-        //   probe_res - residual = sqrt((dx0+1)^2 + dy0^2) - sqrt(dx0^2 + dy0^2)
-        //
-        // And grad_x = dx0 / d_actual  =>  dx0 = ux * d_actual
-        //     grad_y = dy0 / d_actual  =>  dy0 = uy * d_actual
-        //
-        // So:
-        //   delta = probe_res - residual
-        //   delta = sqrt((ux*d + 1)^2 + (uy*d)^2) - d
-        //   delta = sqrt(d^2 + 2*ux*d + 1) - d
-        //
-        // For large d: delta ≈ ux + 1/(2d) ... but that's approximate.
-        // Let's just solve numerically: we already know ux and uy, and we can
-        // solve for d from the delta equation.
-        //
-        // (delta + d)^2 = d^2 + 2*ux*d + 1
-        // delta^2 + 2*delta*d + d^2 = d^2 + 2*ux*d + 1
-        // delta^2 + 2*delta*d = 2*ux*d + 1
-        // 2*d*(delta - ux) = 1 - delta^2
-        // d = (1 - delta^2) / (2*(delta - ux))
 
         let delta = probe_residual - residual;
         let denom = 2.0 * (delta - ux);
 
-        let d_actual = if denom.abs() > 1e-15 {
-            (1.0 - delta * delta) / denom
-        } else {
-            // Fallback: use finite difference approximation.
-            // d ≈ 1 / (2 * grad_x) when grad_x ≈ delta  (first order)
-            if ux.abs() > 1e-15 {
-                // grad_x ≈ dx0 / d_actual ≈ ux, so this won't help further.
-                // Just use a large default.
-                100.0
-            } else {
-                return Some(ClosedFormResult {
-                    values: vec![(px, cur_x), (py, cur_y)],
-                    solved: false,
-                    branch_count: 0,
-                });
-            }
-        };
+        if denom.abs() <= 1e-15 {
+            // Singular probe: cannot determine circle parameters reliably.
+            // Fall back to iterative solving.
+            return Some(ClosedFormResult {
+                values: vec![(px, cur_x), (py, cur_y)],
+                solved: false,
+                branch_count: 0,
+            });
+        }
 
+        let d_actual = (1.0 - delta * delta) / denom;
         let d_abs = d_actual.abs().max(1e-15);
+
+        // Reference point (circle centre) and target radius.
         let cx = cur_x - ux * d_abs;
         let cy = cur_y - uy * d_abs;
         let r = (d_abs - residual).abs();

@@ -153,14 +153,16 @@ impl ConstraintGraph {
     /// Fixed parameters are excluded because they do not couple constraints.
     pub fn to_constraint_variable_edges(&self, store: &ParamStore) -> Vec<(usize, usize)> {
         let mapping = store.build_solver_mapping();
-        let mut edges = Vec::new();
+        self.to_constraint_variable_edges_with_mapping(&mapping)
+    }
 
-        for (&cidx, _) in &self.constraint_to_entities {
-            // Collect param IDs that this constraint depends on.
-            // We iterate all param -> constraint entries that include cidx.
-            // More efficient: iterate constraint_to_entities and gather
-            // params from the param_to_constraints index.
-        }
+    /// Like [`to_constraint_variable_edges`] but uses a prebuilt
+    /// [`SolverMapping`] to avoid redundant mapping construction.
+    pub fn to_constraint_variable_edges_with_mapping(
+        &self,
+        mapping: &crate::param::SolverMapping,
+    ) -> Vec<(usize, usize)> {
+        let mut edges = Vec::new();
 
         // Iterate param -> constraint edges and emit (constraint_idx, col).
         for (&pid, constraint_indices) in &self.param_to_constraints {
@@ -172,6 +174,19 @@ impl ConstraintGraph {
         }
 
         edges
+    }
+
+    /// The maximum constraint index registered in this graph, plus one.
+    ///
+    /// This is useful for sizing union-find structures that need to cover
+    /// the full range of constraint indices, even if they are sparse.
+    pub fn max_constraint_index(&self) -> usize {
+        self.constraint_to_entities
+            .keys()
+            .copied()
+            .max()
+            .map(|m| m + 1)
+            .unwrap_or(0)
     }
 }
 
