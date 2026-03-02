@@ -1,0 +1,111 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Full Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build workspace
+        run: cargo build --workspace --verbose
+
+      - name: Run all tests
+        run: cargo test --workspace --verbose
+
+      - name: Build with no default features
+        run: cargo build -p solverang --no-default-features --features std
+
+      - name: Test with no default features
+        run: cargo test -p solverang --no-default-features --features std
+
+      - name: Run doc-tests
+        run: cargo test --workspace --doc
+
+      - name: Build docs
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  release:
+    name: Create GitHub Release
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Publish to crates.io
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          publish_and_wait() {
+            local dir="$1"
+            local pkg="$2"
+            local manifest="crates/${dir}/Cargo.toml"
+            local expected_version
+            expected_version="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' "${manifest}" | head -n1)"
+
+            # Check if already published
+            if cargo search "${pkg}" --limit 1 2>/dev/null | grep -q "\"${expected_version}\""; then
+              echo "${pkg} ${expected_version} already published, skipping"
+              return 0
+            fi
+
+            echo "Publishing ${pkg} ${expected_version}"
+            cargo publish -p "${pkg}" --token "${CARGO_REGISTRY_TOKEN}"
+
+            # Wait for crates.io index propagation
+            for i in $(seq 1 120); do
+              if cargo search "${pkg}" --limit 1 2>/dev/null | grep -q "\"${expected_version}\""; then
+                echo "${pkg} ${expected_version} found on crates.io after ${i} attempts"
+                return 0
+              fi
+              echo "Waiting for ${pkg} ${expected_version} propagation (attempt ${i}/120)..."
+              sleep 5
+            done
+
+            echo "ERROR: ${pkg} ${expected_version} not found on crates.io after 10 minutes"
+            exit 1
+          }
+
+          # Macros crate first (solverang depends on it)
+          publish_and_wait macros solverang_macros
+
+          # Then the main crate
+          publish_and_wait solverang solverang
