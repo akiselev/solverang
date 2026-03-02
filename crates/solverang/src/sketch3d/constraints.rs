@@ -1,4 +1,4 @@
-//! 3D constraint types implementing the [`Constraint`](crate::constraint::Constraint) trait.
+//! 3D constraint types implementing the [`Constraint`] trait.
 //!
 //! Provides geometric constraints for 3D sketch solving:
 //! - [`Distance3D`] -- distance between two 3D points

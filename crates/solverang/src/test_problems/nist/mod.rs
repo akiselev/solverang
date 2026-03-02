@@ -164,7 +164,7 @@ pub trait NISTProblem: Problem {
     /// Get the NIST certified residual sum of squares.
     ///
     /// This is the sum of squared residuals at the certified solution:
-    /// RSS = sum(residuals[i]^2)
+    /// RSS = sum(residuals\[i\]^2)
     fn certified_residual_sum_of_squares(&self) -> f64;
 
     /// Get starting values set 1 (typically farther from solution).

@@ -156,8 +156,8 @@ impl ConstraintGraph {
         self.to_constraint_variable_edges_with_mapping(&mapping)
     }
 
-    /// Like [`to_constraint_variable_edges`] but uses a prebuilt
-    /// [`SolverMapping`] to avoid redundant mapping construction.
+    /// Like [`Self::to_constraint_variable_edges`] but uses a prebuilt
+    /// [`crate::param::SolverMapping`] to avoid redundant mapping construction.
     pub fn to_constraint_variable_edges_with_mapping(
         &self,
         mapping: &crate::param::SolverMapping,

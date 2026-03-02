@@ -1,4 +1,4 @@
-//! Assembly constraint types implementing the [`Constraint`](crate::constraint::Constraint) trait.
+//! Assembly constraint types implementing the [`Constraint`] trait.
 //!
 //! - [`Mate`] -- point-on-body1 coincides with point-on-body2
 //! - [`CoaxialAssembly`] -- two body-local axes are collinear in world space

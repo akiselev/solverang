@@ -9,9 +9,9 @@
 //!
 //! - **Jacobian returns `(row, ParamId, value)`, not `(row, col, value)`.** The
 //!   constraint doesn't need to know the column ordering. The solver's
-//!   [`SolverMapping`](crate::param::SolverMapping) handles it.
+//!   [`crate::param::SolverMapping`] handles it.
 //!
-//! - **Constraints read from [`ParamStore`](crate::param::ParamStore)**, not from
+//! - **Constraints read from [`ParamStore`]**, not from
 //!   point arrays. This allows constraints over any combination of parameters.
 //!
 //! - **No geometry types** — the solver never sees `Point2D`, `Circle`, etc.
@@ -53,7 +53,7 @@ pub trait Constraint: Send + Sync {
     /// Sparse Jacobian: `(equation_row, param_id, partial_derivative)`.
     ///
     /// Only non-zero entries need to be returned. The system maps `ParamId` to
-    /// column indices via [`SolverMapping`](crate::param::SolverMapping).
+    /// column indices via [`crate::param::SolverMapping`].
     fn jacobian(&self, store: &ParamStore) -> Vec<(usize, ParamId, f64)>;
 
     /// Weight for soft constraints (default 1.0).

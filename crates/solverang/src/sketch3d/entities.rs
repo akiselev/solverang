@@ -1,4 +1,4 @@
-//! 3D entity types implementing the [`Entity`](crate::entity::Entity) trait.
+//! 3D entity types implementing the [`Entity`] trait.
 //!
 //! Provides geometric primitives for 3D sketching:
 //! - [`Point3D`] -- a point in 3D space (3 parameters)

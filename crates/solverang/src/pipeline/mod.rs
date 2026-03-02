@@ -8,7 +8,7 @@
 //!
 //! The [`SolvePipeline`] struct orchestrates the full pipeline, caching
 //! decomposition results and supporting incremental re-solves via the
-//! [`ChangeTracker`](crate::dataflow::ChangeTracker).
+//! [`ChangeTracker`].
 
 pub mod analyze;
 pub mod decompose;

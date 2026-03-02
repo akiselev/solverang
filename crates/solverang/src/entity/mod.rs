@@ -1,7 +1,7 @@
 //! Entity trait for the constraint system.
 //!
 //! An entity is a named group of parameters. The solver treats all entities
-//! uniformly — it only cares about their [`ParamId`](crate::id::ParamId)s.
+//! uniformly — it only cares about their [`ParamId`]s.
 //! The geometry layer (if any) provides rich entity types that implement
 //! this trait.
 //!

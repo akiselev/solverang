@@ -1,7 +1,7 @@
 //! Default implementation of the [`Analyze`] pipeline phase.
 //!
 //! [`DefaultAnalyze`] wraps the existing analysis modules
-//! ([`graph::redundancy`], [`graph::dof`], [`graph::pattern`]) behind the
+//! ([`crate::graph::redundancy`], [`crate::graph::dof`], [`crate::graph::pattern`]) behind the
 //! [`Analyze`] trait, allowing the user to toggle individual analyses and
 //! configure tolerances.
 //!
