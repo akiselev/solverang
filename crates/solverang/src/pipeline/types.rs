@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use crate::graph::dof::DofAnalysis;
 use crate::graph::pattern::MatchedPattern;
 use crate::graph::redundancy::RedundancyAnalysis;
-use crate::id::{ClusterId, ConstraintId, EntityId, ParamId};
+use crate::id::{ClusterId, EntityId, ParamId};
 use crate::param::SolverMapping;
 use crate::system::{ClusterSolveStatus, DiagnosticIssue};
 

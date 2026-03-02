@@ -25,6 +25,7 @@ use crate::param::ParamStore;
 /// Using the squared formulation avoids the square-root singularity at zero
 /// distance and simplifies the Jacobian.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Distance3D {
     id: ConstraintId,
     p1: EntityId,
@@ -99,6 +100,7 @@ impl Constraint for Distance3D {
 ///
 /// Residuals: `[x2-x1, y2-y1, z2-z1]`
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Coincident3D {
     id: ConstraintId,
     p1: EntityId,
@@ -159,6 +161,7 @@ impl Constraint for Coincident3D {
 ///
 /// Residuals: `[x - tx, y - ty, z - tz]`
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Fixed3D {
     id: ConstraintId,
     entity: EntityId,
@@ -224,6 +227,7 @@ impl Constraint for Fixed3D {
 /// where `(p0x, p0y, p0z)` is a point on the plane and `(nx, ny, nz)` is
 /// the plane normal.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PointOnPlane {
     id: ConstraintId,
     point_entity: EntityId,
@@ -317,6 +321,7 @@ impl Constraint for PointOnPlane {
 ///
 /// This produces one equation per point.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Coplanar {
     id: ConstraintId,
     plane_entity: EntityId,
@@ -431,6 +436,7 @@ impl Constraint for Coplanar {
 /// - `d1y*d2z - d1z*d2y`
 /// - `d1z*d2x - d1x*d2z`
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Parallel3D {
     id: ConstraintId,
     line1: EntityId,
@@ -546,6 +552,7 @@ impl Constraint for Parallel3D {
 ///
 /// Residual: `d1 . d2 = d1x*d2x + d1y*d2y + d1z*d2z = 0`
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Perpendicular3D {
     id: ConstraintId,
     line1: EntityId,
@@ -643,6 +650,7 @@ impl Constraint for Perpendicular3D {
 ///
 /// Total: 4 equations (but the system has rank at most 4).
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Coaxial {
     id: ConstraintId,
     axis1: EntityId,

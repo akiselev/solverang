@@ -8,12 +8,12 @@
 //!
 //! Run with:
 //! ```bash
-//! cargo bench -p solverang --features geometry,parallel,sparse
+//! cargo bench -p solverang --features parallel,sparse
 //! ```
 //!
 //! For HTML reports:
 //! ```bash
-//! cargo bench -p solverang --features geometry,parallel,sparse -- --save-baseline main
+//! cargo bench -p solverang --features parallel,sparse -- --save-baseline main
 //! ```
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
@@ -25,12 +25,6 @@ use solverang::{
 
 #[cfg(feature = "parallel")]
 use solverang::{ParallelSolver, ParallelSolverConfig};
-
-#[cfg(feature = "geometry")]
-use solverang::geometry::{
-    constraints::{DistanceConstraint, HorizontalConstraint},
-    ConstraintSystem, ConstraintSystemBuilder, Point2D,
-};
 
 // =============================================================================
 // Test Problem Definitions
@@ -552,98 +546,6 @@ fn bench_classic_problems(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark geometric constraint systems.
-#[cfg(feature = "geometry")]
-fn bench_geometric_systems(c: &mut Criterion) {
-    let mut group = c.benchmark_group("geometric_systems");
-
-    // Triangle benchmark
-    {
-        let system = ConstraintSystemBuilder::<2>::new()
-            .point(Point2D::new(0.0, 0.0))
-            .point(Point2D::new(10.0, 0.0))
-            .point(Point2D::new(5.0, 1.0))
-            .fix(0)
-            .horizontal(0, 1)
-            .distance(0, 1, 10.0)
-            .distance(1, 2, 8.0)
-            .distance(2, 0, 6.0)
-            .build();
-
-        let x0 = system.current_values();
-
-        group.bench_function("Triangle_LM", |b| {
-            let solver = LMSolver::new(LMConfig::default());
-            b.iter(|| {
-                let result = solver.solve(&system, &x0);
-                black_box(result)
-            });
-        });
-    }
-
-    // Rectangle benchmark
-    {
-        let system = ConstraintSystemBuilder::<2>::new()
-            .point(Point2D::new(0.0, 0.0))
-            .point(Point2D::new(10.0, 0.5))
-            .point(Point2D::new(10.5, 5.0))
-            .point(Point2D::new(0.5, 5.5))
-            .fix(0)
-            .horizontal(0, 1)
-            .horizontal(3, 2)
-            .vertical(0, 3)
-            .vertical(1, 2)
-            .distance(0, 1, 10.0)
-            .distance(0, 3, 5.0)
-            .build();
-
-        let x0 = system.current_values();
-
-        group.bench_function("Rectangle_LM", |b| {
-            let solver = LMSolver::new(LMConfig::default());
-            b.iter(|| {
-                let result = solver.solve(&system, &x0);
-                black_box(result)
-            });
-        });
-    }
-
-    // Chain of points (scaling test)
-    for &num_points in &[5, 10, 20, 50] {
-        let mut system = ConstraintSystem::<2>::new();
-
-        // Create chain of points
-        for i in 0..num_points {
-            system.add_point(Point2D::new(i as f64 * 2.0 + 0.1 * i as f64, 0.1 * i as f64));
-        }
-        system.fix_point(0);
-
-        // Distance constraints between adjacent points
-        for i in 0..num_points - 1 {
-            system.add_constraint(Box::new(DistanceConstraint::<2>::new(i, i + 1, 2.0)));
-        }
-
-        // Horizontal constraint for first segment
-        system.add_constraint(Box::new(HorizontalConstraint::new(0, 1)));
-
-        let x0 = system.current_values();
-
-        group.bench_with_input(
-            BenchmarkId::new("Chain_LM", num_points),
-            &num_points,
-            |b, _| {
-                let solver = LMSolver::new(LMConfig::default());
-                b.iter(|| {
-                    let result = solver.solve(&system, &x0);
-                    black_box(result)
-                });
-            },
-        );
-    }
-
-    group.finish();
-}
-
 /// Benchmark solver configuration presets.
 fn bench_config_presets(c: &mut Criterion) {
     let mut group = c.benchmark_group("config_presets");
@@ -719,16 +621,7 @@ criterion_group!(
     bench_config_presets,
 );
 
-#[cfg(all(feature = "geometry", feature = "parallel"))]
-criterion_group!(
-    geometry_benches,
-    bench_geometric_systems,
-);
-
-#[cfg(all(feature = "geometry", feature = "parallel"))]
-criterion_main!(benches, geometry_benches);
-
-#[cfg(all(feature = "parallel", not(feature = "geometry")))]
+#[cfg(feature = "parallel")]
 criterion_main!(benches);
 
 #[cfg(not(feature = "parallel"))]
@@ -743,14 +636,5 @@ criterion_group!(
     bench_config_presets,
 );
 
-#[cfg(all(not(feature = "parallel"), feature = "geometry"))]
-criterion_group!(
-    geometry_benches_no_parallel,
-    bench_geometric_systems,
-);
-
-#[cfg(all(not(feature = "parallel"), feature = "geometry"))]
-criterion_main!(benches_no_parallel, geometry_benches_no_parallel);
-
-#[cfg(all(not(feature = "parallel"), not(feature = "geometry")))]
+#[cfg(not(feature = "parallel"))]
 criterion_main!(benches_no_parallel);

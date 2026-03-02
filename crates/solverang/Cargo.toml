@@ -9,11 +9,10 @@ license = "Apache-2.0"
 path = "src/lib.rs"
 
 [features]
-default = ["std", "macros", "geometry", "jit", "nist", "sparse", "parallel"]
+default = ["std", "macros", "jit", "nist", "sparse", "parallel"]
 std = []
 parallel = ["rayon"]
 sparse = ["faer"]
-geometry = []
 macros = ["solverang_macros"]
 jit = ["cranelift", "cranelift-jit", "cranelift-module", "cranelift-native"]
 nist = []                                                                    # NIST StRD nonlinear regression test problems

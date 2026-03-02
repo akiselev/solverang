@@ -4,7 +4,7 @@ A silly solver for serious systems.
 
 Domain-agnostic numerical solver for nonlinear equations (F(x) = 0) and least-squares problems (min ||F(x)||^2) in Rust. The core operates on parameter IDs and trait objects, so it works for any domain -- CAD, robotics, circuit simulation, whatever you need to make converge.
 
-Ships with batteries-included 2D sketch, 3D sketch, rigid-body assembly, and legacy geometry constraint modules.
+Ships with batteries-included 2D sketch, 3D sketch, and rigid-body assembly constraint modules.
 
 ## Quick Start
 
@@ -74,7 +74,6 @@ assert!(matches!(result.status, SystemStatus::Solved));
 - **sketch2d** -- 2D points, lines, circles, arcs with 15 constraint types. Ergonomic `Sketch2DBuilder` API.
 - **sketch3d** -- 3D points, line segments, planes, axes with 8 constraint types.
 - **assembly** -- Rigid bodies with quaternion orientation. Mate, coaxial, insert, and gear ratio constraints.
-- **geometry** (legacy) -- Dimension-generic 2D/3D constraint system with 16 constraint types and builder API.
 
 ## Feature Flags
 
@@ -82,7 +81,6 @@ assert!(matches!(result.status, SystemStatus::Solved));
 |------|---------|---------|
 | `std` | yes | Standard library support |
 | `macros` | yes | `#[auto_jacobian]` procedural macro |
-| `geometry` | yes | Legacy geometric constraint library |
 | `sparse` | yes | Sparse matrix operations (faer) |
 | `parallel` | yes | Parallel solving (rayon) |
 | `jit` | yes | Cranelift JIT compilation |

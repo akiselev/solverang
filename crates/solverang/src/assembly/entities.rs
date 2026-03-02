@@ -120,6 +120,7 @@ impl Entity for RigidBody {
 /// This constraint should always accompany a [`RigidBody`] to keep the
 /// quaternion on the unit sphere during solving.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct UnitQuaternion {
     id: ConstraintId,
     body_entity: EntityId,

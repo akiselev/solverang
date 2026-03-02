@@ -177,55 +177,26 @@
 //! }
 //! ```
 //!
-//! # Geometric Constraints (Feature: `geometry`)
+//! # V3 Sketch2D (Builder API)
 //!
-//! With the `geometry` feature, you can build 2D and 3D constraint systems:
+//! Use [`sketch2d::Sketch2DBuilder`] to construct 2D constraint systems:
 //!
-//! ```rust,ignore
-//! use solverang::geometry::{ConstraintSystemBuilder, Point2D};
-//! use solverang::{LMSolver, LMConfig, SolveResult};
+//! ```rust
+//! use solverang::sketch2d::Sketch2DBuilder;
+//! use solverang::system::SystemStatus;
 //!
-//! // Create a triangle with fixed side lengths
-//! let mut system = ConstraintSystemBuilder::<2>::new()
-//!     .name("Triangle")
-//!     .point(Point2D::new(0.0, 0.0))    // p0 - fixed at origin
-//!     .point(Point2D::new(10.0, 0.0))   // p1 - on x-axis
-//!     .point(Point2D::new(5.0, 1.0))    // p2 - apex (initial guess)
-//!     .fix(0)                           // Fix p0
-//!     .fix(1)                           // Fix p1
-//!     .distance(0, 1, 10.0)             // |p0-p1| = 10
-//!     .distance(1, 2, 8.0)              // |p1-p2| = 8
-//!     .distance(2, 0, 6.0)              // |p2-p0| = 6
-//!     .build();
+//! let mut b = Sketch2DBuilder::new();
+//! let p0 = b.add_fixed_point(0.0, 0.0);
+//! let p1 = b.add_fixed_point(10.0, 0.0);
+//! let p2 = b.add_point(5.0, 1.0);
+//! b.constrain_distance(p0, p1, 10.0);
+//! b.constrain_distance(p1, p2, 8.0);
+//! b.constrain_distance(p2, p0, 6.0);
+//! let mut system = b.build();
 //!
-//! let solver = LMSolver::new(LMConfig::default());
-//! let initial = system.current_values();
-//! let result = solver.solve(&system, &initial);
-//!
-//! if let SolveResult::Converged { solution, .. } = result {
-//!     system.set_values(&solution);
-//!     // Triangle is now properly constrained
-//! }
+//! let result = system.solve();
+//! assert!(matches!(result.status, SystemStatus::Solved));
 //! ```
-//!
-//! ## Available Geometric Constraints
-//!
-//! | Constraint | 2D | 3D | Description |
-//! |------------|----|----|-------------|
-//! | `DistanceConstraint` | Yes | Yes | Point-to-point distance |
-//! | `CoincidentConstraint` | Yes | Yes | Points at same location |
-//! | `FixedConstraint` | Yes | Yes | Point at fixed position |
-//! | `HorizontalConstraint` | Yes | - | Same y-coordinate |
-//! | `VerticalConstraint` | Yes | - | Same x-coordinate |
-//! | `AngleConstraint` | Yes | - | Line angle from horizontal |
-//! | `ParallelConstraint` | Yes | Yes | Parallel lines |
-//! | `PerpendicularConstraint` | Yes | Yes | Perpendicular lines |
-//! | `MidpointConstraint` | Yes | Yes | Point at line midpoint |
-//! | `PointOnLineConstraint` | Yes | Yes | Point lies on line |
-//! | `PointOnCircleConstraint` | Yes | Yes | Point on circle/sphere |
-//! | `SymmetricConstraint` | Yes | Yes | Point symmetry |
-//! | `CollinearConstraint` | Yes | Yes | Collinear segments |
-//! | `EqualLengthConstraint` | Yes | Yes | Equal line lengths |
 //!
 //! # MINPACK Test Suite
 //!
@@ -241,7 +212,6 @@
 //! - `std` (default) - Standard library support
 //! - `parallel` - Enable parallel component solving with rayon
 //! - `sparse` - Enable sparse matrix operations with faer
-//! - `geometry` - Enable geometric constraint library for 2D/3D CAD applications
 //!
 //! # Performance Considerations
 //!
@@ -299,9 +269,6 @@ pub mod jacobian;
 pub mod problem;
 pub mod solver;
 pub mod test_problems;
-
-#[cfg(feature = "geometry")]
-pub mod geometry;
 
 #[cfg(feature = "jit")]
 pub mod jit;

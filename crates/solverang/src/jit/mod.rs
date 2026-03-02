@@ -55,9 +55,6 @@ mod cranelift;
 mod lower;
 mod opcodes;
 
-#[cfg(feature = "geometry")]
-mod geometry_lowering;
-
 pub use cranelift::{JITCompiler, JITError, JITFunction};
 pub use lower::{
     CompiledProblem, Lowerable, LoweringContext, OpcodeEmitter, lower_problem, lower_constraints,

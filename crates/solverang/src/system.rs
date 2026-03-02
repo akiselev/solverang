@@ -912,7 +912,7 @@ mod tests {
         let mut system = ConstraintSystem::new();
         let result = system.solve();
         // Duration should be non-negative (trivially true but checks the field exists)
-        assert!(result.duration.as_nanos() >= 0);
+        let _duration = result.duration;
     }
 
     #[test]

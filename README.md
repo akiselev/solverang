@@ -83,10 +83,6 @@ assert!(matches!(result.status, SystemStatus::Solved));
 
 For 3D sketches and assemblies, or when you want finer control, construct a `ConstraintSystem` directly with entities and constraints from the `sketch3d` and `assembly` modules.
 
-### The Old Road: geometry Module
-
-There is also a legacy `geometry` module with its own `ConstraintSystemBuilder` and `GeometricConstraint<D>` trait. It works fine and has extensive tests. It predates the V3 architecture and will eventually be folded into it. In the meantime, both systems coexist without interfering with each other, like two cats in a large apartment.
-
 ## Solvers
 
 Six solvers walk into a function space:
@@ -113,10 +109,6 @@ Six solvers walk into a function space:
 ### assembly
 
 Rigid-body assembly constraints using quaternion orientation. Entities are rigid bodies with 7 parameters (translation + unit quaternion). Constraints include mate (point coincidence), coaxial alignment, insert (coaxial + flush), and gear ratio.
-
-### geometry (legacy)
-
-The original 2D/3D constraint library with dimension-generic `Point<D>`, `Line<D>`, `Circle`, and 16 constraint types. Uses its own `GeometricConstraint<D>` trait and builder API. Feature-gated behind `geometry`.
 
 ## Automatic Jacobians
 
@@ -158,7 +150,6 @@ assert!(result.passed);
 |------|---------|--------------|
 | `std` | yes | Standard library support |
 | `macros` | yes | `#[auto_jacobian]` procedural macro via `solverang_macros` |
-| `geometry` | yes | Legacy geometric constraint library |
 | `sparse` | yes | Sparse matrix operations via `faer` |
 | `parallel` | yes | Parallel solving via `rayon` |
 | `jit` | yes | Cranelift-based JIT compilation for constraint evaluation |
@@ -166,7 +157,7 @@ assert!(result.passed);
 
 ## Architecture
 
-The design follows a principle that could be called "solver-first": the core library is a general-purpose nonlinear solver that knows nothing about the domain it serves. The constraint modules (sketch2d, sketch3d, assembly, geometry) implement extension traits, making them plugins rather than core dependencies.
+The design follows a principle that could be called "solver-first": the core library is a general-purpose nonlinear solver that knows nothing about the domain it serves. The constraint modules (sketch2d, sketch3d, assembly) implement extension traits, making them plugins rather than core dependencies.
 
 The solve pipeline is pluggable, with five phases: Decompose, Analyze, Reduce, Solve, PostProcess. The reduce phase performs symbolic elimination (substituting fixed parameters, merging coincident parameters, eliminating trivial constraints) before handing the reduced system to the numerical solver. An incremental dataflow tracker and solution cache enable warm-starting when constraints change.
 
@@ -180,7 +171,7 @@ cargo test -p solverang       # just the solver
 cargo test --features nist    # include NIST StRD validation
 ```
 
-The test suite includes 1,242 tests: unit tests across all modules, a solver megatest exercising every constraint type, property-based tests via proptest for sketch2d/sketch3d/assembly/geometry, contract tests validating trait compliance, MINPACK reference validation, and solver comparison tests.
+The test suite includes unit tests across all modules, a solver megatest, property-based tests via proptest for sketch2d/sketch3d/assembly, contract tests validating trait compliance, MINPACK reference validation, and solver comparison tests.
 
 ## Benchmarks
 

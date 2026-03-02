@@ -90,6 +90,7 @@ fn rotate_direction(store: &ParamStore, q: [ParamId; 4], dir: [f64; 3]) -> [f64;
 /// R1*local1 + t1 - R2*local2 - t2 = 0
 /// ```
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Mate {
     id: ConstraintId,
     body1: EntityId,
@@ -178,6 +179,7 @@ impl Constraint for Mate {
 ///
 /// where `w_p = R*local_point + t` is the world-space axis point.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct CoaxialAssembly {
     id: ConstraintId,
     body1: EntityId,
@@ -282,6 +284,7 @@ impl Constraint for CoaxialAssembly {
 ///
 /// Total: 5 equations.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Insert {
     id: ConstraintId,
     body1: EntityId,
@@ -402,6 +405,7 @@ impl Constraint for Insert {
 ///
 /// where `theta_i` is the rotation angle of body `i` about its local axis.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Gear {
     id: ConstraintId,
     body1: EntityId,
