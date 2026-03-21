@@ -729,8 +729,8 @@ mod layer4_jit_roundtrip {
         }
     }
 
-    // Once #[jit_problem] exists, JitQuadratic will auto-implement Lowerable.
-    // Until then, we manually build opcodes to test the round-trip concept.
+    // These tests manually build opcodes to verify the JIT round-trip concept.
+    // Layer 7 tests below use the macro-generated lower_to_compiled_constraints().
 
     #[test]
     fn quadratic_jit_residual_matches_interpreted() {

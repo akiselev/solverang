@@ -1,21 +1,20 @@
-//! JIT compilation for constraint evaluation.
+//! JIT compilation for Problem evaluation.
 //!
-//! This module provides Copy-and-Patch JIT compilation that transforms constraint
-//! systems into optimized native code, eliminating virtual function call overhead
-//! during the iterative solve loop.
+//! This module compiles opcode streams to native machine code via Cranelift,
+//! producing callable function pointers for residual and Jacobian evaluation.
 //!
 //! # Architecture
 //!
-//! The JIT system works in three phases:
+//! The JIT system works in two phases:
 //!
-//! 1. **Lowering**: Constraints are lowered from high-level representations to
-//!    a stream of simple opcodes using the [`Lowerable`] trait.
+//! 1. **Opcode emission**: Build an opcode stream using [`OpcodeEmitter`].
+//!    The `#[auto_jacobian]` macro does this automatically — it generates
+//!    `lower_to_compiled_constraints()` which produces a [`CompiledConstraints`]
+//!    ready for compilation.
 //!
-//! 2. **Compilation**: The opcode stream is compiled to native code using
-//!    Cranelift, producing executable functions for residual and Jacobian evaluation.
-//!
-//! 3. **Execution**: The compiled functions are called during the solver iteration,
-//!    providing significant speedup for large constraint systems.
+//! 2. **Compilation + Execution**: [`JITCompiler`] compiles the opcode stream
+//!    to native x86_64/aarch64 code via Cranelift, returning a [`JITFunction`]
+//!    with `evaluate_residuals()` and `evaluate_jacobian()` methods.
 //!
 //! # Feature Flag
 //!
@@ -56,9 +55,7 @@ mod lower;
 mod opcodes;
 
 pub use cranelift::{JITCompiler, JITError, JITFunction};
-pub use lower::{
-    lower_constraints, lower_problem, CompiledProblem, Lowerable, LoweringContext, OpcodeEmitter,
-};
+pub use lower::OpcodeEmitter;
 pub use opcodes::{CompiledConstraints, ConstraintOp, JacobianEntry, Reg, ValidationError};
 
 /// Configuration for JIT-enabled solving.

@@ -299,8 +299,8 @@ pub use solverang_macros::{auto_jacobian, residual};
 
 #[cfg(feature = "jit")]
 pub use jit::{
-    jit_available, lower_constraints, CompiledConstraints, ConstraintOp, JITCompiler, JITConfig,
-    JITError, JITFunction, Lowerable, LoweringContext, OpcodeEmitter, Reg,
+    jit_available, CompiledConstraints, ConstraintOp, JITCompiler, JITConfig, JITError,
+    JITFunction, OpcodeEmitter, Reg,
 };
 
 #[cfg(feature = "jit")]

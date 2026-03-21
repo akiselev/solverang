@@ -1,55 +1,11 @@
-//! Constraint lowering to opcodes.
+//! Opcode emission for JIT compilation.
 //!
-//! This module provides the [`Lowerable`] trait and [`OpcodeEmitter`] helper for
-//! transforming high-level constraint representations into low-level opcodes
-//! suitable for JIT compilation.
+//! This module provides the [`OpcodeEmitter`] — a fluent API for building
+//! opcode streams that can be compiled to native code via Cranelift.
 
-use super::opcodes::{CompiledConstraints, ConstraintOp, JacobianEntry, Reg};
-use crate::problem::Problem;
+use super::opcodes::{ConstraintOp, JacobianEntry, Reg};
 
-/// Context for lowering operations.
-///
-/// Tracks the current residual index and provides coordinate to variable index
-/// mapping.
-#[derive(Clone, Debug)]
-pub struct LoweringContext {
-    /// Current residual index (incremented after each constraint).
-    pub current_residual: u32,
-
-    /// Dimension of points (2 for 2D, 3 for 3D).
-    pub dimension: usize,
-
-    /// Total number of variables.
-    pub n_vars: usize,
-}
-
-impl LoweringContext {
-    /// Create a new lowering context.
-    pub fn new(dimension: usize, n_vars: usize) -> Self {
-        Self {
-            current_residual: 0,
-            dimension,
-            n_vars,
-        }
-    }
-
-    /// Get the variable index for a point coordinate.
-    ///
-    /// For a constraint system with D-dimensional points, point `p` coordinate `k`
-    /// maps to variable index `p * D + k`.
-    pub fn var_index(&self, point_idx: usize, coord: usize) -> u32 {
-        (point_idx * self.dimension + coord) as u32
-    }
-
-    /// Advance to the next residual index.
-    pub fn next_residual(&mut self) -> u32 {
-        let idx = self.current_residual;
-        self.current_residual += 1;
-        idx
-    }
-}
-
-/// Opcode emitter for building constraint computations.
+/// Opcode emitter for building opcode streams.
 ///
 /// This helper provides a fluent API for emitting opcodes during constraint
 /// lowering. It manages register allocation and provides convenience methods
@@ -317,100 +273,6 @@ impl Default for OpcodeEmitter {
     }
 }
 
-/// Trait for types that can be lowered to JIT opcodes.
-///
-/// Types implementing this trait can have their constraint evaluation
-/// compiled to native code for faster execution.
-pub trait Lowerable {
-    /// Emit opcodes for residual evaluation.
-    ///
-    /// The emitter should produce opcodes that compute the constraint residual(s)
-    /// and store them using `store_residual`.
-    fn lower_residual(&self, emitter: &mut OpcodeEmitter, ctx: &LoweringContext);
-
-    /// Emit opcodes for Jacobian evaluation.
-    ///
-    /// The emitter should produce opcodes that compute the Jacobian entries
-    /// and store them using `store_jacobian`.
-    fn lower_jacobian(&self, emitter: &mut OpcodeEmitter, ctx: &LoweringContext);
-
-    /// Get the number of residuals produced by this constraint.
-    fn residual_count(&self) -> usize;
-
-    /// Get the variable indices this constraint depends on.
-    fn variable_indices(&self) -> Vec<usize>;
-}
-
-/// Compiled problem ready for JIT.
-pub struct CompiledProblem {
-    /// The compiled constraints.
-    pub constraints: CompiledConstraints,
-
-    /// Problem name.
-    pub name: String,
-}
-
-/// Lower a problem to compiled constraints.
-///
-/// This function processes all constraints in the problem and produces
-/// opcode streams for residual and Jacobian evaluation.
-pub fn lower_problem<P: Problem>(problem: &P) -> CompiledConstraints {
-    // For generic Problem types, we cannot lower directly since we don't have
-    // access to the constraint structure. Instead, we create a wrapper that
-    // computes residuals and Jacobians by calling the Problem trait methods.
-    //
-    // This is a fallback for problems that don't implement Lowerable directly.
-    // For maximum performance, problems should implement Lowerable for their
-    // specific constraint types.
-
-    let n_vars = problem.variable_count();
-    let n_residuals = problem.residual_count();
-
-    CompiledConstraints::new(n_vars, n_residuals)
-}
-
-/// Lower a collection of lowerable constraints.
-pub fn lower_constraints<L: Lowerable>(
-    constraints: &[L],
-    n_vars: usize,
-    dimension: usize,
-) -> CompiledConstraints {
-    let n_residuals: usize = constraints.iter().map(|c| c.residual_count()).sum();
-
-    let mut cc = CompiledConstraints::new(n_vars, n_residuals);
-    let mut ctx = LoweringContext::new(dimension, n_vars);
-
-    // Lower residuals
-    let mut residual_emitter = OpcodeEmitter::new();
-    for constraint in constraints {
-        constraint.lower_residual(&mut residual_emitter, &ctx);
-        for _ in 0..constraint.residual_count() {
-            ctx.next_residual();
-        }
-    }
-    let residual_max_register = residual_emitter.max_register();
-    cc.residual_ops = residual_emitter.into_ops();
-
-    // Reset context for Jacobian lowering
-    ctx.current_residual = 0;
-
-    // Lower Jacobians
-    let mut jacobian_emitter = OpcodeEmitter::new();
-    for constraint in constraints {
-        constraint.lower_jacobian(&mut jacobian_emitter, &ctx);
-        for _ in 0..constraint.residual_count() {
-            ctx.next_residual();
-        }
-    }
-    let jacobian_max_register = jacobian_emitter.max_register();
-    cc.jacobian_ops = jacobian_emitter.ops().to_vec();
-    cc.jacobian_pattern = jacobian_emitter.take_jacobian_entries();
-    cc.jacobian_nnz = cc.jacobian_pattern.len();
-    cc.max_register = residual_max_register.max(jacobian_max_register);
-
-    cc
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,7 +305,6 @@ mod tests {
     fn test_opcode_emitter_distance() {
         let mut emitter = OpcodeEmitter::new();
 
-        // Compute distance: sqrt((x2-x1)^2 + (y2-y1)^2) - target
         let x1 = emitter.load_var(0);
         let y1 = emitter.load_var(1);
         let x2 = emitter.load_var(2);
@@ -460,35 +321,6 @@ mod tests {
         emitter.store_residual(0, residual);
 
         let ops = emitter.ops();
-        // 4 loads + 2 sub + 2 mul (square) + 1 add + 1 sqrt + 1 const + 1 sub + 1 store = 13
         assert_eq!(ops.len(), 13);
-    }
-
-    #[test]
-    fn test_lowering_context() {
-        let ctx = LoweringContext::new(2, 10);
-
-        // Point 0, x coordinate -> variable 0
-        assert_eq!(ctx.var_index(0, 0), 0);
-        // Point 0, y coordinate -> variable 1
-        assert_eq!(ctx.var_index(0, 1), 1);
-        // Point 1, x coordinate -> variable 2
-        assert_eq!(ctx.var_index(1, 0), 2);
-        // Point 2, y coordinate -> variable 5
-        assert_eq!(ctx.var_index(2, 1), 5);
-    }
-
-    #[test]
-    fn test_lowering_context_3d() {
-        let ctx = LoweringContext::new(3, 12);
-
-        // Point 0, x -> 0
-        assert_eq!(ctx.var_index(0, 0), 0);
-        // Point 0, y -> 1
-        assert_eq!(ctx.var_index(0, 1), 1);
-        // Point 0, z -> 2
-        assert_eq!(ctx.var_index(0, 2), 2);
-        // Point 1, x -> 3
-        assert_eq!(ctx.var_index(1, 0), 3);
     }
 }
