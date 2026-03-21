@@ -282,7 +282,11 @@ fn test_conflicting_fixed_positions() {
             // If the solver claims convergence, the residuals must still
             // reflect the unsatisfied constraint.
             let residuals = sys.compute_residuals();
-            let max_r = residuals.iter().map(|r| r.abs()).max_by(f64::total_cmp).unwrap_or(0.0);
+            let max_r = residuals
+                .iter()
+                .map(|r| r.abs())
+                .max_by(f64::total_cmp)
+                .unwrap_or(0.0);
             assert!(
                 max_r > 1.0,
                 "Conflicting system should have large residuals, max_r = {max_r}",
@@ -404,7 +408,11 @@ fn test_conflicting_parallel_and_perpendicular() {
             // unless the line collapsed to zero length (which makes both
             // constraints trivially satisfied).
             let residuals = sys.compute_residuals();
-            let max_r = residuals.iter().map(|r| r.abs()).max_by(f64::total_cmp).unwrap_or(0.0);
+            let max_r = residuals
+                .iter()
+                .map(|r| r.abs())
+                .max_by(f64::total_cmp)
+                .unwrap_or(0.0);
             if max_r < TOL {
                 // The solver found a degenerate solution (zero-length line).
                 // That's acceptable — the solver handles it.
@@ -662,10 +670,7 @@ fn test_degenerate_zero_length_line_parallel() {
             let dy2 = sys.get_param(yd) - sys.get_param(yc);
             let cross = dx1 * dy2 - dy1 * dx2;
             // Zero-length line trivially satisfies parallel, so cross = 0.
-            assert!(
-                cross.abs() < TOL,
-                "Cross product should be ~0, got {cross}",
-            );
+            assert!(cross.abs() < TOL, "Cross product should be ~0, got {cross}",);
         }
         SystemStatus::PartiallySolved | SystemStatus::DiagnosticFailure(_) => {}
     }
@@ -797,7 +802,8 @@ fn test_degenerate_tangent_line_through_center() {
             assert!(
                 (dist_to_center - r_val).abs() < 1e-2,
                 "Tangent distance should be ~{} (radius), got {}",
-                r_val, dist_to_center,
+                r_val,
+                dist_to_center,
             );
         }
     }
@@ -1015,7 +1021,11 @@ fn test_solve_reports_diagnostic_failure_on_conflict() {
             // The solver claimed some form of convergence; verify residuals
             // are large (both constraints cannot be satisfied).
             let residuals = sys.compute_residuals();
-            let max_r = residuals.iter().map(|r| r.abs()).max_by(f64::total_cmp).unwrap_or(0.0);
+            let max_r = residuals
+                .iter()
+                .map(|r| r.abs())
+                .max_by(f64::total_cmp)
+                .unwrap_or(0.0);
             assert!(
                 max_r > 1.0,
                 "Conflicting constraints: max residual should be large, got {max_r}",
@@ -1023,10 +1033,7 @@ fn test_solve_reports_diagnostic_failure_on_conflict() {
         }
         SystemStatus::DiagnosticFailure(issues) => {
             // Best outcome: the pipeline propagated the structural problem.
-            assert!(
-                !issues.is_empty(),
-                "DiagnosticFailure should carry issues",
-            );
+            assert!(!issues.is_empty(), "DiagnosticFailure should carry issues",);
         }
     }
 

@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/rat43.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Data for Rat43 problem: (x, y) pairs
 const DATA: [(f64, f64); 15] = [
@@ -33,18 +33,18 @@ const DATA: [(f64, f64); 15] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 4] = [
-    6.9964151270E+02,   // b1
-    5.2771253025E+00,   // b2
-    7.5962938329E-01,   // b3
-    1.2792483859E+00,   // b4
+    6.9964151270E+02, // b1
+    5.2771253025E+00, // b2
+    7.5962938329E-01, // b3
+    1.2792483859E+00, // b4
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 4] = [
-    1.6302297817E+01,   // b1
-    2.0828735829E-01,   // b2
-    1.9566123451E-02,   // b3
-    6.8761936385E-02,   // b4
+    1.6302297817E+01, // b1
+    2.0828735829E-01, // b2
+    1.9566123451E-02, // b3
+    6.8761936385E-02, // b4
 ];
 
 /// Certified residual sum of squares
@@ -103,7 +103,11 @@ impl Problem for Rat43 {
             entries.push((i, 1, b[0] * exp_term / (b[3] * inner.powf(inv_b4 + 1.0))));
 
             // d/db3 = -b1 * x * exp_term * inner^(-1/b4 - 1) / b4
-            entries.push((i, 2, -b[0] * x * exp_term / (b[3] * inner.powf(inv_b4 + 1.0))));
+            entries.push((
+                i,
+                2,
+                -b[0] * x * exp_term / (b[3] * inner.powf(inv_b4 + 1.0)),
+            ));
 
             // d/db4 = b1 * ln(inner) / (b4^2 * inner^(1/b4))
             let ln_inner = inner.ln();

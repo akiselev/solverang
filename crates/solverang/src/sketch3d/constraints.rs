@@ -31,8 +31,12 @@ pub struct Distance3D {
     p1: EntityId,
     p2: EntityId,
     distance: f64,
-    x1: ParamId, y1: ParamId, z1: ParamId,
-    x2: ParamId, y2: ParamId, z2: ParamId,
+    x1: ParamId,
+    y1: ParamId,
+    z1: ParamId,
+    x2: ParamId,
+    y2: ParamId,
+    z2: ParamId,
     params: [ParamId; 6],
     entities: [EntityId; 2],
 }
@@ -43,16 +47,27 @@ impl Distance3D {
     /// `distance` is the target distance (not squared).
     pub fn new(
         id: ConstraintId,
-        p1: EntityId, x1: ParamId, y1: ParamId, z1: ParamId,
-        p2: EntityId, x2: ParamId, y2: ParamId, z2: ParamId,
+        p1: EntityId,
+        x1: ParamId,
+        y1: ParamId,
+        z1: ParamId,
+        p2: EntityId,
+        x2: ParamId,
+        y2: ParamId,
+        z2: ParamId,
         distance: f64,
     ) -> Self {
         Self {
             id,
-            p1, p2,
+            p1,
+            p2,
             distance,
-            x1, y1, z1,
-            x2, y2, z2,
+            x1,
+            y1,
+            z1,
+            x2,
+            y2,
+            z2,
             params: [x1, y1, z1, x2, y2, z2],
             entities: [p1, p2],
         }
@@ -60,11 +75,21 @@ impl Distance3D {
 }
 
 impl Constraint for Distance3D {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "Distance3D" }
-    fn entity_ids(&self) -> &[EntityId] { &self.entities }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
-    fn equation_count(&self) -> usize { 1 }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "Distance3D"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+    fn equation_count(&self) -> usize {
+        1
+    }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
         let (vx1, vy1, vz1) = (store.get(self.x1), store.get(self.y1), store.get(self.z1));
@@ -105,8 +130,12 @@ pub struct Coincident3D {
     id: ConstraintId,
     p1: EntityId,
     p2: EntityId,
-    x1: ParamId, y1: ParamId, z1: ParamId,
-    x2: ParamId, y2: ParamId, z2: ParamId,
+    x1: ParamId,
+    y1: ParamId,
+    z1: ParamId,
+    x2: ParamId,
+    y2: ParamId,
+    z2: ParamId,
     params: [ParamId; 6],
     entities: [EntityId; 2],
 }
@@ -115,14 +144,25 @@ impl Coincident3D {
     /// Create a coincident constraint between two 3D points.
     pub fn new(
         id: ConstraintId,
-        p1: EntityId, x1: ParamId, y1: ParamId, z1: ParamId,
-        p2: EntityId, x2: ParamId, y2: ParamId, z2: ParamId,
+        p1: EntityId,
+        x1: ParamId,
+        y1: ParamId,
+        z1: ParamId,
+        p2: EntityId,
+        x2: ParamId,
+        y2: ParamId,
+        z2: ParamId,
     ) -> Self {
         Self {
             id,
-            p1, p2,
-            x1, y1, z1,
-            x2, y2, z2,
+            p1,
+            p2,
+            x1,
+            y1,
+            z1,
+            x2,
+            y2,
+            z2,
             params: [x1, y1, z1, x2, y2, z2],
             entities: [p1, p2],
         }
@@ -130,11 +170,21 @@ impl Coincident3D {
 }
 
 impl Constraint for Coincident3D {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "Coincident3D" }
-    fn entity_ids(&self) -> &[EntityId] { &self.entities }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
-    fn equation_count(&self) -> usize { 3 }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "Coincident3D"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+    fn equation_count(&self) -> usize {
+        3
+    }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
         vec![
@@ -146,9 +196,12 @@ impl Constraint for Coincident3D {
 
     fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
         vec![
-            (0, self.x1, -1.0), (0, self.x2, 1.0),
-            (1, self.y1, -1.0), (1, self.y2, 1.0),
-            (2, self.z1, -1.0), (2, self.z2, 1.0),
+            (0, self.x1, -1.0),
+            (0, self.x2, 1.0),
+            (1, self.y1, -1.0),
+            (1, self.y2, 1.0),
+            (2, self.z1, -1.0),
+            (2, self.z2, 1.0),
         ]
     }
 }
@@ -166,7 +219,9 @@ pub struct Fixed3D {
     id: ConstraintId,
     entity: EntityId,
     target: [f64; 3],
-    x: ParamId, y: ParamId, z: ParamId,
+    x: ParamId,
+    y: ParamId,
+    z: ParamId,
     params: [ParamId; 3],
     entities: [EntityId; 1],
 }
@@ -178,14 +233,18 @@ impl Fixed3D {
     pub fn new(
         id: ConstraintId,
         entity: EntityId,
-        x: ParamId, y: ParamId, z: ParamId,
+        x: ParamId,
+        y: ParamId,
+        z: ParamId,
         target: [f64; 3],
     ) -> Self {
         Self {
             id,
             entity,
             target,
-            x, y, z,
+            x,
+            y,
+            z,
             params: [x, y, z],
             entities: [entity],
         }
@@ -193,11 +252,21 @@ impl Fixed3D {
 }
 
 impl Constraint for Fixed3D {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "Fixed3D" }
-    fn entity_ids(&self) -> &[EntityId] { &self.entities }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
-    fn equation_count(&self) -> usize { 3 }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "Fixed3D"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+    fn equation_count(&self) -> usize {
+        3
+    }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
         vec![
@@ -208,11 +277,7 @@ impl Constraint for Fixed3D {
     }
 
     fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
-        vec![
-            (0, self.x, 1.0),
-            (1, self.y, 1.0),
-            (2, self.z, 1.0),
-        ]
+        vec![(0, self.x, 1.0), (1, self.y, 1.0), (2, self.z, 1.0)]
     }
 }
 
@@ -233,11 +298,17 @@ pub struct PointOnPlane {
     point_entity: EntityId,
     plane_entity: EntityId,
     // Point params
-    px: ParamId, py: ParamId, pz: ParamId,
+    px: ParamId,
+    py: ParamId,
+    pz: ParamId,
     // Plane point params
-    p0x: ParamId, p0y: ParamId, p0z: ParamId,
+    p0x: ParamId,
+    p0y: ParamId,
+    p0z: ParamId,
     // Plane normal params
-    nx: ParamId, ny: ParamId, nz: ParamId,
+    nx: ParamId,
+    ny: ParamId,
+    nz: ParamId,
     params: Vec<ParamId>,
     entities: [EntityId; 2],
 }
@@ -247,18 +318,30 @@ impl PointOnPlane {
     pub fn new(
         id: ConstraintId,
         point_entity: EntityId,
-        px: ParamId, py: ParamId, pz: ParamId,
+        px: ParamId,
+        py: ParamId,
+        pz: ParamId,
         plane_entity: EntityId,
-        p0x: ParamId, p0y: ParamId, p0z: ParamId,
-        nx: ParamId, ny: ParamId, nz: ParamId,
+        p0x: ParamId,
+        p0y: ParamId,
+        p0z: ParamId,
+        nx: ParamId,
+        ny: ParamId,
+        nz: ParamId,
     ) -> Self {
         Self {
             id,
             point_entity,
             plane_entity,
-            px, py, pz,
-            p0x, p0y, p0z,
-            nx, ny, nz,
+            px,
+            py,
+            pz,
+            p0x,
+            p0y,
+            p0z,
+            nx,
+            ny,
+            nz,
             params: vec![px, py, pz, p0x, p0y, p0z, nx, ny, nz],
             entities: [point_entity, plane_entity],
         }
@@ -266,15 +349,29 @@ impl PointOnPlane {
 }
 
 impl Constraint for PointOnPlane {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "PointOnPlane" }
-    fn entity_ids(&self) -> &[EntityId] { &self.entities }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
-    fn equation_count(&self) -> usize { 1 }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "PointOnPlane"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+    fn equation_count(&self) -> usize {
+        1
+    }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
         let (vpx, vpy, vpz) = (store.get(self.px), store.get(self.py), store.get(self.pz));
-        let (vp0x, vp0y, vp0z) = (store.get(self.p0x), store.get(self.p0y), store.get(self.p0z));
+        let (vp0x, vp0y, vp0z) = (
+            store.get(self.p0x),
+            store.get(self.p0y),
+            store.get(self.p0z),
+        );
         let (vnx, vny, vnz) = (store.get(self.nx), store.get(self.ny), store.get(self.nz));
 
         let dx = vpx - vp0x;
@@ -286,7 +383,11 @@ impl Constraint for PointOnPlane {
 
     fn jacobian(&self, store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
         let (vpx, vpy, vpz) = (store.get(self.px), store.get(self.py), store.get(self.pz));
-        let (vp0x, vp0y, vp0z) = (store.get(self.p0x), store.get(self.p0y), store.get(self.p0z));
+        let (vp0x, vp0y, vp0z) = (
+            store.get(self.p0x),
+            store.get(self.p0y),
+            store.get(self.p0z),
+        );
         let (vnx, vny, vnz) = (store.get(self.nx), store.get(self.ny), store.get(self.nz));
 
         let dx = vpx - vp0x;
@@ -326,8 +427,12 @@ pub struct Coplanar {
     id: ConstraintId,
     plane_entity: EntityId,
     // Plane point and normal
-    p0x: ParamId, p0y: ParamId, p0z: ParamId,
-    nx: ParamId, ny: ParamId, nz: ParamId,
+    p0x: ParamId,
+    p0y: ParamId,
+    p0z: ParamId,
+    nx: ParamId,
+    ny: ParamId,
+    nz: ParamId,
     // Point entities and their coordinates
     point_entities: Vec<EntityId>,
     point_params: Vec<(ParamId, ParamId, ParamId)>,
@@ -342,8 +447,12 @@ impl Coplanar {
     pub fn new(
         id: ConstraintId,
         plane_entity: EntityId,
-        p0x: ParamId, p0y: ParamId, p0z: ParamId,
-        nx: ParamId, ny: ParamId, nz: ParamId,
+        p0x: ParamId,
+        p0y: ParamId,
+        p0z: ParamId,
+        nx: ParamId,
+        ny: ParamId,
+        nz: ParamId,
         points: &[(EntityId, ParamId, ParamId, ParamId)],
     ) -> Self {
         let mut all_params = vec![p0x, p0y, p0z, nx, ny, nz];
@@ -361,8 +470,12 @@ impl Coplanar {
         Self {
             id,
             plane_entity,
-            p0x, p0y, p0z,
-            nx, ny, nz,
+            p0x,
+            p0y,
+            p0z,
+            nx,
+            ny,
+            nz,
             point_entities,
             point_params,
             all_params,
@@ -372,26 +485,47 @@ impl Coplanar {
 }
 
 impl Constraint for Coplanar {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "Coplanar" }
-    fn entity_ids(&self) -> &[EntityId] { &self.all_entities }
-    fn param_ids(&self) -> &[ParamId] { &self.all_params }
-    fn equation_count(&self) -> usize { self.point_params.len() }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "Coplanar"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.all_entities
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.all_params
+    }
+    fn equation_count(&self) -> usize {
+        self.point_params.len()
+    }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
-        let (vp0x, vp0y, vp0z) = (store.get(self.p0x), store.get(self.p0y), store.get(self.p0z));
+        let (vp0x, vp0y, vp0z) = (
+            store.get(self.p0x),
+            store.get(self.p0y),
+            store.get(self.p0z),
+        );
         let (vnx, vny, vnz) = (store.get(self.nx), store.get(self.ny), store.get(self.nz));
 
-        self.point_params.iter().map(|&(px, py, pz)| {
-            let dx = store.get(px) - vp0x;
-            let dy = store.get(py) - vp0y;
-            let dz = store.get(pz) - vp0z;
-            vnx * dx + vny * dy + vnz * dz
-        }).collect()
+        self.point_params
+            .iter()
+            .map(|&(px, py, pz)| {
+                let dx = store.get(px) - vp0x;
+                let dy = store.get(py) - vp0y;
+                let dz = store.get(pz) - vp0z;
+                vnx * dx + vny * dy + vnz * dz
+            })
+            .collect()
     }
 
     fn jacobian(&self, store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
-        let (vp0x, vp0y, vp0z) = (store.get(self.p0x), store.get(self.p0y), store.get(self.p0z));
+        let (vp0x, vp0y, vp0z) = (
+            store.get(self.p0x),
+            store.get(self.p0y),
+            store.get(self.p0z),
+        );
         let (vnx, vny, vnz) = (store.get(self.nx), store.get(self.ny), store.get(self.nz));
 
         let mut jac = Vec::new();
@@ -442,11 +576,19 @@ pub struct Parallel3D {
     line1: EntityId,
     line2: EntityId,
     // Direction of line 1: (x2-x1, y2-y1, z2-z1) via endpoint params
-    l1_x1: ParamId, l1_y1: ParamId, l1_z1: ParamId,
-    l1_x2: ParamId, l1_y2: ParamId, l1_z2: ParamId,
+    l1_x1: ParamId,
+    l1_y1: ParamId,
+    l1_z1: ParamId,
+    l1_x2: ParamId,
+    l1_y2: ParamId,
+    l1_z2: ParamId,
     // Direction of line 2
-    l2_x1: ParamId, l2_y1: ParamId, l2_z1: ParamId,
-    l2_x2: ParamId, l2_y2: ParamId, l2_z2: ParamId,
+    l2_x1: ParamId,
+    l2_y1: ParamId,
+    l2_z1: ParamId,
+    l2_x2: ParamId,
+    l2_y2: ParamId,
+    l2_z2: ParamId,
     params: [ParamId; 12],
     entities: [EntityId; 2],
 }
@@ -456,20 +598,38 @@ impl Parallel3D {
     pub fn new(
         id: ConstraintId,
         line1: EntityId,
-        l1_x1: ParamId, l1_y1: ParamId, l1_z1: ParamId,
-        l1_x2: ParamId, l1_y2: ParamId, l1_z2: ParamId,
+        l1_x1: ParamId,
+        l1_y1: ParamId,
+        l1_z1: ParamId,
+        l1_x2: ParamId,
+        l1_y2: ParamId,
+        l1_z2: ParamId,
         line2: EntityId,
-        l2_x1: ParamId, l2_y1: ParamId, l2_z1: ParamId,
-        l2_x2: ParamId, l2_y2: ParamId, l2_z2: ParamId,
+        l2_x1: ParamId,
+        l2_y1: ParamId,
+        l2_z1: ParamId,
+        l2_x2: ParamId,
+        l2_y2: ParamId,
+        l2_z2: ParamId,
     ) -> Self {
         Self {
             id,
-            line1, line2,
-            l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2,
-            l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
+            line1,
+            line2,
+            l1_x1,
+            l1_y1,
+            l1_z1,
+            l1_x2,
+            l1_y2,
+            l1_z2,
+            l2_x1,
+            l2_y1,
+            l2_z1,
+            l2_x2,
+            l2_y2,
+            l2_z2,
             params: [
-                l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2,
-                l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
+                l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2, l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
             ],
             entities: [line1, line2],
         }
@@ -492,11 +652,21 @@ impl Parallel3D {
 }
 
 impl Constraint for Parallel3D {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "Parallel3D" }
-    fn entity_ids(&self) -> &[EntityId] { &self.entities }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
-    fn equation_count(&self) -> usize { 2 }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "Parallel3D"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+    fn equation_count(&self) -> usize {
+        2
+    }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
         let (d1, d2) = self.directions(store);
@@ -505,8 +675,8 @@ impl Constraint for Parallel3D {
         // cy = d1z*d2x - d1x*d2z
         // cz = d1x*d2y - d1y*d2x  (dependent, not used)
         vec![
-            d1[1] * d2[2] - d1[2] * d2[1],  // cx
-            d1[2] * d2[0] - d1[0] * d2[2],  // cy
+            d1[1] * d2[2] - d1[2] * d2[1], // cx
+            d1[2] * d2[0] - d1[0] * d2[2], // cy
         ]
     }
 
@@ -530,16 +700,23 @@ impl Constraint for Parallel3D {
 
         vec![
             // Row 0: d1y*d2z - d1z*d2y
-            (0, self.l1_y1, -d2[2]), (0, self.l1_y2, d2[2]),
-            (0, self.l1_z1, d2[1]),  (0, self.l1_z2, -d2[1]),
-            (0, self.l2_y1, d1[2]),  (0, self.l2_y2, -d1[2]),
-            (0, self.l2_z1, -d1[1]), (0, self.l2_z2, d1[1]),
-
+            (0, self.l1_y1, -d2[2]),
+            (0, self.l1_y2, d2[2]),
+            (0, self.l1_z1, d2[1]),
+            (0, self.l1_z2, -d2[1]),
+            (0, self.l2_y1, d1[2]),
+            (0, self.l2_y2, -d1[2]),
+            (0, self.l2_z1, -d1[1]),
+            (0, self.l2_z2, d1[1]),
             // Row 1: d1z*d2x - d1x*d2z
-            (1, self.l1_z1, -d2[0]), (1, self.l1_z2, d2[0]),
-            (1, self.l1_x1, d2[2]),  (1, self.l1_x2, -d2[2]),
-            (1, self.l2_x1, -d1[2]), (1, self.l2_x2, d1[2]),
-            (1, self.l2_z1, d1[0]),  (1, self.l2_z2, -d1[0]),
+            (1, self.l1_z1, -d2[0]),
+            (1, self.l1_z2, d2[0]),
+            (1, self.l1_x1, d2[2]),
+            (1, self.l1_x2, -d2[2]),
+            (1, self.l2_x1, -d1[2]),
+            (1, self.l2_x2, d1[2]),
+            (1, self.l2_z1, d1[0]),
+            (1, self.l2_z2, -d1[0]),
         ]
     }
 }
@@ -557,10 +734,18 @@ pub struct Perpendicular3D {
     id: ConstraintId,
     line1: EntityId,
     line2: EntityId,
-    l1_x1: ParamId, l1_y1: ParamId, l1_z1: ParamId,
-    l1_x2: ParamId, l1_y2: ParamId, l1_z2: ParamId,
-    l2_x1: ParamId, l2_y1: ParamId, l2_z1: ParamId,
-    l2_x2: ParamId, l2_y2: ParamId, l2_z2: ParamId,
+    l1_x1: ParamId,
+    l1_y1: ParamId,
+    l1_z1: ParamId,
+    l1_x2: ParamId,
+    l1_y2: ParamId,
+    l1_z2: ParamId,
+    l2_x1: ParamId,
+    l2_y1: ParamId,
+    l2_z1: ParamId,
+    l2_x2: ParamId,
+    l2_y2: ParamId,
+    l2_z2: ParamId,
     params: [ParamId; 12],
     entities: [EntityId; 2],
 }
@@ -570,20 +755,38 @@ impl Perpendicular3D {
     pub fn new(
         id: ConstraintId,
         line1: EntityId,
-        l1_x1: ParamId, l1_y1: ParamId, l1_z1: ParamId,
-        l1_x2: ParamId, l1_y2: ParamId, l1_z2: ParamId,
+        l1_x1: ParamId,
+        l1_y1: ParamId,
+        l1_z1: ParamId,
+        l1_x2: ParamId,
+        l1_y2: ParamId,
+        l1_z2: ParamId,
         line2: EntityId,
-        l2_x1: ParamId, l2_y1: ParamId, l2_z1: ParamId,
-        l2_x2: ParamId, l2_y2: ParamId, l2_z2: ParamId,
+        l2_x1: ParamId,
+        l2_y1: ParamId,
+        l2_z1: ParamId,
+        l2_x2: ParamId,
+        l2_y2: ParamId,
+        l2_z2: ParamId,
     ) -> Self {
         Self {
             id,
-            line1, line2,
-            l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2,
-            l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
+            line1,
+            line2,
+            l1_x1,
+            l1_y1,
+            l1_z1,
+            l1_x2,
+            l1_y2,
+            l1_z2,
+            l2_x1,
+            l2_y1,
+            l2_z1,
+            l2_x2,
+            l2_y2,
+            l2_z2,
             params: [
-                l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2,
-                l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
+                l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2, l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
             ],
             entities: [line1, line2],
         }
@@ -606,11 +809,21 @@ impl Perpendicular3D {
 }
 
 impl Constraint for Perpendicular3D {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "Perpendicular3D" }
-    fn entity_ids(&self) -> &[EntityId] { &self.entities }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
-    fn equation_count(&self) -> usize { 1 }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "Perpendicular3D"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+    fn equation_count(&self) -> usize {
+        1
+    }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
         let (d1, d2) = self.directions(store);
@@ -627,12 +840,18 @@ impl Constraint for Perpendicular3D {
         // dr/d(d2x) = d1x => dr/d(l2_x2) = d1x, dr/d(l2_x1) = -d1x
         // etc.
         vec![
-            (0, self.l1_x1, -d2[0]), (0, self.l1_x2, d2[0]),
-            (0, self.l1_y1, -d2[1]), (0, self.l1_y2, d2[1]),
-            (0, self.l1_z1, -d2[2]), (0, self.l1_z2, d2[2]),
-            (0, self.l2_x1, -d1[0]), (0, self.l2_x2, d1[0]),
-            (0, self.l2_y1, -d1[1]), (0, self.l2_y2, d1[1]),
-            (0, self.l2_z1, -d1[2]), (0, self.l2_z2, d1[2]),
+            (0, self.l1_x1, -d2[0]),
+            (0, self.l1_x2, d2[0]),
+            (0, self.l1_y1, -d2[1]),
+            (0, self.l1_y2, d2[1]),
+            (0, self.l1_z1, -d2[2]),
+            (0, self.l1_z2, d2[2]),
+            (0, self.l2_x1, -d1[0]),
+            (0, self.l2_x2, d1[0]),
+            (0, self.l2_y1, -d1[1]),
+            (0, self.l2_y2, d1[1]),
+            (0, self.l2_z1, -d1[2]),
+            (0, self.l2_z2, d1[2]),
         ]
     }
 }
@@ -656,11 +875,19 @@ pub struct Coaxial {
     axis1: EntityId,
     axis2: EntityId,
     // Axis 1: point (p1x, p1y, p1z), direction (d1x, d1y, d1z)
-    p1x: ParamId, p1y: ParamId, p1z: ParamId,
-    d1x: ParamId, d1y: ParamId, d1z: ParamId,
+    p1x: ParamId,
+    p1y: ParamId,
+    p1z: ParamId,
+    d1x: ParamId,
+    d1y: ParamId,
+    d1z: ParamId,
     // Axis 2: point (p2x, p2y, p2z), direction (d2x, d2y, d2z)
-    p2x: ParamId, p2y: ParamId, p2z: ParamId,
-    d2x: ParamId, d2y: ParamId, d2z: ParamId,
+    p2x: ParamId,
+    p2y: ParamId,
+    p2z: ParamId,
+    d2x: ParamId,
+    d2y: ParamId,
+    d2z: ParamId,
     params: [ParamId; 12],
     entities: [EntityId; 2],
 }
@@ -670,36 +897,70 @@ impl Coaxial {
     pub fn new(
         id: ConstraintId,
         axis1: EntityId,
-        p1x: ParamId, p1y: ParamId, p1z: ParamId,
-        d1x: ParamId, d1y: ParamId, d1z: ParamId,
+        p1x: ParamId,
+        p1y: ParamId,
+        p1z: ParamId,
+        d1x: ParamId,
+        d1y: ParamId,
+        d1z: ParamId,
         axis2: EntityId,
-        p2x: ParamId, p2y: ParamId, p2z: ParamId,
-        d2x: ParamId, d2y: ParamId, d2z: ParamId,
+        p2x: ParamId,
+        p2y: ParamId,
+        p2z: ParamId,
+        d2x: ParamId,
+        d2y: ParamId,
+        d2z: ParamId,
     ) -> Self {
         Self {
             id,
-            axis1, axis2,
-            p1x, p1y, p1z, d1x, d1y, d1z,
-            p2x, p2y, p2z, d2x, d2y, d2z,
-            params: [
-                p1x, p1y, p1z, d1x, d1y, d1z,
-                p2x, p2y, p2z, d2x, d2y, d2z,
-            ],
+            axis1,
+            axis2,
+            p1x,
+            p1y,
+            p1z,
+            d1x,
+            d1y,
+            d1z,
+            p2x,
+            p2y,
+            p2z,
+            d2x,
+            d2y,
+            d2z,
+            params: [p1x, p1y, p1z, d1x, d1y, d1z, p2x, p2y, p2z, d2x, d2y, d2z],
             entities: [axis1, axis2],
         }
     }
 }
 
 impl Constraint for Coaxial {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "Coaxial" }
-    fn entity_ids(&self) -> &[EntityId] { &self.entities }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
-    fn equation_count(&self) -> usize { 4 }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "Coaxial"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+    fn equation_count(&self) -> usize {
+        4
+    }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
-        let d1 = [store.get(self.d1x), store.get(self.d1y), store.get(self.d1z)];
-        let d2 = [store.get(self.d2x), store.get(self.d2y), store.get(self.d2z)];
+        let d1 = [
+            store.get(self.d1x),
+            store.get(self.d1y),
+            store.get(self.d1z),
+        ];
+        let d2 = [
+            store.get(self.d2x),
+            store.get(self.d2y),
+            store.get(self.d2z),
+        ];
 
         // Direction parallelism: d1 x d2 (take 2 components)
         let cross_x = d1[1] * d2[2] - d1[2] * d2[1];
@@ -718,8 +979,16 @@ impl Constraint for Coaxial {
     }
 
     fn jacobian(&self, store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
-        let d1 = [store.get(self.d1x), store.get(self.d1y), store.get(self.d1z)];
-        let d2 = [store.get(self.d2x), store.get(self.d2y), store.get(self.d2z)];
+        let d1 = [
+            store.get(self.d1x),
+            store.get(self.d1y),
+            store.get(self.d1z),
+        ];
+        let d2 = [
+            store.get(self.d2x),
+            store.get(self.d2y),
+            store.get(self.d2z),
+        ];
         let dp = [
             store.get(self.p2x) - store.get(self.p1x),
             store.get(self.p2y) - store.get(self.p1y),
@@ -779,18 +1048,18 @@ mod tests {
     }
 
     /// Helper to verify Jacobian via finite differences.
-    fn verify_jacobian_fd(
-        constraint: &dyn Constraint,
-        store: &mut ParamStore,
-        eps: f64,
-        tol: f64,
-    ) {
+    fn verify_jacobian_fd(constraint: &dyn Constraint, store: &mut ParamStore, eps: f64, tol: f64) {
         let _params: Vec<ParamId> = constraint.param_ids().to_vec();
         let analytic = constraint.jacobian(store);
         let n_eq = constraint.equation_count();
 
         for &(row, pid, analytic_val) in &analytic {
-            assert!(row < n_eq, "Jacobian row {} out of range (count={})", row, n_eq);
+            assert!(
+                row < n_eq,
+                "Jacobian row {} out of range (count={})",
+                row,
+                n_eq
+            );
 
             let orig = store.get(pid);
 
@@ -807,7 +1076,11 @@ mod tests {
             assert!(
                 err < tol,
                 "Jacobian mismatch for {:?} row {}: analytic={}, fd={}, err={}",
-                pid, row, analytic_val, fd, err,
+                pid,
+                row,
+                analytic_val,
+                fd,
+                err,
             );
         }
     }
@@ -977,8 +1250,21 @@ mod tests {
         let l2_z2 = store.alloc(0.0, e2);
 
         let c = Parallel3D::new(
-            cid(0), e1, l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2,
-            e2, l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
+            cid(0),
+            e1,
+            l1_x1,
+            l1_y1,
+            l1_z1,
+            l1_x2,
+            l1_y2,
+            l1_z2,
+            e2,
+            l2_x1,
+            l2_y1,
+            l2_z1,
+            l2_x2,
+            l2_y2,
+            l2_z2,
         );
         let r = c.residuals(&store);
         assert!(r.iter().all(|v| v.abs() < 1e-15));
@@ -1004,8 +1290,21 @@ mod tests {
         let l2_z2 = store.alloc(0.7, e2);
 
         let c = Parallel3D::new(
-            cid(0), e1, l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2,
-            e2, l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
+            cid(0),
+            e1,
+            l1_x1,
+            l1_y1,
+            l1_z1,
+            l1_x2,
+            l1_y2,
+            l1_z2,
+            e2,
+            l2_x1,
+            l2_y1,
+            l2_z1,
+            l2_x2,
+            l2_y2,
+            l2_z2,
         );
         verify_jacobian_fd(&c, &mut store, 1e-7, 1e-5);
     }
@@ -1033,8 +1332,21 @@ mod tests {
         let l2_z2 = store.alloc(0.0, e2);
 
         let c = Perpendicular3D::new(
-            cid(0), e1, l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2,
-            e2, l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
+            cid(0),
+            e1,
+            l1_x1,
+            l1_y1,
+            l1_z1,
+            l1_x2,
+            l1_y2,
+            l1_z2,
+            e2,
+            l2_x1,
+            l2_y1,
+            l2_z1,
+            l2_x2,
+            l2_y2,
+            l2_z2,
         );
         let r = c.residuals(&store);
         assert!(r[0].abs() < 1e-15);
@@ -1060,8 +1372,21 @@ mod tests {
         let l2_z2 = store.alloc(0.5, e2);
 
         let c = Perpendicular3D::new(
-            cid(0), e1, l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2,
-            e2, l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
+            cid(0),
+            e1,
+            l1_x1,
+            l1_y1,
+            l1_z1,
+            l1_x2,
+            l1_y2,
+            l1_z2,
+            e2,
+            l2_x1,
+            l2_y1,
+            l2_z1,
+            l2_x2,
+            l2_y2,
+            l2_z2,
         );
         verify_jacobian_fd(&c, &mut store, 1e-7, 1e-5);
     }
@@ -1090,8 +1415,21 @@ mod tests {
         let d2z = store.alloc(0.0, e2);
 
         let c = Coaxial::new(
-            cid(0), e1, p1x, p1y, p1z, d1x, d1y, d1z,
-            e2, p2x, p2y, p2z, d2x, d2y, d2z,
+            cid(0),
+            e1,
+            p1x,
+            p1y,
+            p1z,
+            d1x,
+            d1y,
+            d1z,
+            e2,
+            p2x,
+            p2y,
+            p2z,
+            d2x,
+            d2y,
+            d2z,
         );
         let r = c.residuals(&store);
         assert!(r.iter().all(|v| v.abs() < 1e-15));
@@ -1117,8 +1455,21 @@ mod tests {
         let d2z = store.alloc(0.7, e2);
 
         let c = Coaxial::new(
-            cid(0), e1, p1x, p1y, p1z, d1x, d1y, d1z,
-            e2, p2x, p2y, p2z, d2x, d2y, d2z,
+            cid(0),
+            e1,
+            p1x,
+            p1y,
+            p1z,
+            d1x,
+            d1y,
+            d1z,
+            e2,
+            p2x,
+            p2y,
+            p2z,
+            d2x,
+            d2y,
+            d2z,
         );
         verify_jacobian_fd(&c, &mut store, 1e-7, 1e-5);
     }
@@ -1149,7 +1500,14 @@ mod tests {
         let pz2 = store.alloc(0.0, pe2);
 
         let c = Coplanar::new(
-            cid(0), ple, p0x, p0y, p0z, nx, ny, nz,
+            cid(0),
+            ple,
+            p0x,
+            p0y,
+            p0z,
+            nx,
+            ny,
+            nz,
             &[(pe1, px1, py1, pz1), (pe2, px2, py2, pz2)],
         );
         let r = c.residuals(&store);
@@ -1175,7 +1533,14 @@ mod tests {
         let pz1 = store.alloc(0.5, pe1);
 
         let c = Coplanar::new(
-            cid(0), ple, p0x, p0y, p0z, nx, ny, nz,
+            cid(0),
+            ple,
+            p0x,
+            p0y,
+            p0z,
+            nx,
+            ny,
+            nz,
             &[(pe1, px1, py1, pz1)],
         );
         verify_jacobian_fd(&c, &mut store, 1e-7, 1e-5);

@@ -10,7 +10,6 @@ use solverang::{
     verify_jacobian, AutoSolver, LMConfig, LMSolver, Problem, RobustSolver, SolveResult,
 };
 
-
 // =============================================================================
 // Test Problem Implementations
 // =============================================================================
@@ -165,7 +164,6 @@ fn coord_strategy() -> impl Strategy<Value = f64> {
         x.clamp(-1000.0, 1000.0)
     })
 }
-
 
 /// Strategy for generating a positive distance.
 #[allow(dead_code)]
@@ -426,8 +424,6 @@ proptest! {
         }
     }
 }
-
-
 
 // =============================================================================
 // Property Tests: Numerical Stability

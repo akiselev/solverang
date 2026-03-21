@@ -79,9 +79,7 @@ impl Analyze for DefaultAnalyze {
             .iter()
             .filter_map(|eid| {
                 let idx = eid.raw_index() as usize;
-                entities
-                    .get(idx)
-                    .and_then(|opt| opt.as_deref())
+                entities.get(idx).and_then(|opt| opt.as_deref())
             })
             .collect();
 
@@ -92,12 +90,7 @@ impl Analyze for DefaultAnalyze {
 
         // --- Redundancy analysis ---
         let redundancy = if self.run_redundancy {
-            let result = analyze_redundancy(
-                &constraint_refs,
-                store,
-                &mapping,
-                self.tolerance,
-            );
+            let result = analyze_redundancy(&constraint_refs, store, &mapping, self.tolerance);
             // Convert redundant constraints to diagnostics.
             for rc in &result.redundant {
                 diagnostics.push(DiagnosticIssue::RedundantConstraint {

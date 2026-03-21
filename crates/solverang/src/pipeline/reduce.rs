@@ -138,8 +138,7 @@ fn is_equality_jac(jac: &[(usize, ParamId, f64)], param_a: ParamId, param_b: Par
     match (val_a, val_b) {
         (Some(a), Some(b)) => {
             ((a - 1.0).abs() < JACOBIAN_TOLERANCE && (b + 1.0).abs() < JACOBIAN_TOLERANCE)
-                || ((a + 1.0).abs() < JACOBIAN_TOLERANCE
-                    && (b - 1.0).abs() < JACOBIAN_TOLERANCE)
+                || ((a + 1.0).abs() < JACOBIAN_TOLERANCE && (b - 1.0).abs() < JACOBIAN_TOLERANCE)
         }
         _ => false,
     }
@@ -267,9 +266,7 @@ impl Reduce for EliminateReducer {
             let indexed_constraints: Vec<(usize, &dyn Constraint)> = result
                 .active_constraint_indices
                 .iter()
-                .filter_map(|&ci| {
-                    constraints[ci].as_ref().map(|c| (ci, c.as_ref()))
-                })
+                .filter_map(|&ci| constraints[ci].as_ref().map(|c| (ci, c.as_ref())))
                 .collect();
 
             if indexed_constraints.is_empty() {
@@ -332,8 +329,7 @@ impl Reduce for EliminateReducer {
                 .retain(|p| !eliminated_set.contains(p));
 
             // Remove consumed constraints from active list.
-            let removed: HashSet<usize> =
-                result.removed_constraints.iter().copied().collect();
+            let removed: HashSet<usize> = result.removed_constraints.iter().copied().collect();
             result
                 .active_constraint_indices
                 .retain(|ci| !removed.contains(ci));
@@ -521,10 +517,7 @@ mod tests {
             vec![store.get(self.params[0]) - store.get(self.params[1])]
         }
         fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
-            vec![
-                (0, self.params[0], 1.0),
-                (0, self.params[1], -1.0),
-            ]
+            vec![(0, self.params[0], 1.0), (0, self.params[1], -1.0)]
         }
     }
 
@@ -532,10 +525,7 @@ mod tests {
         EntityId::new(0, 0)
     }
 
-    fn make_cluster(
-        constraint_indices: Vec<usize>,
-        param_ids: Vec<ParamId>,
-    ) -> ClusterData {
+    fn make_cluster(constraint_indices: Vec<usize>, param_ids: Vec<ParamId>) -> ClusterData {
         ClusterData {
             id: ClusterId(0),
             constraint_indices,
@@ -797,8 +787,7 @@ mod tests {
         });
 
         // Constraint lives at system index 4.
-        let constraints: Vec<Option<Box<dyn Constraint>>> =
-            vec![None, None, None, None, Some(c)];
+        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![None, None, None, None, Some(c)];
         let cluster = make_cluster(vec![4], vec![p]);
 
         let result = EliminateReducer.reduce(&cluster, &constraints, &mut store);
@@ -925,7 +914,11 @@ mod tests {
 
         // Constraint 0 removed exactly once (by SubstituteReducer).
         assert_eq!(
-            result.removed_constraints.iter().filter(|&&x| x == 0).count(),
+            result
+                .removed_constraints
+                .iter()
+                .filter(|&&x| x == 0)
+                .count(),
             1
         );
     }
@@ -962,10 +955,8 @@ mod tests {
             target: 9.0,
         });
 
-        let constraints: Vec<Option<Box<dyn Constraint>>> =
-            vec![Some(c0), Some(c1), Some(c2)];
-        let cluster =
-            make_cluster(vec![0, 1, 2], vec![p_fixed, p_a, p_b, p_free]);
+        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c0), Some(c1), Some(c2)];
+        let cluster = make_cluster(vec![0, 1, 2], vec![p_fixed, p_a, p_b, p_free]);
 
         let result = DefaultReduce.reduce(&cluster, &constraints, &mut store);
 
@@ -1049,10 +1040,7 @@ mod tests {
             vec![store.get(self.params[0]) + store.get(self.params[1]) - self.target]
         }
         fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
-            vec![
-                (0, self.params[0], 1.0),
-                (0, self.params[1], 1.0),
-            ]
+            vec![(0, self.params[0], 1.0), (0, self.params[1], 1.0)]
         }
     }
 
@@ -1084,10 +1072,7 @@ mod tests {
             vec![store.get(self.params[0]) - store.get(self.params[1]) - self.target]
         }
         fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
-            vec![
-                (0, self.params[0], 1.0),
-                (0, self.params[1], -1.0),
-            ]
+            vec![(0, self.params[0], 1.0), (0, self.params[1], -1.0)]
         }
     }
 
@@ -1184,14 +1169,8 @@ mod tests {
             .map(|(_, v)| *v)
             .expect("p2 should be eliminated");
 
-        assert!(
-            (p1_val - 5.0).abs() < 1e-12,
-            "p1 = {p1_val}, expected 5.0"
-        );
-        assert!(
-            (p2_val - 5.0).abs() < 1e-12,
-            "p2 = {p2_val}, expected 5.0"
-        );
+        assert!((p1_val - 5.0).abs() < 1e-12, "p1 = {p1_val}, expected 5.0");
+        assert!((p2_val - 5.0).abs() < 1e-12, "p2 = {p2_val}, expected 5.0");
 
         // Both params should be removed from the active set.
         assert!(!result.active_param_ids.contains(&p1));
@@ -1227,8 +1206,7 @@ mod tests {
             target: 1.0,
         });
 
-        let constraints: Vec<Option<Box<dyn Constraint>>> =
-            vec![Some(c0), Some(c1), Some(c2)];
+        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c0), Some(c1), Some(c2)];
         let cluster = make_cluster(vec![0, 1, 2], vec![p1, p2, p3]);
 
         let result = EliminateReducer.reduce(&cluster, &constraints, &mut store);
@@ -1289,10 +1267,8 @@ mod tests {
             target: 11.0,
         });
 
-        let constraints: Vec<Option<Box<dyn Constraint>>> =
-            vec![Some(c0), Some(c1), Some(c2)];
-        let cluster =
-            make_cluster(vec![0, 1, 2], vec![p_fixed, p1, p2]);
+        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c0), Some(c1), Some(c2)];
+        let cluster = make_cluster(vec![0, 1, 2], vec![p_fixed, p1, p2]);
 
         let result = DefaultReduce.reduce(&cluster, &constraints, &mut store);
 
@@ -1316,14 +1292,8 @@ mod tests {
             .map(|(_, v)| *v)
             .expect("p2 should be eliminated");
 
-        assert!(
-            (p1_val - 6.0).abs() < 1e-12,
-            "p1 = {p1_val}, expected 6.0"
-        );
-        assert!(
-            (p2_val - 5.0).abs() < 1e-12,
-            "p2 = {p2_val}, expected 5.0"
-        );
+        assert!((p1_val - 6.0).abs() < 1e-12, "p1 = {p1_val}, expected 6.0");
+        assert!((p2_val - 5.0).abs() < 1e-12, "p2 = {p2_val}, expected 5.0");
     }
 
     /// Nonlinear single-free-param constraints should NOT be eliminated
@@ -1471,10 +1441,8 @@ mod tests {
         // propagation (the first stage eliminates p1 and fixes it in the
         // store; the second stage should then see p1 as fixed and eliminate
         // p2 from C1).
-        let chain = ChainedReducer::new(vec![
-            Box::new(EliminateReducer),
-            Box::new(EliminateReducer),
-        ]);
+        let chain =
+            ChainedReducer::new(vec![Box::new(EliminateReducer), Box::new(EliminateReducer)]);
         let result = chain.reduce(&cluster, &constraints, &mut store);
 
         // Both constraints should be removed.

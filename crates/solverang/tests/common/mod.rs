@@ -1,9 +1,9 @@
 //! Shared test utilities for property-based tests across constraint modules.
 
-use std::collections::HashMap;
 use solverang::constraint::Constraint;
 use solverang::id::ParamId;
 use solverang::param::ParamStore;
+use std::collections::HashMap;
 
 /// Central finite-difference check for a V3 `Constraint` operating on `ParamStore`.
 ///

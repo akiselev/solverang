@@ -12,25 +12,25 @@
 
 pub mod analyze;
 pub mod decompose;
-pub mod traits;
-pub mod types;
 pub mod post_process;
 pub mod reduce;
 pub mod solve_phase;
+pub mod traits;
+pub mod types;
 
 #[cfg(test)]
-mod minpack_bridge_tests;
+mod error_path_tests;
 #[cfg(test)]
 mod incremental_tests;
 #[cfg(test)]
-mod error_path_tests;
+mod minpack_bridge_tests;
 
 // ---------------------------------------------------------------------------
 // Re-exports
 // ---------------------------------------------------------------------------
 
-pub use types::{ClusterData, ClusterAnalysis, ReducedCluster, ClusterSolution};
-pub use traits::{Decompose, Analyze, Reduce, SolveCluster, PostProcess};
+pub use traits::{Analyze, Decompose, PostProcess, Reduce, SolveCluster};
+pub use types::{ClusterAnalysis, ClusterData, ClusterSolution, ReducedCluster};
 
 // ---------------------------------------------------------------------------
 // Imports
@@ -49,7 +49,7 @@ use crate::system::{
 
 use self::analyze::DefaultAnalyze;
 use self::decompose::DefaultDecompose;
-use self::post_process::{DefaultPostProcess, collect_diagnostics};
+use self::post_process::{collect_diagnostics, DefaultPostProcess};
 use self::reduce::DefaultReduce;
 use self::solve_phase::DefaultSolve;
 
@@ -127,8 +127,7 @@ impl SolvePipeline {
         // -----------------------------------------------------------------
         let structural_change = tracker.has_structural_changes() || !self.clusters_valid;
         if structural_change {
-            self.cached_clusters =
-                self.decompose.decompose(constraints, entities, store);
+            self.cached_clusters = self.decompose.decompose(constraints, entities, store);
             self.clusters_valid = true;
             cache.invalidate_all();
         }
@@ -175,9 +174,7 @@ impl SolvePipeline {
             }
 
             // Phase 2: Analyze (immutable borrow of store).
-            let analysis =
-                self.analyze
-                    .analyze(cluster, constraints, entities, store);
+            let analysis = self.analyze.analyze(cluster, constraints, entities, store);
 
             // Phase 3: Reduce (may temporarily fix eliminated params in store).
             let reduced = self.reduce.reduce(cluster, constraints, store);
@@ -201,17 +198,12 @@ impl SolvePipeline {
             }
 
             // Write numerical_solution back via mapping if present.
-            if let (Some(mapping), Some(nums)) =
-                (&solution.mapping, &solution.numerical_solution)
-            {
+            if let (Some(mapping), Some(nums)) = (&solution.mapping, &solution.numerical_solution) {
                 store.write_free_values(nums, mapping);
             }
 
             // Cache the solution.
-            let cached_solution = solution
-                .numerical_solution
-                .clone()
-                .unwrap_or_default();
+            let cached_solution = solution.numerical_solution.clone().unwrap_or_default();
             cache.store(
                 cluster.id,
                 cached_solution,
@@ -226,9 +218,9 @@ impl SolvePipeline {
             }
 
             // Post-process.
-            let result =
-                self.post_process
-                    .post_process(&solution, &analysis, cluster);
+            let result = self
+                .post_process
+                .post_process(&solution, &analysis, cluster);
             cluster_results.push(result);
 
             // Collect diagnostics from analysis.
@@ -348,18 +340,12 @@ impl PipelineBuilder {
     /// Build the [`SolvePipeline`], filling defaults for any unset phases.
     pub fn build(self) -> SolvePipeline {
         SolvePipeline {
-            decompose: self
-                .decompose
-                .unwrap_or_else(|| Box::new(DefaultDecompose)),
+            decompose: self.decompose.unwrap_or_else(|| Box::new(DefaultDecompose)),
             analyze: self
                 .analyze
                 .unwrap_or_else(|| Box::new(DefaultAnalyze::default())),
-            reduce: self
-                .reduce
-                .unwrap_or_else(|| Box::new(DefaultReduce)),
-            solve: self
-                .solve
-                .unwrap_or_else(|| Box::new(DefaultSolve)),
+            reduce: self.reduce.unwrap_or_else(|| Box::new(DefaultReduce)),
+            solve: self.solve.unwrap_or_else(|| Box::new(DefaultSolve)),
             post_process: self
                 .post_process
                 .unwrap_or_else(|| Box::new(DefaultPostProcess)),
@@ -479,10 +465,7 @@ mod tests {
             vec![a + b - self.target]
         }
         fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
-            vec![
-                (0, self.params[0], 1.0),
-                (0, self.params[1], 1.0),
-            ]
+            vec![(0, self.params[0], 1.0), (0, self.params[1], 1.0)]
         }
     }
 
@@ -503,9 +486,9 @@ mod tests {
     #[test]
     fn builder_with_custom_phases_overrides_defaults() {
         use crate::pipeline::analyze::NoopAnalyze;
+        use crate::pipeline::post_process::DiagnosticPostProcess;
         use crate::pipeline::reduce::NoopReduce;
         use crate::pipeline::solve_phase::NumericalOnlySolve;
-        use crate::pipeline::post_process::DiagnosticPostProcess;
 
         let _pipeline = PipelineBuilder::new()
             .analyze(NoopAnalyze)
@@ -539,10 +522,8 @@ mod tests {
             params: vec![px2, py2],
         };
 
-        let entities: Vec<Option<Box<dyn Entity>>> = vec![
-            Some(Box::new(point1)),
-            Some(Box::new(point2)),
-        ];
+        let entities: Vec<Option<Box<dyn Entity>>> =
+            vec![Some(Box::new(point1)), Some(Box::new(point2))];
 
         let c1: Box<dyn Constraint> = Box::new(FixValueConstraint {
             id: ConstraintId::new(0, 0),
@@ -563,8 +544,7 @@ mod tests {
             target: 7.0,
         });
 
-        let constraints: Vec<Option<Box<dyn Constraint>>> =
-            vec![Some(c1), Some(c2), Some(c3)];
+        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c1), Some(c2), Some(c3)];
 
         let config = SystemConfig::default();
         let mut tracker = ChangeTracker::new();
@@ -756,8 +736,7 @@ mod tests {
             params: vec![px, py],
             target: 10.0,
         });
-        let constraints: Vec<Option<Box<dyn Constraint>>> =
-            vec![Some(c1), Some(c2)];
+        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c1), Some(c2)];
 
         let config = SystemConfig::default();
         let mut tracker = ChangeTracker::new();
@@ -861,8 +840,7 @@ mod tests {
             params: vec![px, py],
             target: 10.0,
         });
-        let constraints: Vec<Option<Box<dyn Constraint>>> =
-            vec![Some(c0), Some(c1)];
+        let constraints: Vec<Option<Box<dyn Constraint>>> = vec![Some(c0), Some(c1)];
 
         let config = SystemConfig::default();
         let mut tracker = ChangeTracker::new();

@@ -83,4 +83,4 @@ pub use result::{SolveError, SolveResult};
 
 // JIT solver
 #[cfg(feature = "jit")]
-pub use jit_solver::{JITSolver, JITCompilationResult, try_compile};
+pub use jit_solver::{try_compile, JITCompilationResult, JITSolver};

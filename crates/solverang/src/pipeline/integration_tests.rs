@@ -58,13 +58,7 @@ fn add_line_segment(
 }
 
 /// Euclidean distance between two points given their parameter IDs.
-fn pt_dist(
-    sys: &ConstraintSystem,
-    x1: ParamId,
-    y1: ParamId,
-    x2: ParamId,
-    y2: ParamId,
-) -> f64 {
+fn pt_dist(sys: &ConstraintSystem, x1: ParamId, y1: ParamId, x2: ParamId, y2: ParamId) -> f64 {
     let dx = sys.get_param(x2) - sys.get_param(x1);
     let dy = sys.get_param(y2) - sys.get_param(y1);
     (dx * dx + dy * dy).sqrt()
@@ -142,18 +136,9 @@ fn test_constrained_triangle() {
     let d12 = pt_dist(&sys, x1, y1, x2, y2);
     let d20 = pt_dist(&sys, x2, y2, x0, y0);
 
-    assert!(
-        (d01 - 3.0).abs() < TOL,
-        "d(P0,P1) = {d01}, expected 3.0"
-    );
-    assert!(
-        (d12 - 5.0).abs() < TOL,
-        "d(P1,P2) = {d12}, expected 5.0"
-    );
-    assert!(
-        (d20 - 4.0).abs() < TOL,
-        "d(P2,P0) = {d20}, expected 4.0"
-    );
+    assert!((d01 - 3.0).abs() < TOL, "d(P0,P1) = {d01}, expected 3.0");
+    assert!((d12 - 5.0).abs() < TOL, "d(P1,P2) = {d12}, expected 5.0");
+    assert!((d20 - 4.0).abs() < TOL, "d(P2,P0) = {d20}, expected 4.0");
 
     // Anchor should be at the origin.
     assert!(
@@ -362,9 +347,7 @@ fn test_coincident_points() {
     let (e1, x1, y1) = add_point(&mut sys, 4.0, 7.0);
 
     let cid = sys.alloc_constraint_id();
-    sys.add_constraint(Box::new(Coincident::new(
-        cid, e0, e1, x0, y0, x1, y1,
-    )));
+    sys.add_constraint(Box::new(Coincident::new(cid, e0, e1, x0, y0, x1, y1)));
 
     let result = sys.solve();
     assert_solved(&result);
@@ -406,15 +389,11 @@ fn test_horizontal_vertical_constraints() {
 
     // Horizontal: same y-coordinate.
     let cid = sys.alloc_constraint_id();
-    sys.add_constraint(Box::new(Horizontal::new(
-        cid, e_ref, e_tgt, y_ref, y_tgt,
-    )));
+    sys.add_constraint(Box::new(Horizontal::new(cid, e_ref, e_tgt, y_ref, y_tgt)));
 
     // Vertical: same x-coordinate.
     let cid = sys.alloc_constraint_id();
-    sys.add_constraint(Box::new(Vertical::new(
-        cid, e_ref, e_tgt, x_ref, x_tgt,
-    )));
+    sys.add_constraint(Box::new(Vertical::new(cid, e_ref, e_tgt, x_ref, x_tgt)));
 
     let result = sys.solve();
     assert_solved(&result);
@@ -635,28 +614,13 @@ fn test_overconstrained_system() {
     let p1x = sys.get_param(x1);
     let p1y = sys.get_param(y1);
 
-    assert!(
-        (p0x - 0.0).abs() < 1e-4,
-        "P0.x = {p0x}, expected 0.0"
-    );
-    assert!(
-        (p0y - 0.0).abs() < 1e-4,
-        "P0.y = {p0y}, expected 0.0"
-    );
-    assert!(
-        (p1x - 3.0).abs() < 1e-4,
-        "P1.x = {p1x}, expected 3.0"
-    );
-    assert!(
-        (p1y - 4.0).abs() < 1e-4,
-        "P1.y = {p1y}, expected 4.0"
-    );
+    assert!((p0x - 0.0).abs() < 1e-4, "P0.x = {p0x}, expected 0.0");
+    assert!((p0y - 0.0).abs() < 1e-4, "P0.y = {p0y}, expected 0.0");
+    assert!((p1x - 3.0).abs() < 1e-4, "P1.x = {p1x}, expected 3.0");
+    assert!((p1y - 4.0).abs() < 1e-4, "P1.y = {p1y}, expected 4.0");
 
     let d = pt_dist(&sys, x0, y0, x1, y1);
-    assert!(
-        (d - 5.0).abs() < 1e-4,
-        "Distance = {d}, expected 5.0"
-    );
+    assert!((d - 5.0).abs() < 1e-4, "Distance = {d}, expected 5.0");
 }
 
 // =========================================================================
@@ -701,9 +665,9 @@ fn test_builder_rectangle_perpendicular_equal() {
 
     let mut b = Sketch2DBuilder::new();
     let p0 = b.add_fixed_point(0.0, 0.0);
-    let p1 = b.add_point(6.0, 0.5);  // perturbed
-    let p2 = b.add_point(6.5, 4.5);  // perturbed
-    let p3 = b.add_point(0.5, 4.0);  // perturbed
+    let p1 = b.add_point(6.0, 0.5); // perturbed
+    let p2 = b.add_point(6.5, 4.5); // perturbed
+    let p3 = b.add_point(0.5, 4.0); // perturbed
 
     let l01 = b.add_line_segment(p0, p1);
     let l12 = b.add_line_segment(p1, p2);
@@ -756,7 +720,7 @@ fn test_builder_point_on_circle_with_distance() {
         b.fix_param(pid);
     }
 
-    let p1 = b.add_point(4.5, 2.0);  // near the circle
+    let p1 = b.add_point(4.5, 2.0); // near the circle
     let p2 = b.add_point(-3.0, 4.0); // near the circle
 
     b.constrain_point_on_circle(p1, circle);

@@ -200,27 +200,15 @@ mod tests {
 
     #[test]
     fn test_with_epsilon() {
-        let problem = NumericJacobian::new(
-            "test",
-            1,
-            1,
-            |x| vec![x[0]],
-            |factor| vec![factor],
-        )
-        .with_epsilon(1e-8);
+        let problem = NumericJacobian::new("test", 1, 1, |x| vec![x[0]], |factor| vec![factor])
+            .with_epsilon(1e-8);
 
         assert!((problem.epsilon() - 1e-8).abs() < 1e-15);
     }
 
     #[test]
     fn test_problem_name() {
-        let problem = NumericJacobian::new(
-            "my_problem",
-            1,
-            1,
-            |x| vec![x[0]],
-            |_| vec![1.0],
-        );
+        let problem = NumericJacobian::new("my_problem", 1, 1, |x| vec![x[0]], |_| vec![1.0]);
 
         assert_eq!(problem.name(), "my_problem");
     }

@@ -202,11 +202,7 @@ impl Sketch2DBuilder {
     }
 
     /// Constrain two point entities to be coincident.
-    pub fn constrain_coincident(
-        &mut self,
-        e1: EntityId,
-        e2: EntityId,
-    ) -> ConstraintId {
+    pub fn constrain_coincident(&mut self, e1: EntityId, e2: EntityId) -> ConstraintId {
         let (x1, y1) = self.point_params(e1);
         let (x2, y2) = self.point_params(e2);
         let cid = self.alloc_constraint_id();
@@ -216,11 +212,7 @@ impl Sketch2DBuilder {
     }
 
     /// Constrain two point entities to share the same y-coordinate (horizontal).
-    pub fn constrain_horizontal(
-        &mut self,
-        e1: EntityId,
-        e2: EntityId,
-    ) -> ConstraintId {
+    pub fn constrain_horizontal(&mut self, e1: EntityId, e2: EntityId) -> ConstraintId {
         let (_, y1) = self.point_params(e1);
         let (_, y2) = self.point_params(e2);
         let cid = self.alloc_constraint_id();
@@ -230,11 +222,7 @@ impl Sketch2DBuilder {
     }
 
     /// Constrain two point entities to share the same x-coordinate (vertical).
-    pub fn constrain_vertical(
-        &mut self,
-        e1: EntityId,
-        e2: EntityId,
-    ) -> ConstraintId {
+    pub fn constrain_vertical(&mut self, e1: EntityId, e2: EntityId) -> ConstraintId {
         let (x1, _) = self.point_params(e1);
         let (x2, _) = self.point_params(e2);
         let cid = self.alloc_constraint_id();
@@ -244,12 +232,7 @@ impl Sketch2DBuilder {
     }
 
     /// Fix a point entity at specific coordinates.
-    pub fn constrain_fixed(
-        &mut self,
-        entity: EntityId,
-        x: f64,
-        y: f64,
-    ) -> ConstraintId {
+    pub fn constrain_fixed(&mut self, entity: EntityId, x: f64, y: f64) -> ConstraintId {
         let (px, py) = self.point_params(entity);
         let cid = self.alloc_constraint_id();
         let c = Fixed::new(cid, entity, px, py, x, y);
@@ -258,11 +241,7 @@ impl Sketch2DBuilder {
     }
 
     /// Constrain two line segments to be parallel.
-    pub fn constrain_parallel(
-        &mut self,
-        l1: EntityId,
-        l2: EntityId,
-    ) -> ConstraintId {
+    pub fn constrain_parallel(&mut self, l1: EntityId, l2: EntityId) -> ConstraintId {
         let (x1, y1, x2, y2) = self.line_params(l1);
         let (x3, y3, x4, y4) = self.line_params(l2);
         let cid = self.alloc_constraint_id();
@@ -272,11 +251,7 @@ impl Sketch2DBuilder {
     }
 
     /// Constrain two line segments to be perpendicular.
-    pub fn constrain_perpendicular(
-        &mut self,
-        l1: EntityId,
-        l2: EntityId,
-    ) -> ConstraintId {
+    pub fn constrain_perpendicular(&mut self, l1: EntityId, l2: EntityId) -> ConstraintId {
         let (x1, y1, x2, y2) = self.line_params(l1);
         let (x3, y3, x4, y4) = self.line_params(l2);
         let cid = self.alloc_constraint_id();
@@ -300,11 +275,7 @@ impl Sketch2DBuilder {
     }
 
     /// Constrain a point entity to lie on a circle entity.
-    pub fn constrain_point_on_circle(
-        &mut self,
-        point: EntityId,
-        circle: EntityId,
-    ) -> ConstraintId {
+    pub fn constrain_point_on_circle(&mut self, point: EntityId, circle: EntityId) -> ConstraintId {
         let (px, py) = self.point_params(point);
         let (cx, cy, r) = self.circle_params(circle);
         let cid = self.alloc_constraint_id();
@@ -314,11 +285,7 @@ impl Sketch2DBuilder {
     }
 
     /// Constrain two line segments to have equal length.
-    pub fn constrain_equal_length(
-        &mut self,
-        l1: EntityId,
-        l2: EntityId,
-    ) -> ConstraintId {
+    pub fn constrain_equal_length(&mut self, l1: EntityId, l2: EntityId) -> ConstraintId {
         let (x1, y1, x2, y2) = self.line_params(l1);
         let (x3, y3, x4, y4) = self.line_params(l2);
         let cid = self.alloc_constraint_id();
@@ -328,11 +295,7 @@ impl Sketch2DBuilder {
     }
 
     /// Constrain a point entity to be at the midpoint of a line segment entity.
-    pub fn constrain_midpoint(
-        &mut self,
-        point: EntityId,
-        line: EntityId,
-    ) -> ConstraintId {
+    pub fn constrain_midpoint(&mut self, point: EntityId, line: EntityId) -> ConstraintId {
         let (mx, my) = self.point_params(point);
         let (x1, y1, x2, y2) = self.line_params(line);
         let cid = self.alloc_constraint_id();
@@ -454,7 +417,7 @@ mod tests {
 
         let sys = b.build();
         assert_eq!(sys.entity_count(), 3); // 2 points + 1 line
-        // Line shares params with points, so still 4 params total
+                                           // Line shares params with points, so still 4 params total
         assert_eq!(sys.params().alive_count(), 4);
     }
 

@@ -57,23 +57,21 @@ impl SolveCluster for DefaultSolve {
         }
 
         // 2. Collect constraint references from active indices.
-        let active_set: HashSet<usize> = reduced.active_constraint_indices.iter().copied().collect();
+        let active_set: HashSet<usize> =
+            reduced.active_constraint_indices.iter().copied().collect();
         let active_refs: Vec<(usize, &dyn Constraint)> = reduced
             .active_constraint_indices
             .iter()
             .filter_map(|&idx| {
-                constraints.get(idx).and_then(|opt| {
-                    opt.as_ref().map(|c| (idx, c.as_ref()))
-                })
+                constraints
+                    .get(idx)
+                    .and_then(|opt| opt.as_ref().map(|c| (idx, c.as_ref())))
             })
             .collect();
 
         // Build a lookup from constraint index to &dyn Constraint.
         let constraint_by_idx = |idx: usize| -> Option<&dyn Constraint> {
-            active_refs
-                .iter()
-                .find(|(i, _)| *i == idx)
-                .map(|(_, c)| *c)
+            active_refs.iter().find(|(i, _)| *i == idx).map(|(_, c)| *c)
         };
 
         // Track which constraints and params remain after closed-form.
@@ -235,9 +233,7 @@ impl SolveCluster for DefaultSolve {
 
         // 5. Combine results: closed-form + numerical + eliminated params.
         let mut param_values = Vec::with_capacity(
-            closed_form_values.len()
-                + numerical_values.len()
-                + reduced.eliminated_params.len(),
+            closed_form_values.len() + numerical_values.len() + reduced.eliminated_params.len(),
         );
         param_values.extend(&closed_form_values);
         param_values.extend(&numerical_values);
@@ -293,9 +289,9 @@ impl SolveCluster for NumericalOnlySolve {
             .active_constraint_indices
             .iter()
             .filter_map(|&idx| {
-                constraints.get(idx).and_then(|opt| {
-                    opt.as_ref().map(|c| c.as_ref())
-                })
+                constraints
+                    .get(idx)
+                    .and_then(|opt| opt.as_ref().map(|c| c.as_ref()))
             })
             .collect();
 
@@ -788,7 +784,10 @@ mod tests {
             solver.solve_cluster(&reduced, &analysis, &constraints, &store, None, &config);
 
         assert_eq!(solution.status, ClusterSolveStatus::Converged);
-        assert_eq!(solution.iterations, 0, "closed-form should need 0 iterations");
+        assert_eq!(
+            solution.iterations, 0,
+            "closed-form should need 0 iterations"
+        );
 
         let val = solution
             .param_values

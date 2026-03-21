@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/lanczos1.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Data for Lanczos1 problem: (x, y) pairs
 const DATA: [(f64, f64); 24] = [
@@ -42,22 +42,22 @@ const DATA: [(f64, f64); 24] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 6] = [
-    9.5100000027E-02,  // b1
-    1.0000000001E+00,  // b2
-    8.6070000013E-01,  // b3
-    3.0000000002E+00,  // b4
-    1.5575999998E+00,  // b5
-    5.0000000001E+00,  // b6
+    9.5100000027E-02, // b1
+    1.0000000001E+00, // b2
+    8.6070000013E-01, // b3
+    3.0000000002E+00, // b4
+    1.5575999998E+00, // b5
+    5.0000000001E+00, // b6
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 6] = [
-    5.3009082147E-09,  // b1
-    2.2774578101E-08,  // b2
-    6.4396701641E-09,  // b3
-    3.5849883361E-08,  // b4
-    1.8539521200E-08,  // b5
-    5.1838596299E-08,  // b6
+    5.3009082147E-09, // b1
+    2.2774578101E-08, // b2
+    6.4396701641E-09, // b3
+    3.5849883361E-08, // b4
+    1.8539521200E-08, // b5
+    5.1838596299E-08, // b6
 ];
 
 /// Certified residual sum of squares
@@ -91,9 +91,8 @@ impl Problem for Lanczos1 {
 
         DATA.iter()
             .map(|&(x, y)| {
-                let model = b[0] * (-b[1] * x).exp()
-                    + b[2] * (-b[3] * x).exp()
-                    + b[4] * (-b[5] * x).exp();
+                let model =
+                    b[0] * (-b[1] * x).exp() + b[2] * (-b[3] * x).exp() + b[4] * (-b[5] * x).exp();
                 y - model
             })
             .collect()
@@ -174,10 +173,6 @@ mod tests {
         // With truncated data precision (4 decimals in y-values), we
         // cannot achieve this level of precision, but RSS should still
         // be very small (around 1e-7 due to data truncation).
-        assert!(
-            rss < 1e-6,
-            "RSS should be very small: {}",
-            rss
-        );
+        assert!(rss < 1e-6, "RSS should be very small: {}", rss);
     }
 }

@@ -8,6 +8,8 @@ use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 
+use codegen::ir::FuncRef;
+
 use super::opcodes::{CompiledConstraints, ConstraintOp, Reg};
 
 /// Error during JIT compilation.
@@ -43,6 +45,47 @@ impl std::fmt::Display for JITError {
 
 impl std::error::Error for JITError {}
 
+// ============================================================================
+// extern "C" wrappers for math functions.
+//
+// Cranelift emits calls using the platform C calling convention. Rust's
+// f64::sin etc. use Rust ABI which may differ. These wrappers guarantee
+// ABI compatibility.
+// ============================================================================
+
+extern "C" fn jit_sin(x: f64) -> f64 {
+    x.sin()
+}
+extern "C" fn jit_cos(x: f64) -> f64 {
+    x.cos()
+}
+extern "C" fn jit_tan(x: f64) -> f64 {
+    x.tan()
+}
+extern "C" fn jit_exp(x: f64) -> f64 {
+    x.exp()
+}
+extern "C" fn jit_ln(x: f64) -> f64 {
+    x.ln()
+}
+extern "C" fn jit_pow(base: f64, exp: f64) -> f64 {
+    base.powf(exp)
+}
+extern "C" fn jit_atan2(y: f64, x: f64) -> f64 {
+    y.atan2(x)
+}
+
+/// Cached FuncIds for math functions declared in the JIT module.
+struct MathFunctions {
+    sin: FuncId,
+    cos: FuncId,
+    tan: FuncId,
+    exp: FuncId,
+    ln: FuncId,
+    pow: FuncId,
+    atan2: FuncId,
+}
+
 /// JIT compiler using Cranelift.
 pub struct JITCompiler {
     /// Cranelift JIT module.
@@ -53,6 +96,9 @@ pub struct JITCompiler {
 
     /// Function builder context.
     builder_ctx: FunctionBuilderContext,
+
+    /// Cached math function IDs for calling libm.
+    math: MathFunctions,
 }
 
 impl JITCompiler {
@@ -60,22 +106,76 @@ impl JITCompiler {
     pub fn new() -> Result<Self, JITError> {
         let mut flag_builder = settings::builder();
         // Enable optimizations
-        flag_builder.set("opt_level", "speed").map_err(|e| {
-            JITError::ModuleError(format!("failed to set opt_level: {}", e))
-        })?;
+        flag_builder
+            .set("opt_level", "speed")
+            .map_err(|e| JITError::ModuleError(format!("failed to set opt_level: {}", e)))?;
 
-        let isa_builder = cranelift_native::builder().map_err(|e| {
-            JITError::ModuleError(format!("failed to create ISA builder: {}", e))
-        })?;
+        let isa_builder = cranelift_native::builder()
+            .map_err(|e| JITError::ModuleError(format!("failed to create ISA builder: {}", e)))?;
 
         let isa = isa_builder
             .finish(settings::Flags::new(flag_builder))
-            .map_err(|e| {
-                JITError::ModuleError(format!("failed to create ISA: {}", e))
-            })?;
+            .map_err(|e| JITError::ModuleError(format!("failed to create ISA: {}", e)))?;
 
-        let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-        let module = JITModule::new(builder);
+        let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+
+        // Register math functions as callable symbols via extern "C" wrappers.
+        builder.symbol("jit_sin", jit_sin as *const u8);
+        builder.symbol("jit_cos", jit_cos as *const u8);
+        builder.symbol("jit_tan", jit_tan as *const u8);
+        builder.symbol("jit_exp", jit_exp as *const u8);
+        builder.symbol("jit_ln", jit_ln as *const u8);
+        builder.symbol("jit_pow", jit_pow as *const u8);
+        builder.symbol("jit_atan2", jit_atan2 as *const u8);
+
+        let mut module = JITModule::new(builder);
+
+        // Declare math functions in the module with their signatures.
+        let math = {
+            // Unary: (f64) -> f64
+            let mut sig1 = module.make_signature();
+            sig1.params.push(AbiParam::new(types::F64));
+            sig1.returns.push(AbiParam::new(types::F64));
+
+            // Binary: (f64, f64) -> f64
+            let mut sig2 = module.make_signature();
+            sig2.params.push(AbiParam::new(types::F64));
+            sig2.params.push(AbiParam::new(types::F64));
+            sig2.returns.push(AbiParam::new(types::F64));
+
+            let sin = module
+                .declare_function("jit_sin", Linkage::Import, &sig1)
+                .map_err(|e| JITError::ModuleError(format!("declare jit_sin: {}", e)))?;
+            let cos = module
+                .declare_function("jit_cos", Linkage::Import, &sig1)
+                .map_err(|e| JITError::ModuleError(format!("declare jit_cos: {}", e)))?;
+            let tan = module
+                .declare_function("jit_tan", Linkage::Import, &sig1)
+                .map_err(|e| JITError::ModuleError(format!("declare jit_tan: {}", e)))?;
+            let exp = module
+                .declare_function("jit_exp", Linkage::Import, &sig1)
+                .map_err(|e| JITError::ModuleError(format!("declare jit_exp: {}", e)))?;
+            let ln = module
+                .declare_function("jit_ln", Linkage::Import, &sig1)
+                .map_err(|e| JITError::ModuleError(format!("declare jit_ln: {}", e)))?;
+            let pow = module
+                .declare_function("jit_pow", Linkage::Import, &sig2)
+                .map_err(|e| JITError::ModuleError(format!("declare jit_pow: {}", e)))?;
+            let atan2 = module
+                .declare_function("jit_atan2", Linkage::Import, &sig2)
+                .map_err(|e| JITError::ModuleError(format!("declare jit_atan2: {}", e)))?;
+
+            MathFunctions {
+                sin,
+                cos,
+                tan,
+                exp,
+                ln,
+                pow,
+                atan2,
+            }
+        };
+
         let ctx = module.make_context();
         let builder_ctx = FunctionBuilderContext::new();
 
@@ -83,18 +183,16 @@ impl JITCompiler {
             module,
             ctx,
             builder_ctx,
+            math,
         })
     }
 
     /// Compile constraint opcodes to native functions.
-    pub fn compile(
-        &mut self,
-        compiled: &CompiledConstraints,
-    ) -> Result<JITFunction, JITError> {
+    pub fn compile(&mut self, compiled: &CompiledConstraints) -> Result<JITFunction, JITError> {
         // Validate the compiled constraints
-        compiled.validate().map_err(|e| {
-            JITError::ValidationError(e.to_string())
-        })?;
+        compiled
+            .validate()
+            .map_err(|e| JITError::ValidationError(e.to_string()))?;
 
         // Compile residual evaluation function
         let residual_fn_id = self.compile_residuals(compiled)?;
@@ -103,9 +201,9 @@ impl JITCompiler {
         let jacobian_fn_id = self.compile_jacobian(compiled)?;
 
         // Finalize all function definitions
-        self.module.finalize_definitions().map_err(|e| {
-            JITError::ModuleError(format!("failed to finalize definitions: {}", e))
-        })?;
+        self.module
+            .finalize_definitions()
+            .map_err(|e| JITError::ModuleError(format!("failed to finalize definitions: {}", e)))?;
 
         // Get function pointers
         let residual_ptr = self.module.get_finalized_function(residual_fn_id);
@@ -137,7 +235,11 @@ impl JITCompiler {
 
         let func_id = self
             .module
-            .declare_function("evaluate_residuals", Linkage::Local, &self.ctx.func.signature)
+            .declare_function(
+                "evaluate_residuals",
+                Linkage::Local,
+                &self.ctx.func.signature,
+            )
             .map_err(|e| JITError::ModuleError(format!("failed to declare function: {}", e)))?;
 
         {
@@ -151,8 +253,26 @@ impl JITCompiler {
             let vars_ptr = builder.block_params(entry_block)[0];
             let residuals_ptr = builder.block_params(entry_block)[1];
 
+            // Import math functions into this Cranelift function.
+            let math_refs = MathFuncRefs {
+                sin: self.module.declare_func_in_func(self.math.sin, builder.func),
+                cos: self.module.declare_func_in_func(self.math.cos, builder.func),
+                tan: self.module.declare_func_in_func(self.math.tan, builder.func),
+                exp: self.module.declare_func_in_func(self.math.exp, builder.func),
+                ln: self.module.declare_func_in_func(self.math.ln, builder.func),
+                pow: self.module.declare_func_in_func(self.math.pow, builder.func),
+                atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
+            };
+
             // Translate opcodes
-            translate_ops(&mut builder, &compiled.residual_ops, vars_ptr, residuals_ptr, None);
+            translate_ops(
+                &mut builder,
+                &math_refs,
+                &compiled.residual_ops,
+                vars_ptr,
+                residuals_ptr,
+                None,
+            );
 
             builder.ins().return_(&[]);
             builder.finalize();
@@ -180,7 +300,11 @@ impl JITCompiler {
 
         let func_id = self
             .module
-            .declare_function("evaluate_jacobian", Linkage::Local, &self.ctx.func.signature)
+            .declare_function(
+                "evaluate_jacobian",
+                Linkage::Local,
+                &self.ctx.func.signature,
+            )
             .map_err(|e| JITError::ModuleError(format!("failed to declare function: {}", e)))?;
 
         {
@@ -194,8 +318,25 @@ impl JITCompiler {
             let vars_ptr = builder.block_params(entry_block)[0];
             let jacobian_ptr = builder.block_params(entry_block)[1];
 
+            let math_refs = MathFuncRefs {
+                sin: self.module.declare_func_in_func(self.math.sin, builder.func),
+                cos: self.module.declare_func_in_func(self.math.cos, builder.func),
+                tan: self.module.declare_func_in_func(self.math.tan, builder.func),
+                exp: self.module.declare_func_in_func(self.math.exp, builder.func),
+                ln: self.module.declare_func_in_func(self.math.ln, builder.func),
+                pow: self.module.declare_func_in_func(self.math.pow, builder.func),
+                atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
+            };
+
             // Translate opcodes
-            translate_ops(&mut builder, &compiled.jacobian_ops, vars_ptr, jacobian_ptr, Some(jacobian_ptr));
+            translate_ops(
+                &mut builder,
+                &math_refs,
+                &compiled.jacobian_ops,
+                vars_ptr,
+                jacobian_ptr,
+                Some(jacobian_ptr),
+            );
 
             builder.ins().return_(&[]);
             builder.finalize();
@@ -211,9 +352,24 @@ impl JITCompiler {
     }
 }
 
+/// Function references for math calls within a single Cranelift function.
+struct MathFuncRefs {
+    sin: FuncRef,
+    cos: FuncRef,
+    tan: FuncRef,
+    exp: FuncRef,
+    ln: FuncRef,
+    pow: FuncRef,
+    atan2: FuncRef,
+}
+
 /// Translate opcodes to Cranelift IR.
+///
+/// Math functions (sin, cos, tan, exp, ln, pow, atan2) are called via
+/// registered extern "C" wrappers — no Taylor approximations.
 fn translate_ops(
     builder: &mut FunctionBuilder<'_>,
+    math_refs: &MathFuncRefs,
     ops: &[ConstraintOp],
     vars_ptr: Value,
     output_ptr: Value,
@@ -275,24 +431,60 @@ fn translate_ops(
                 registers.insert(*dst, result);
             }
 
+            // --- Math functions via libm calls ---
+
             ConstraintOp::Sin { dst, src } => {
                 let src_val = get_reg(&registers, *src);
-                let result = approximate_sin(builder, src_val);
+                let call = builder.ins().call(math_refs.sin, &[src_val]);
+                let result = builder.inst_results(call)[0];
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Cos { dst, src } => {
                 let src_val = get_reg(&registers, *src);
-                let result = approximate_cos(builder, src_val);
+                let call = builder.ins().call(math_refs.cos, &[src_val]);
+                let result = builder.inst_results(call)[0];
+                registers.insert(*dst, result);
+            }
+
+            ConstraintOp::Tan { dst, src } => {
+                let src_val = get_reg(&registers, *src);
+                let call = builder.ins().call(math_refs.tan, &[src_val]);
+                let result = builder.inst_results(call)[0];
+                registers.insert(*dst, result);
+            }
+
+            ConstraintOp::Exp { dst, src } => {
+                let src_val = get_reg(&registers, *src);
+                let call = builder.ins().call(math_refs.exp, &[src_val]);
+                let result = builder.inst_results(call)[0];
+                registers.insert(*dst, result);
+            }
+
+            ConstraintOp::Ln { dst, src } => {
+                let src_val = get_reg(&registers, *src);
+                let call = builder.ins().call(math_refs.ln, &[src_val]);
+                let result = builder.inst_results(call)[0];
+                registers.insert(*dst, result);
+            }
+
+            ConstraintOp::Pow { dst, base, exp } => {
+                let base_val = get_reg(&registers, *base);
+                let exp_val = get_reg(&registers, *exp);
+                let call = builder.ins().call(math_refs.pow, &[base_val, exp_val]);
+                let result = builder.inst_results(call)[0];
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Atan2 { dst, y, x } => {
                 let y_val = get_reg(&registers, *y);
                 let x_val = get_reg(&registers, *x);
-                let result = approximate_atan2(builder, y_val, x_val);
+                let call = builder.ins().call(math_refs.atan2, &[y_val, x_val]);
+                let result = builder.inst_results(call)[0];
                 registers.insert(*dst, result);
             }
+
+            // --- Non-math ops ---
 
             ConstraintOp::Abs { dst, src } => {
                 let src_val = get_reg(&registers, *src);
@@ -321,11 +513,12 @@ fn translate_ops(
                 builder.ins().store(MemFlags::trusted(), src_val, addr, 0);
             }
 
-            ConstraintOp::StoreJacobian { row: _, col: _, src } => {
-                // This variant stores row/col indices too, but for our use case
-                // we typically use StoreJacobianIndexed instead
+            ConstraintOp::StoreJacobian {
+                row: _,
+                col: _,
+                src,
+            } => {
                 let _ = get_reg(&registers, *src);
-                // Would need separate row/col arrays to implement this
             }
 
             ConstraintOp::StoreJacobianIndexed { output_idx, src } => {
@@ -340,71 +533,9 @@ fn translate_ops(
 }
 
 fn get_reg(registers: &HashMap<Reg, Value>, reg: Reg) -> Value {
-    *registers.get(&reg).unwrap_or_else(|| {
-        panic!("register {} not found", reg)
-    })
-}
-
-/// Approximate sin using Taylor series for small values.
-fn approximate_sin(builder: &mut FunctionBuilder<'_>, x: Value) -> Value {
-    // sin(x) ~ x - x^3/6 + x^5/120 - x^7/5040
-    let x2 = builder.ins().fmul(x, x);
-    let x3 = builder.ins().fmul(x2, x);
-    let x5 = builder.ins().fmul(x3, x2);
-    let x7 = builder.ins().fmul(x5, x2);
-
-    let c3 = builder.ins().f64const(1.0 / 6.0);
-    let c5 = builder.ins().f64const(1.0 / 120.0);
-    let c7 = builder.ins().f64const(1.0 / 5040.0);
-
-    let t3 = builder.ins().fmul(x3, c3);
-    let t5 = builder.ins().fmul(x5, c5);
-    let t7 = builder.ins().fmul(x7, c7);
-
-    let r1 = builder.ins().fsub(x, t3);
-    let r2 = builder.ins().fadd(r1, t5);
-    builder.ins().fsub(r2, t7)
-}
-
-/// Approximate cos using Taylor series for small values.
-fn approximate_cos(builder: &mut FunctionBuilder<'_>, x: Value) -> Value {
-    // cos(x) ~ 1 - x^2/2 + x^4/24 - x^6/720
-    let one = builder.ins().f64const(1.0);
-    let x2 = builder.ins().fmul(x, x);
-    let x4 = builder.ins().fmul(x2, x2);
-    let x6 = builder.ins().fmul(x4, x2);
-
-    let c2 = builder.ins().f64const(0.5);
-    let c4 = builder.ins().f64const(1.0 / 24.0);
-    let c6 = builder.ins().f64const(1.0 / 720.0);
-
-    let t2 = builder.ins().fmul(x2, c2);
-    let t4 = builder.ins().fmul(x4, c4);
-    let t6 = builder.ins().fmul(x6, c6);
-
-    let r1 = builder.ins().fsub(one, t2);
-    let r2 = builder.ins().fadd(r1, t4);
-    builder.ins().fsub(r2, t6)
-}
-
-/// Approximate atan2(y, x).
-fn approximate_atan2(builder: &mut FunctionBuilder<'_>, y: Value, x: Value) -> Value {
-    // Use atan(y/x) with quadrant correction
-    // This is a simplified approximation; for production use libm
-    let ratio = builder.ins().fdiv(y, x);
-    approximate_atan(builder, ratio)
-}
-
-/// Approximate atan using rational approximation.
-fn approximate_atan(builder: &mut FunctionBuilder<'_>, x: Value) -> Value {
-    // atan(x) ~ x / (1 + 0.28 * x^2) for |x| < 1
-    let x2 = builder.ins().fmul(x, x);
-    let c = builder.ins().f64const(0.28);
-    let one = builder.ins().f64const(1.0);
-
-    let t = builder.ins().fmul(c, x2);
-    let denom = builder.ins().fadd(one, t);
-    builder.ins().fdiv(x, denom)
+    *registers
+        .get(&reg)
+        .unwrap_or_else(|| panic!("register {} not found", reg))
 }
 
 /// JIT-compiled functions for constraint evaluation.
@@ -537,7 +668,10 @@ mod tests {
     #[test]
     fn test_jit_compiler_creation() {
         let result = JITCompiler::new();
-        assert!(result.is_ok(), "JIT compiler should be created successfully");
+        assert!(
+            result.is_ok(),
+            "JIT compiler should be created successfully"
+        );
     }
 
     #[test]

@@ -56,10 +56,7 @@ impl Problem for PowellBadlyScaled {
     }
 
     fn known_solution(&self) -> Option<Vec<f64>> {
-        Some(vec![
-            0.1098159327798296E-04,
-            0.9106146740038449E+01,
-        ])
+        Some(vec![0.1098159327798296E-04, 0.9106146740038449E+01])
     }
 
     fn expected_residual_norm(&self) -> Option<f64> {

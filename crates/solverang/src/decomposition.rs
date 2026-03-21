@@ -472,8 +472,10 @@ mod tests {
         );
 
         // Check that each component has the right variables
-        let component_vars: Vec<Vec<usize>> =
-            components.iter().map(|c| c.variable_indices.clone()).collect();
+        let component_vars: Vec<Vec<usize>> = components
+            .iter()
+            .map(|c| c.variable_indices.clone())
+            .collect();
 
         assert!(
             component_vars.iter().any(|v| v == &[0]),
@@ -495,7 +497,11 @@ mod tests {
         };
 
         let components = decompose(&problem);
-        assert_eq!(components.len(), 4, "Each constraint should be its own component");
+        assert_eq!(
+            components.len(),
+            4,
+            "Each constraint should be its own component"
+        );
 
         for component in &components {
             assert_eq!(component.variable_count(), 1);
@@ -513,7 +519,11 @@ mod tests {
         };
 
         let components = decompose(&problem);
-        assert_eq!(components.len(), 3, "Each constraint should be its own component");
+        assert_eq!(
+            components.len(),
+            3,
+            "Each constraint should be its own component"
+        );
 
         for component in &components {
             assert_eq!(component.variable_count(), 0);
@@ -539,14 +549,7 @@ mod tests {
         let problem = MockDecomposableProblem {
             constraints: 3,
             variables: 3,
-            graph: vec![
-                (0, 0),
-                (0, 1),
-                (1, 1),
-                (1, 2),
-                (2, 2),
-                (2, 0),
-            ],
+            graph: vec![(0, 0), (0, 1), (1, 1), (1, 2), (2, 2), (2, 0)],
         };
 
         let components = decompose(&problem);

@@ -3,7 +3,7 @@
 //! This module provides a solver that can use JIT-compiled constraint evaluation
 //! for improved performance on large constraint systems.
 
-use crate::jit::{JITCompiler, JITConfig, JITError, JITFunction, CompiledConstraints};
+use crate::jit::{CompiledConstraints, JITCompiler, JITConfig, JITError, JITFunction};
 use crate::problem::Problem;
 use crate::solver::result::{SolveError, SolveResult};
 use nalgebra::{DMatrix, DVector};
@@ -100,11 +100,7 @@ impl JITSolver {
     /// Solve using JIT-compiled evaluation.
     ///
     /// This method is called when a compiled JIT function is provided directly.
-    pub fn solve_with_jit(
-        &self,
-        jit_fn: &JITFunction,
-        x0: &[f64],
-    ) -> SolveResult {
+    pub fn solve_with_jit(&self, jit_fn: &JITFunction, x0: &[f64]) -> SolveResult {
         let n = jit_fn.variable_count();
         let m = jit_fn.residual_count();
 
@@ -314,10 +310,7 @@ pub enum JITCompilationResult {
 }
 
 /// Try to compile a problem for JIT evaluation.
-pub fn try_compile(
-    constraints: &CompiledConstraints,
-    threshold: usize,
-) -> JITCompilationResult {
+pub fn try_compile(constraints: &CompiledConstraints, threshold: usize) -> JITCompilationResult {
     if !crate::jit::jit_available() {
         return JITCompilationResult::NotAvailable;
     }
@@ -399,7 +392,10 @@ mod tests {
 
         // Force JIT should use JIT (if available)
         let solver_jit = JITSolver::new(JITConfig::always_jit());
-        assert_eq!(solver_jit.will_use_jit(&SimpleProblem), crate::jit::jit_available());
+        assert_eq!(
+            solver_jit.will_use_jit(&SimpleProblem),
+            crate::jit::jit_available()
+        );
 
         // Force interpreted should not use JIT
         let solver_interp = JITSolver::new(JITConfig::always_interpreted());

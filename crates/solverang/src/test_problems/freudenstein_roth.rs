@@ -57,12 +57,7 @@ impl Problem for FreudensteinRoth {
         //           = 3*x2^2 + 2*x2 - 14
         let df2_dx2 = x2 * (3.0 * x2 + 2.0) - 14.0;
 
-        vec![
-            (0, 0, 1.0),
-            (0, 1, df1_dx2),
-            (1, 0, 1.0),
-            (1, 1, df2_dx2),
-        ]
+        vec![(0, 0, 1.0), (0, 1, df1_dx2), (1, 0, 1.0), (1, 1, df2_dx2)]
     }
 
     fn initial_point(&self, factor: f64) -> Vec<f64> {

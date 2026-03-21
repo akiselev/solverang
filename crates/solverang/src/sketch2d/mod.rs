@@ -3,15 +3,14 @@
 //! Provides entity and constraint types for 2D sketching (points, lines,
 //! circles, arcs) with squared formulations for smooth Jacobians.
 
-pub mod entities;
-pub mod constraints;
 pub mod builder;
+pub mod constraints;
+pub mod entities;
 
-pub use entities::{Point2D, LineSegment2D, Circle2D, Arc2D, InfiniteLine2D};
-pub use constraints::{
-    DistancePtPt, Coincident, Fixed, Horizontal, Vertical,
-    Parallel, Perpendicular, Angle, Midpoint, Symmetric,
-    EqualLength, PointOnCircle, TangentLineCircle, TangentCircleCircle,
-    DistancePtLine,
-};
 pub use builder::Sketch2DBuilder;
+pub use constraints::{
+    Angle, Coincident, Collinear, DistancePtLine, DistancePtPt, EqualLength, EqualRadius, Fixed,
+    Horizontal, Midpoint, Parallel, Perpendicular, PointOnCircle, Symmetric, TangentCircleCircle,
+    TangentLineCircle, Vertical,
+};
+pub use entities::{Arc2D, Circle2D, Ellipse2D, InfiniteLine2D, LineSegment2D, Point2D, Spline2D};

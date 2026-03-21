@@ -127,9 +127,7 @@ impl ChangeTracker {
 
     /// Returns `true` if any changes have been recorded (structural or parametric).
     pub fn has_any_changes(&self) -> bool {
-        self.structural_change
-            || !self.dirty_params.is_empty()
-            || !self.dirty_clusters.is_empty()
+        self.structural_change || !self.dirty_params.is_empty() || !self.dirty_clusters.is_empty()
     }
 
     /// The set of parameters that have changed since the last solve.

@@ -160,8 +160,7 @@ fn test_distance_jacobian_verification() {
     assert!(
         result.passed,
         "Jacobian verification failed: max error = {}, location = {:?}",
-        result.max_absolute_error,
-        result.max_error_location
+        result.max_absolute_error, result.max_error_location
     );
 }
 

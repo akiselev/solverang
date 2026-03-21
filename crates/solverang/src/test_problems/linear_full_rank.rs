@@ -74,11 +74,7 @@ impl Problem for LinearFullRank {
         // First n equations
         for i in 0..self.n {
             for j in 0..self.n {
-                let val = if i == j {
-                    1.0 - 2.0 / m_f
-                } else {
-                    -2.0 / m_f
-                };
+                let val = if i == j { 1.0 - 2.0 / m_f } else { -2.0 / m_f };
                 entries.push((i, j, val));
             }
         }
@@ -161,7 +157,9 @@ mod tests {
 
         // Verify the residual norm matches expected
         let norm = problem.residual_norm(&solution);
-        let expected_norm = problem.expected_residual_norm().expect("should have expected norm");
+        let expected_norm = problem
+            .expected_residual_norm()
+            .expect("should have expected norm");
         assert!(
             (norm - expected_norm).abs() < 1e-10,
             "norm = {} (expected {})",

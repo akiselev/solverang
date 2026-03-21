@@ -177,10 +177,8 @@ impl ParallelSolver {
         }
 
         // Filter out empty components
-        let active_components: Vec<Component> = components
-            .into_iter()
-            .filter(|c| !c.is_empty())
-            .collect();
+        let active_components: Vec<Component> =
+            components.into_iter().filter(|c| !c.is_empty()).collect();
 
         if active_components.is_empty() {
             return SolveResult::Converged {
@@ -260,10 +258,7 @@ impl ParallelSolver {
         let active_components: Vec<Component> = components
             .into_iter()
             .filter(|c| {
-                !c.is_empty()
-                    && changed_components
-                        .iter()
-                        .any(|changed| changed.0 == c.id.0)
+                !c.is_empty() && changed_components.iter().any(|changed| changed.0 == c.id.0)
             })
             .collect();
 
@@ -600,8 +595,8 @@ mod tests {
         fn residuals(&self, x: &[f64]) -> Vec<f64> {
             vec![
                 x[0] * x[0] + x[1] * x[1] - 1.0, // Circle constraint
-                x[2] - 1.0,                       // x2 = 1
-                x[3] - 2.0,                       // x3 = 2
+                x[2] - 1.0,                      // x2 = 1
+                x[3] - 2.0,                      // x3 = 2
             ]
         }
 
@@ -651,12 +646,7 @@ mod tests {
         }
 
         fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
-            vec![
-                (0, 0, 2.0 * x[0]),
-                (0, 1, 0.0),
-                (1, 0, -1.0),
-                (1, 1, 1.0),
-            ]
+            vec![(0, 0, 2.0 * x[0]), (0, 1, 0.0), (1, 0, -1.0), (1, 1, 1.0)]
         }
 
         fn initial_point(&self, factor: f64) -> Vec<f64> {

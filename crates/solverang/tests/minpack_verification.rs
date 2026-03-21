@@ -3,15 +3,12 @@
 //! Tests the solver against the standard MINPACK test problems.
 
 use solverang::{
-    verify_jacobian, Problem, Solver, SolverConfig,
     test_problems::{
-        Rosenbrock, HelicalValley, PowellSingular, FreudensteinRoth,
-        Bard, Watson, Box3D,
-        Chebyquad, BrownAlmostLinear,
-        LinearFullRank,
-        Wood, DiscreteBoundaryValue,
-        Trigonometric, VariablyDimensioned, BroydenTridiagonal, BroydenBanded,
+        Bard, Box3D, BrownAlmostLinear, BroydenBanded, BroydenTridiagonal, Chebyquad,
+        DiscreteBoundaryValue, FreudensteinRoth, HelicalValley, LinearFullRank, PowellSingular,
+        Rosenbrock, Trigonometric, VariablyDimensioned, Watson, Wood,
     },
+    verify_jacobian, Problem, Solver, SolverConfig,
 };
 
 // Helper to run a test for a problem

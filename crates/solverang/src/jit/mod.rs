@@ -57,7 +57,7 @@ mod opcodes;
 
 pub use cranelift::{JITCompiler, JITError, JITFunction};
 pub use lower::{
-    CompiledProblem, Lowerable, LoweringContext, OpcodeEmitter, lower_problem, lower_constraints,
+    lower_constraints, lower_problem, CompiledProblem, Lowerable, LoweringContext, OpcodeEmitter,
 };
 pub use opcodes::{CompiledConstraints, ConstraintOp, JacobianEntry, Reg, ValidationError};
 

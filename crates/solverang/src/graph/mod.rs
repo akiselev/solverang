@@ -16,6 +16,4 @@ pub use bipartite::ConstraintGraph;
 pub use cluster::{ClusterStatus, RigidCluster};
 pub use decompose::decompose_clusters;
 pub use dof::{analyze_dof, quick_dof, DofAnalysis, EntityDof};
-pub use redundancy::{
-    analyze_redundancy, ConflictGroup, RedundancyAnalysis, RedundantConstraint,
-};
+pub use redundancy::{analyze_redundancy, ConflictGroup, RedundancyAnalysis, RedundantConstraint};

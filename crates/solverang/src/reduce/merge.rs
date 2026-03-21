@@ -46,10 +46,7 @@ const JACOBIAN_TOLERANCE: f64 = 1e-10;
 ///
 /// This is a structural heuristic that covers the most common case: a simple
 /// coincident/equality constraint between two scalar parameters.
-pub fn detect_merges(
-    constraints: &[&dyn Constraint],
-    store: &ParamStore,
-) -> MergeResult {
+pub fn detect_merges(constraints: &[&dyn Constraint], store: &ParamStore) -> MergeResult {
     let mut merges = Vec::new();
     let mut constraints_removed = 0;
 
@@ -98,11 +95,7 @@ pub fn detect_merges(
 ///
 /// We look for exactly two entries in row 0, one being +1 and the other -1
 /// (or vice versa), matching the two parameter IDs.
-fn is_equality_jacobian(
-    jac: &[(usize, ParamId, f64)],
-    param_a: ParamId,
-    param_b: ParamId,
-) -> bool {
+fn is_equality_jacobian(jac: &[(usize, ParamId, f64)], param_a: ParamId, param_b: ParamId) -> bool {
     // Collect entries for row 0 that match our two params.
     let mut val_a: Option<f64> = None;
     let mut val_b: Option<f64> = None;
@@ -122,8 +115,7 @@ fn is_equality_jacobian(
         (Some(a), Some(b)) => {
             // Check for (+1, -1) or (-1, +1).
             ((a - 1.0).abs() < JACOBIAN_TOLERANCE && (b + 1.0).abs() < JACOBIAN_TOLERANCE)
-                || ((a + 1.0).abs() < JACOBIAN_TOLERANCE
-                    && (b - 1.0).abs() < JACOBIAN_TOLERANCE)
+                || ((a + 1.0).abs() < JACOBIAN_TOLERANCE && (b - 1.0).abs() < JACOBIAN_TOLERANCE)
         }
         _ => false,
     }

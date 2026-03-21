@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/bennett5.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Data for Bennett5 problem: (x, y) pairs
 /// NIST data file shows y, x columns. Here we store (x, y).
@@ -173,16 +173,16 @@ const DATA: [(f64, f64); 154] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 3] = [
-    -2.5235058043E+03,  // b1
-    4.6736564644E+01,   // b2
-    9.3218483193E-01,   // b3
+    -2.5235058043E+03, // b1
+    4.6736564644E+01,  // b2
+    9.3218483193E-01,  // b3
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 3] = [
-    2.9715175411E+02,   // b1
-    1.2448871856E+00,   // b2
-    2.0272299378E-02,   // b3
+    2.9715175411E+02, // b1
+    1.2448871856E+00, // b2
+    2.0272299378E-02, // b3
 ];
 
 /// Certified residual sum of squares

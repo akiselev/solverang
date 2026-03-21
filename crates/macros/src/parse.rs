@@ -6,10 +6,8 @@
 use crate::expr::{Expr, VarRef};
 use quote::ToTokens;
 use syn::{
-    punctuated::Punctuated,
-    spanned::Spanned,
-    BinOp, Expr as SynExpr, ExprBinary, ExprCall, ExprIndex, ExprLit, ExprMethodCall,
-    ExprParen, ExprPath, ExprUnary, Lit, Token, UnOp,
+    punctuated::Punctuated, spanned::Spanned, BinOp, Expr as SynExpr, ExprBinary, ExprCall,
+    ExprIndex, ExprLit, ExprMethodCall, ExprParen, ExprPath, ExprUnary, Lit, Token, UnOp,
 };
 
 /// State for parsing expressions, tracks variable assignments.
@@ -95,7 +93,9 @@ pub fn parse_expr(expr: &SynExpr, ctx: &mut ParseContext) -> ParseResult {
             }
         }
 
-        SynExpr::Index(ExprIndex { expr: base, index, .. }) => {
+        SynExpr::Index(ExprIndex {
+            expr: base, index, ..
+        }) => {
             // Check if this is accessing the array parameter (e.g., x[i])
             if let SynExpr::Path(ExprPath { path, .. }) = base.as_ref() {
                 if let Some(ident) = path.get_ident() {
@@ -112,13 +112,17 @@ pub fn parse_expr(expr: &SynExpr, ctx: &mut ParseContext) -> ParseResult {
             ))
         }
 
-        SynExpr::Binary(ExprBinary { left, op, right, .. }) => {
+        SynExpr::Binary(ExprBinary {
+            left, op, right, ..
+        }) => {
             let left_expr = parse_expr(left, ctx)?;
             let right_expr = parse_expr(right, ctx)?;
             parse_binary_op(*op, left_expr, right_expr, expr.span())
         }
 
-        SynExpr::Unary(ExprUnary { op, expr: inner, .. }) => {
+        SynExpr::Unary(ExprUnary {
+            op, expr: inner, ..
+        }) => {
             let inner_expr = parse_expr(inner, ctx)?;
             match op {
                 UnOp::Neg(_) => Ok(Expr::Neg(Box::new(inner_expr))),
@@ -128,13 +132,14 @@ pub fn parse_expr(expr: &SynExpr, ctx: &mut ParseContext) -> ParseResult {
             }
         }
 
-        SynExpr::MethodCall(ExprMethodCall { receiver, method, args, .. }) => {
-            parse_method_call(receiver, method, args, ctx)
-        }
+        SynExpr::MethodCall(ExprMethodCall {
+            receiver,
+            method,
+            args,
+            ..
+        }) => parse_method_call(receiver, method, args, ctx),
 
-        SynExpr::Call(ExprCall { func, args, .. }) => {
-            parse_function_call(func, args, ctx)
-        }
+        SynExpr::Call(ExprCall { func, args, .. }) => parse_function_call(func, args, ctx),
 
         SynExpr::Field(field_expr) => {
             // Handle self.field access - treat as a runtime constant from the constraint.
@@ -168,12 +173,7 @@ fn parse_literal(lit: &Lit) -> ParseResult {
     }
 }
 
-fn parse_binary_op(
-    op: BinOp,
-    left: Expr,
-    right: Expr,
-    span: proc_macro2::Span,
-) -> ParseResult {
+fn parse_binary_op(op: BinOp, left: Expr, right: Expr, span: proc_macro2::Span) -> ParseResult {
     match op {
         BinOp::Add(_) => Ok(Expr::Add(Box::new(left), Box::new(right))),
         BinOp::Sub(_) => Ok(Expr::Sub(Box::new(left), Box::new(right))),
@@ -226,23 +226,44 @@ fn parse_method_call(
             }
             Ok(Expr::Abs(Box::new(receiver_expr)))
         }
+        "ln" => {
+            if !args.is_empty() {
+                return Err(syn::Error::new(method.span(), "ln() takes no arguments"));
+            }
+            Ok(Expr::Ln(Box::new(receiver_expr)))
+        }
+        "exp" => {
+            if !args.is_empty() {
+                return Err(syn::Error::new(method.span(), "exp() takes no arguments"));
+            }
+            Ok(Expr::Exp(Box::new(receiver_expr)))
+        }
         "powi" => {
             if args.len() != 1 {
-                return Err(syn::Error::new(method.span(), "powi() takes exactly one argument"));
+                return Err(syn::Error::new(
+                    method.span(),
+                    "powi() takes exactly one argument",
+                ));
             }
             let exp = parse_constant_expr(&args[0])?;
             Ok(Expr::Pow(Box::new(receiver_expr), exp))
         }
         "powf" => {
             if args.len() != 1 {
-                return Err(syn::Error::new(method.span(), "powf() takes exactly one argument"));
+                return Err(syn::Error::new(
+                    method.span(),
+                    "powf() takes exactly one argument",
+                ));
             }
             let exp = parse_constant_expr(&args[0])?;
             Ok(Expr::Pow(Box::new(receiver_expr), exp))
         }
         "atan2" => {
             if args.len() != 1 {
-                return Err(syn::Error::new(method.span(), "atan2() takes exactly one argument"));
+                return Err(syn::Error::new(
+                    method.span(),
+                    "atan2() takes exactly one argument",
+                ));
             }
             let x = parse_expr(&args[0], ctx)?;
             Ok(Expr::Atan2(Box::new(receiver_expr), Box::new(x)))
@@ -292,6 +313,14 @@ fn parse_function_call(
                     let arg = parse_expr(&args[0], ctx)?;
                     return Ok(Expr::Abs(Box::new(arg)));
                 }
+                Some("ln") if args.len() == 1 => {
+                    let arg = parse_expr(&args[0], ctx)?;
+                    return Ok(Expr::Ln(Box::new(arg)));
+                }
+                Some("exp") if args.len() == 1 => {
+                    let arg = parse_expr(&args[0], ctx)?;
+                    return Ok(Expr::Exp(Box::new(arg)));
+                }
                 _ => {}
             }
         }
@@ -306,14 +335,20 @@ fn parse_function_call(
 /// Parse a constant expression (must evaluate to a compile-time constant).
 fn parse_constant_expr(expr: &SynExpr) -> Result<f64, syn::Error> {
     match expr {
-        SynExpr::Lit(ExprLit { lit: Lit::Float(f), .. }) => {
-            f.base10_parse().map_err(|e| syn::Error::new(f.span(), e))
-        }
-        SynExpr::Lit(ExprLit { lit: Lit::Int(i), .. }) => {
+        SynExpr::Lit(ExprLit {
+            lit: Lit::Float(f), ..
+        }) => f.base10_parse().map_err(|e| syn::Error::new(f.span(), e)),
+        SynExpr::Lit(ExprLit {
+            lit: Lit::Int(i), ..
+        }) => {
             let value: i64 = i.base10_parse().map_err(|e| syn::Error::new(i.span(), e))?;
             Ok(value as f64)
         }
-        SynExpr::Unary(ExprUnary { op: UnOp::Neg(_), expr, .. }) => {
+        SynExpr::Unary(ExprUnary {
+            op: UnOp::Neg(_),
+            expr,
+            ..
+        }) => {
             let value = parse_constant_expr(expr)?;
             Ok(-value)
         }

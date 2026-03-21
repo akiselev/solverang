@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/danwood.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Data for DanWood problem: (x, y) pairs
 const DATA: [(f64, f64); 6] = [
@@ -24,14 +24,14 @@ const DATA: [(f64, f64); 6] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 2] = [
-    7.6886226176E-01,   // b1
-    3.8604055871E+00,   // b2
+    7.6886226176E-01, // b1
+    3.8604055871E+00, // b2
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 2] = [
-    1.8281973860E-01,   // b1
-    5.1726610913E-01,   // b2
+    1.8281973860E-01, // b1
+    5.1726610913E-01, // b2
 ];
 
 /// Certified residual sum of squares

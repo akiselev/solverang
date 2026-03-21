@@ -524,10 +524,7 @@ fn test_csr_is_finite() {
 fn test_should_use_sparse() {
     // Diagonal matrix is very sparse
     let sparse_problem = LargeDiagonalProblem { size: 100 };
-    assert!(solverang::solver::should_use_sparse(
-        &sparse_problem,
-        0.1
-    ));
+    assert!(solverang::solver::should_use_sparse(&sparse_problem, 0.1));
 
     // Small dense problem
     struct DenseProblem;

@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/eckerle4.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Data for Eckerle4 problem: (x, y) pairs
 const DATA: [(f64, f64); 35] = [
@@ -53,16 +53,16 @@ const DATA: [(f64, f64); 35] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 3] = [
-    1.5543827178E+00,   // b1
-    4.0888321754E+00,   // b2
-    4.5154121844E+02,   // b3
+    1.5543827178E+00, // b1
+    4.0888321754E+00, // b2
+    4.5154121844E+02, // b3
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 3] = [
-    1.5408051163E-02,   // b1
-    4.6803020753E-02,   // b2
-    4.6800518816E-02,   // b3
+    1.5408051163E-02, // b1
+    4.6803020753E-02, // b2
+    4.6800518816E-02, // b3
 ];
 
 /// Certified residual sum of squares

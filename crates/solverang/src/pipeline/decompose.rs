@@ -163,8 +163,7 @@ impl Decompose for DefaultDecompose {
             .collect();
 
         // Deterministic ordering by first constraint index.
-        clusters
-            .sort_by_key(|c| c.constraint_indices.first().copied().unwrap_or(usize::MAX));
+        clusters.sort_by_key(|c| c.constraint_indices.first().copied().unwrap_or(usize::MAX));
 
         // Assign ClusterId based on sorted position.
         for (i, cluster) in clusters.iter_mut().enumerate() {

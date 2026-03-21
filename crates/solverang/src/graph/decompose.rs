@@ -57,11 +57,8 @@ pub fn decompose_clusters(
     let constraint_count = graph.max_constraint_index();
 
     // Delegate to the existing union-find decomposition.
-    let components = crate::decomposition::decompose_from_edges(
-        constraint_count,
-        mapping.len(),
-        &edges,
-    );
+    let components =
+        crate::decomposition::decompose_from_edges(constraint_count, mapping.len(), &edges);
 
     // Convert each Component into a RigidCluster.
     components
@@ -335,9 +332,18 @@ mod tests {
         let p1 = store.alloc(0.0, e1);
         let p2 = store.alloc(0.0, e2);
 
-        let ent0 = StubEntity { id: e0, params: vec![p0] };
-        let ent1 = StubEntity { id: e1, params: vec![p1] };
-        let ent2 = StubEntity { id: e2, params: vec![p2] };
+        let ent0 = StubEntity {
+            id: e0,
+            params: vec![p0],
+        };
+        let ent1 = StubEntity {
+            id: e1,
+            params: vec![p1],
+        };
+        let ent2 = StubEntity {
+            id: e2,
+            params: vec![p2],
+        };
 
         let c0 = StubConstraint {
             id: ConstraintId::new(0, 0),
@@ -363,11 +369,7 @@ mod tests {
         g.add_constraint(1, &c1);
         g.add_constraint(2, &c2);
 
-        let constraints: Vec<Box<dyn Constraint>> = vec![
-            Box::new(c0),
-            Box::new(c1),
-            Box::new(c2),
-        ];
+        let constraints: Vec<Box<dyn Constraint>> = vec![Box::new(c0), Box::new(c1), Box::new(c2)];
         let clusters = decompose_clusters(&g, &constraints, &store);
 
         assert_eq!(clusters.len(), 3);

@@ -248,19 +248,19 @@
 //!    only returns non-zero entries. This enables efficient sparse operations.
 
 // --- V3 Solver-First Architecture modules ---
+pub mod assembly;
+pub mod constraint;
+pub mod dataflow;
+pub mod entity;
+pub mod graph;
 pub mod id;
 pub mod param;
-pub mod entity;
-pub mod constraint;
-pub mod graph;
-pub mod solve;
+pub mod pipeline;
 pub mod reduce;
-pub mod dataflow;
-pub mod system;
 pub mod sketch2d;
 pub mod sketch3d;
-pub mod assembly;
-pub mod pipeline;
+pub mod solve;
+pub mod system;
 
 // --- Existing modules (kept as-is) ---
 pub mod constraints;
@@ -305,6 +305,17 @@ pub use jit::{
 
 #[cfg(feature = "jit")]
 pub use solver::JITSolver;
+
+/// Hidden re-exports for the `#[auto_jacobian]` macro's JIT code generation.
+///
+/// The proc macro cannot use `$crate`, so generated code references types
+/// via `::solverang::__jit_reexports::OpcodeEmitter` etc. This follows the
+/// same pattern used by serde, thiserror, and other proc-macro crates.
+#[cfg(feature = "jit")]
+#[doc(hidden)]
+pub mod __jit_reexports {
+    pub use crate::jit::{CompiledConstraints, OpcodeEmitter};
+}
 
 // --- Re-export V3 types ---
 pub use id::{ClusterId, ConstraintId, EntityId, ParamId};

@@ -366,8 +366,7 @@ mod tests {
             assert!(
                 pipeline_converged,
                 "[{}] Pipeline solve did not converge (status: {:?})",
-                label,
-                pipeline_result.status,
+                label, pipeline_result.status,
             );
 
             // Residual norms should be in the same ballpark.
@@ -400,16 +399,13 @@ mod tests {
         let mut system = ConstraintSystem::new();
 
         // Problem 1: Rosenbrock (2 vars)
-        let (_, rosenbrock_params) =
-            add_problem_to_system(&mut system, Box::new(Rosenbrock), 1.0);
+        let (_, rosenbrock_params) = add_problem_to_system(&mut system, Box::new(Rosenbrock), 1.0);
 
         // Problem 2: PowellSingular (4 vars)
-        let (_, powell_params) =
-            add_problem_to_system(&mut system, Box::new(PowellSingular), 1.0);
+        let (_, powell_params) = add_problem_to_system(&mut system, Box::new(PowellSingular), 1.0);
 
         // Problem 3: HelicalValley (3 vars)
-        let (_, helical_params) =
-            add_problem_to_system(&mut system, Box::new(HelicalValley), 1.0);
+        let (_, helical_params) = add_problem_to_system(&mut system, Box::new(HelicalValley), 1.0);
 
         // Solve the combined system.
         let result = system.solve();
@@ -523,9 +519,7 @@ mod tests {
         let direct_jac = problem.jacobian(&x0);
         let adapter_jac = adapter.jacobian(&store);
         assert_eq!(direct_jac.len(), adapter_jac.len());
-        for ((d_row, d_col, d_val), (a_row, a_pid, a_val)) in
-            direct_jac.iter().zip(&adapter_jac)
-        {
+        for ((d_row, d_col, d_val), (a_row, a_pid, a_val)) in direct_jac.iter().zip(&adapter_jac) {
             assert_eq!(*d_row, *a_row, "Jacobian row mismatch");
             assert_eq!(
                 param_ids[*d_col], *a_pid,

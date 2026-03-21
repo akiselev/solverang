@@ -51,14 +51,13 @@ impl Problem for LinearRank1 {
         debug_assert_eq!(x.len(), self.n);
 
         // Compute sum_{j=1}^n j*x_j
-        let sum: f64 = x.iter()
+        let sum: f64 = x
+            .iter()
             .enumerate()
             .map(|(j, &xj)| ((j + 1) as f64) * xj)
             .sum();
 
-        (1..=self.m)
-            .map(|i| (i as f64) * sum - 1.0)
-            .collect()
+        (1..=self.m).map(|i| (i as f64) * sum - 1.0).collect()
     }
 
     fn jacobian(&self, _x: &[f64]) -> Vec<(usize, usize, f64)> {

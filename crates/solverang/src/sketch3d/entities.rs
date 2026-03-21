@@ -96,13 +96,21 @@ impl LineSegment3D {
     /// Create a new 3D line segment entity.
     pub fn new(
         id: EntityId,
-        x1: ParamId, y1: ParamId, z1: ParamId,
-        x2: ParamId, y2: ParamId, z2: ParamId,
+        x1: ParamId,
+        y1: ParamId,
+        z1: ParamId,
+        x2: ParamId,
+        y2: ParamId,
+        z2: ParamId,
     ) -> Self {
         Self {
             id,
-            x1, y1, z1,
-            x2, y2, z2,
+            x1,
+            y1,
+            z1,
+            x2,
+            y2,
+            z2,
             params: [x1, y1, z1, x2, y2, z2],
         }
     }
@@ -173,13 +181,21 @@ impl Plane {
     /// Create a new plane entity.
     pub fn new(
         id: EntityId,
-        px: ParamId, py: ParamId, pz: ParamId,
-        nx: ParamId, ny: ParamId, nz: ParamId,
+        px: ParamId,
+        py: ParamId,
+        pz: ParamId,
+        nx: ParamId,
+        ny: ParamId,
+        nz: ParamId,
     ) -> Self {
         Self {
             id,
-            px, py, pz,
-            nx, ny, nz,
+            px,
+            py,
+            pz,
+            nx,
+            ny,
+            nz,
             params: [px, py, pz, nx, ny, nz],
         }
     }
@@ -243,13 +259,21 @@ impl Axis3D {
     /// Create a new 3D axis entity.
     pub fn new(
         id: EntityId,
-        px: ParamId, py: ParamId, pz: ParamId,
-        dx: ParamId, dy: ParamId, dz: ParamId,
+        px: ParamId,
+        py: ParamId,
+        pz: ParamId,
+        dx: ParamId,
+        dy: ParamId,
+        dz: ParamId,
     ) -> Self {
         Self {
             id,
-            px, py, pz,
-            dx, dy, dz,
+            px,
+            py,
+            pz,
+            dx,
+            dy,
+            dz,
             params: [px, py, pz, dx, dy, dz],
         }
     }

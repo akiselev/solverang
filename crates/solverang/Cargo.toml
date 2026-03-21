@@ -58,3 +58,8 @@ harness = false
 name = "nist_benchmarks"
 harness = false
 required-features = ["nist"]
+
+[[bench]]
+name = "jit_benchmark"
+harness = false
+required-features = ["jit", "macros"]

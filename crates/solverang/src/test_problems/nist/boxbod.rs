@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/boxbod.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Data for BoxBOD problem: (x, y) pairs
 const DATA: [(f64, f64); 6] = [
@@ -24,14 +24,14 @@ const DATA: [(f64, f64); 6] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 2] = [
-    2.1380940889E+02,   // b1
-    5.4723748542E-01,   // b2
+    2.1380940889E+02, // b1
+    5.4723748542E-01, // b2
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 2] = [
-    1.2354515176E+01,   // b1
-    1.0455993237E-01,   // b2
+    1.2354515176E+01, // b1
+    1.0455993237E-01, // b2
 ];
 
 /// Certified residual sum of squares

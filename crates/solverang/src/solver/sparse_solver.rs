@@ -16,7 +16,6 @@ use crate::jacobian::{CsrMatrix, SparsityPattern};
 use crate::problem::Problem;
 use crate::solver::result::{SolveError, SolveResult};
 
-
 /// Configuration for the sparse solver.
 #[derive(Clone, Debug)]
 pub struct SparseSolverConfig {
@@ -508,7 +507,10 @@ mod tests {
         }
 
         fn residuals(&self, x: &[f64]) -> Vec<f64> {
-            x.iter().enumerate().map(|(i, &xi)| xi - (i as f64 + 1.0)).collect()
+            x.iter()
+                .enumerate()
+                .map(|(i, &xi)| xi - (i as f64 + 1.0))
+                .collect()
         }
 
         fn jacobian(&self, _x: &[f64]) -> Vec<(usize, usize, f64)> {

@@ -58,7 +58,10 @@ fn test_lm_powell_singular() {
     let problem = PowellSingular;
     let solver = LMSolver::new(LMConfig::robust());
     let result = solver.solve(&problem, &problem.initial_point(1.0));
-    assert!(result.is_completed(), "LM should complete on Powell Singular");
+    assert!(
+        result.is_completed(),
+        "LM should complete on Powell Singular"
+    );
 }
 
 #[test]
@@ -254,7 +257,11 @@ fn test_lm_already_at_solution() {
     );
 
     if let Some(norm) = result.residual_norm() {
-        assert!(norm < 1e-14, "Residual should be essentially zero: {}", norm);
+        assert!(
+            norm < 1e-14,
+            "Residual should be essentially zero: {}",
+            norm
+        );
     }
 }
 
@@ -287,7 +294,11 @@ fn test_lm_near_zero_residual() {
     let solver = LMSolver::new(LMConfig::default());
     let result = solver.solve(&problem, &problem.initial_point(1.0));
 
-    assert!(result.is_converged(), "Should converge to zero: {:?}", result);
+    assert!(
+        result.is_converged(),
+        "Should converge to zero: {:?}",
+        result
+    );
 }
 
 #[test]

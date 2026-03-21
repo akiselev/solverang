@@ -7,8 +7,8 @@
 //! - **Internal constraints**: [`UnitQuaternion`] (normalization)
 //! - **Assembly constraints**: [`Mate`], [`CoaxialAssembly`], [`Insert`], [`Gear`]
 
-pub mod entities;
 pub mod constraints;
+pub mod entities;
 
+pub use constraints::{CoaxialAssembly, Gear, Insert, Mate};
 pub use entities::{RigidBody, UnitQuaternion};
-pub use constraints::{Mate, CoaxialAssembly, Insert, Gear};

@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/misra1d.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Data for Misra1d problem: (x, y) pairs
 const DATA: [(f64, f64); 14] = [
@@ -32,14 +32,14 @@ const DATA: [(f64, f64); 14] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 2] = [
-    4.3736970754E+02,  // b1
-    3.0227324449E-04,  // b2
+    4.3736970754E+02, // b1
+    3.0227324449E-04, // b2
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 2] = [
-    3.6489174345E+00,  // b1
-    2.9334354479E-06,  // b2
+    3.6489174345E+00, // b1
+    2.9334354479E-06, // b2
 ];
 
 /// Certified residual sum of squares

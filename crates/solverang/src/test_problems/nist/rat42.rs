@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/rat42.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Data for Rat42 problem: (x, y) pairs
 const DATA: [(f64, f64); 9] = [
@@ -27,16 +27,16 @@ const DATA: [(f64, f64); 9] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 3] = [
-    7.2462237576E+01,   // b1
-    2.6180768402E+00,   // b2
-    6.7359200066E-02,   // b3
+    7.2462237576E+01, // b1
+    2.6180768402E+00, // b2
+    6.7359200066E-02, // b3
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 3] = [
-    1.7340283401E+00,   // b1
-    8.8295217536E-02,   // b2
-    3.4465663377E-03,   // b3
+    1.7340283401E+00, // b1
+    8.8295217536E-02, // b2
+    3.4465663377E-03, // b3
 ];
 
 /// Certified residual sum of squares

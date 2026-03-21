@@ -169,6 +169,40 @@ pub enum ConstraintOp {
         b: Reg,
     },
 
+    /// Exponential: dst = exp(src)
+    Exp {
+        /// Destination register.
+        dst: Reg,
+        /// Source register.
+        src: Reg,
+    },
+
+    /// Natural logarithm: dst = ln(src)
+    Ln {
+        /// Destination register.
+        dst: Reg,
+        /// Source register.
+        src: Reg,
+    },
+
+    /// Power: dst = base^exp
+    Pow {
+        /// Destination register.
+        dst: Reg,
+        /// Base register.
+        base: Reg,
+        /// Exponent register.
+        exp: Reg,
+    },
+
+    /// Tangent: dst = tan(src)
+    Tan {
+        /// Destination register.
+        dst: Reg,
+        /// Source register (angle in radians).
+        src: Reg,
+    },
+
     /// Store a residual value.
     ///
     /// Stores the value in register `src` to the residual array at index `residual_idx`.
@@ -216,11 +250,15 @@ impl ConstraintOp {
             | ConstraintOp::Max { a, b, .. }
             | ConstraintOp::Min { a, b, .. } => *a == reg || *b == reg,
             ConstraintOp::Atan2 { y, x, .. } => *y == reg || *x == reg,
+            ConstraintOp::Pow { base, exp, .. } => *base == reg || *exp == reg,
             ConstraintOp::Neg { src, .. }
             | ConstraintOp::Sqrt { src, .. }
             | ConstraintOp::Sin { src, .. }
             | ConstraintOp::Cos { src, .. }
-            | ConstraintOp::Abs { src, .. } => *src == reg,
+            | ConstraintOp::Abs { src, .. }
+            | ConstraintOp::Exp { src, .. }
+            | ConstraintOp::Ln { src, .. }
+            | ConstraintOp::Tan { src, .. } => *src == reg,
             ConstraintOp::StoreResidual { src, .. }
             | ConstraintOp::StoreJacobian { src, .. }
             | ConstraintOp::StoreJacobianIndexed { src, .. } => *src == reg,
@@ -243,7 +281,11 @@ impl ConstraintOp {
             | ConstraintOp::Atan2 { dst, .. }
             | ConstraintOp::Abs { dst, .. }
             | ConstraintOp::Max { dst, .. }
-            | ConstraintOp::Min { dst, .. } => *dst == reg,
+            | ConstraintOp::Min { dst, .. }
+            | ConstraintOp::Exp { dst, .. }
+            | ConstraintOp::Ln { dst, .. }
+            | ConstraintOp::Pow { dst, .. }
+            | ConstraintOp::Tan { dst, .. } => *dst == reg,
             ConstraintOp::StoreResidual { .. }
             | ConstraintOp::StoreJacobian { .. }
             | ConstraintOp::StoreJacobianIndexed { .. } => false,
@@ -383,10 +425,18 @@ impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ValidationError::ResidualIndexOutOfBounds { index, count } => {
-                write!(f, "residual index {} out of bounds (count: {})", index, count)
+                write!(
+                    f,
+                    "residual index {} out of bounds (count: {})",
+                    index, count
+                )
             }
             ValidationError::VariableIndexOutOfBounds { index, count } => {
-                write!(f, "variable index {} out of bounds (count: {})", index, count)
+                write!(
+                    f,
+                    "variable index {} out of bounds (count: {})",
+                    index, count
+                )
             }
             ValidationError::JacobianPatternMismatch { nnz, pattern_len } => {
                 write!(
@@ -470,7 +520,10 @@ mod tests {
         });
 
         let err = cc.validate().unwrap_err();
-        assert!(matches!(err, ValidationError::ResidualIndexOutOfBounds { .. }));
+        assert!(matches!(
+            err,
+            ValidationError::ResidualIndexOutOfBounds { .. }
+        ));
     }
 
     #[test]
@@ -482,6 +535,9 @@ mod tests {
         });
 
         let err = cc.validate().unwrap_err();
-        assert!(matches!(err, ValidationError::VariableIndexOutOfBounds { .. }));
+        assert!(matches!(
+            err,
+            ValidationError::VariableIndexOutOfBounds { .. }
+        ));
     }
 }

@@ -46,9 +46,7 @@ impl ConstraintGraph {
     /// already present. It does **not** add any constraint edges — those
     /// are created via [`add_constraint`](Self::add_constraint).
     pub fn add_entity(&mut self, entity: &dyn Entity) {
-        self.entity_to_constraints
-            .entry(entity.id())
-            .or_default();
+        self.entity_to_constraints.entry(entity.id()).or_default();
     }
 
     /// Add a constraint and wire up all its entity and parameter edges.
@@ -58,19 +56,13 @@ impl ConstraintGraph {
         // Wire entity <-> constraint edges.
         let entity_ids = constraint.entity_ids().to_vec();
         for &eid in &entity_ids {
-            self.entity_to_constraints
-                .entry(eid)
-                .or_default()
-                .push(idx);
+            self.entity_to_constraints.entry(eid).or_default().push(idx);
         }
         self.constraint_to_entities.insert(idx, entity_ids);
 
         // Wire param -> constraint index.
         for &pid in constraint.param_ids() {
-            self.param_to_constraints
-                .entry(pid)
-                .or_default()
-                .push(idx);
+            self.param_to_constraints.entry(pid).or_default().push(idx);
         }
     }
 

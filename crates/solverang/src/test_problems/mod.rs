@@ -42,34 +42,34 @@
 //! - MINPACK library: <https://github.com/fortran-lang/minpack>
 
 // Least-squares problems (from test_lmder.f90)
-mod rosenbrock;
-mod helical_valley;
-mod powell_singular;
-mod freudenstein_roth;
 mod bard;
-mod kowalik_osborne;
-mod meyer;
-mod watson;
 mod box3d;
-mod jennrich_sampson;
+mod brown_almost_linear;
 mod brown_dennis;
 mod chebyquad;
-mod brown_almost_linear;
-mod osborne1;
-mod osborne2;
+mod freudenstein_roth;
+mod helical_valley;
+mod jennrich_sampson;
+mod kowalik_osborne;
 mod linear_full_rank;
 mod linear_rank1;
 mod linear_rank1_zero_columns;
+mod meyer;
+mod osborne1;
+mod osborne2;
+mod powell_singular;
+mod rosenbrock;
+mod watson;
 
 // Nonlinear equation problems (from test_hybrj.f90)
-mod powell_badly_scaled;
-mod wood;
+mod broyden_banded;
+mod broyden_tridiagonal;
 mod discrete_boundary_value;
 mod discrete_integral_equation;
+mod powell_badly_scaled;
 mod trigonometric;
 mod variably_dimensioned;
-mod broyden_tridiagonal;
-mod broyden_banded;
+mod wood;
 
 // Test data module
 mod test_data;
@@ -79,34 +79,34 @@ mod test_data;
 pub mod nist;
 
 // Re-exports for least-squares problems
-pub use rosenbrock::Rosenbrock;
-pub use helical_valley::HelicalValley;
-pub use powell_singular::PowellSingular;
-pub use freudenstein_roth::FreudensteinRoth;
 pub use bard::Bard;
-pub use kowalik_osborne::KowalikOsborne;
-pub use meyer::Meyer;
-pub use watson::Watson;
 pub use box3d::Box3D;
-pub use jennrich_sampson::JennrichSampson;
+pub use brown_almost_linear::BrownAlmostLinear;
 pub use brown_dennis::BrownDennis;
 pub use chebyquad::Chebyquad;
-pub use brown_almost_linear::BrownAlmostLinear;
-pub use osborne1::Osborne1;
-pub use osborne2::Osborne2;
+pub use freudenstein_roth::FreudensteinRoth;
+pub use helical_valley::HelicalValley;
+pub use jennrich_sampson::JennrichSampson;
+pub use kowalik_osborne::KowalikOsborne;
 pub use linear_full_rank::LinearFullRank;
 pub use linear_rank1::LinearRank1;
 pub use linear_rank1_zero_columns::LinearRank1ZeroColumns;
+pub use meyer::Meyer;
+pub use osborne1::Osborne1;
+pub use osborne2::Osborne2;
+pub use powell_singular::PowellSingular;
+pub use rosenbrock::Rosenbrock;
+pub use watson::Watson;
 
 // Re-exports for nonlinear equation problems
-pub use powell_badly_scaled::PowellBadlyScaled;
-pub use wood::Wood;
+pub use broyden_banded::BroydenBanded;
+pub use broyden_tridiagonal::BroydenTridiagonal;
 pub use discrete_boundary_value::DiscreteBoundaryValue;
 pub use discrete_integral_equation::DiscreteIntegralEquation;
+pub use powell_badly_scaled::PowellBadlyScaled;
 pub use trigonometric::Trigonometric;
 pub use variably_dimensioned::VariablyDimensioned;
-pub use broyden_tridiagonal::BroydenTridiagonal;
-pub use broyden_banded::BroydenBanded;
+pub use wood::Wood;
 
 // Re-export test data
 pub use test_data::{
@@ -148,7 +148,7 @@ pub fn least_squares_problem(number: usize) -> Option<Box<dyn Problem>> {
 /// Returns None for invalid problem numbers.
 pub fn nonlinear_problem(number: usize) -> Option<Box<dyn Problem>> {
     match number {
-        1 => Some(Box::new(Rosenbrock)), // Same as MGH #4
+        1 => Some(Box::new(Rosenbrock)),     // Same as MGH #4
         2 => Some(Box::new(PowellSingular)), // Same as MGH #6
         3 => Some(Box::new(PowellBadlyScaled)),
         4 => Some(Box::new(Wood)),

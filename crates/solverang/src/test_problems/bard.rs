@@ -23,8 +23,7 @@ pub struct Bard;
 
 /// Observed data values for the Bard problem.
 const Y_DATA: [f64; 15] = [
-    0.14, 0.18, 0.22, 0.25, 0.29, 0.32, 0.35, 0.39,
-    0.37, 0.58, 0.73, 0.96, 1.34, 2.10, 4.39,
+    0.14, 0.18, 0.22, 0.25, 0.29, 0.32, 0.35, 0.39, 0.37, 0.58, 0.73, 0.96, 1.34, 2.10, 4.39,
 ];
 
 impl Problem for Bard {
@@ -113,7 +112,9 @@ mod tests {
         let solution = problem.known_solution().expect("should have solution");
 
         let norm = problem.residual_norm(&solution);
-        let expected = problem.expected_residual_norm().expect("should have expected norm");
+        let expected = problem
+            .expected_residual_norm()
+            .expect("should have expected norm");
 
         assert!(
             (norm - expected).abs() < 1e-6,

@@ -16,10 +16,10 @@
 //!   constraint has exactly one free parameter, its value can be computed
 //!   analytically and removed from the solve.
 
-pub mod substitute;
-pub mod merge;
 pub mod eliminate;
+pub mod merge;
+pub mod substitute;
 
-pub use substitute::{analyze_substitutions, is_trivially_satisfied, SubstitutionResult};
-pub use merge::{build_substitution_map, detect_merges, MergeResult, ParamMerge};
 pub use eliminate::{apply_eliminations, detect_trivial_eliminations, TrivialElimination};
+pub use merge::{build_substitution_map, detect_merges, MergeResult, ParamMerge};
+pub use substitute::{analyze_substitutions, is_trivially_satisfied, SubstitutionResult};

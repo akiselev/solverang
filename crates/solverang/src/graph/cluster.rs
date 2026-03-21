@@ -154,12 +154,7 @@ mod tests {
 
         store.fix(p1);
 
-        let c = RigidCluster::new(
-            ClusterId(0),
-            vec![0],
-            vec![p0, p1, p2],
-            vec![eid],
-        );
+        let c = RigidCluster::new(ClusterId(0), vec![0], vec![p0, p1, p2], vec![eid]);
         assert_eq!(c.free_param_count(&store), 2);
     }
 

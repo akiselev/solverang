@@ -366,12 +366,7 @@ mod tests {
             2
         }
         fn residuals(&self, x: &[f64]) -> Vec<f64> {
-            vec![
-                x[0] - 1.0,
-                x[1] - 2.0,
-                x[0] + x[1] - 3.0,
-                x[0] - x[1] + 1.0,
-            ]
+            vec![x[0] - 1.0, x[1] - 2.0, x[0] + x[1] - 3.0, x[0] - x[1] + 1.0]
         }
         fn jacobian(&self, _x: &[f64]) -> Vec<(usize, usize, f64)> {
             vec![

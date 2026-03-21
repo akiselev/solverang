@@ -12,8 +12,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/nelson.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Data for Nelson problem: (x1, x2, y) triplets
 /// NIST data format: log(y), x1, x2 - we store (x1, x2, y) where y is already transformed back
@@ -159,16 +159,16 @@ const DATA: [(f64, f64, f64); 128] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 3] = [
-    2.5906836021E+00,   // b1
-    5.6177717026E-09,   // b2
-    -5.7701013174E-02,  // b3
+    2.5906836021E+00,  // b1
+    5.6177717026E-09,  // b2
+    -5.7701013174E-02, // b3
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 3] = [
-    1.9149996413E-02,   // b1
-    6.1124096540E-09,   // b2
-    3.9572366543E-03,   // b3
+    1.9149996413E-02, // b1
+    6.1124096540E-09, // b2
+    3.9572366543E-03, // b3
 ];
 
 /// Certified residual sum of squares

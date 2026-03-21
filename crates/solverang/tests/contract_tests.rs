@@ -155,10 +155,7 @@ fn validate_constraint_contracts(
             violations.push(ContractViolation {
                 constraint_name: name.clone(),
                 contract: "jacobian_value_finite".into(),
-                detail: format!(
-                    "jacobian entry {} has value={} (not finite)",
-                    idx, val
-                ),
+                detail: format!("jacobian entry {} has value={} (not finite)", idx, val),
             });
         }
     }
@@ -257,10 +254,7 @@ fn validate_jacobian_accuracy(
 }
 
 /// Validates all contracts of an `Entity` implementation.
-fn validate_entity_contracts(
-    entity: &dyn Entity,
-    store: &ParamStore,
-) -> Vec<ContractViolation> {
+fn validate_entity_contracts(entity: &dyn Entity, store: &ParamStore) -> Vec<ContractViolation> {
     let mut violations = Vec::new();
     let name = entity.name().to_string();
 
@@ -1191,106 +1185,155 @@ mod sketch2d_constraint_contracts {
         // FD truncation error grows with scale (second-order effects).
         // Normal-scale tests do precise Jacobian verification; this test
         // ensures contracts hold at extreme magnitudes.
-        let large_eps = 1.0;  // ~1e-6 relative to 1e6 values
+        let large_eps = 1.0; // ~1e-6 relative to 1e6 values
         let large_tol = 1e-2;
 
         // DistancePtPt
-        let x1 = store.alloc(0.0, e0); let y1 = store.alloc(0.0, e0);
-        let x2 = store.alloc(3.0 * s, e1); let y2 = store.alloc(4.0 * s, e1);
+        let x1 = store.alloc(0.0, e0);
+        let y1 = store.alloc(0.0, e0);
+        let x2 = store.alloc(3.0 * s, e1);
+        let y2 = store.alloc(4.0 * s, e1);
         let c = DistancePtPt::new(cid(0), e0, e1, x1, y1, x2, y2, 5.0 * s);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // DistancePtLine
-        let px = store.alloc(5.0 * s, e0); let py = store.alloc(1.0 * s, e0);
-        let lx1 = store.alloc(0.0, e1); let ly1 = store.alloc(0.0, e1);
-        let lx2 = store.alloc(10.0 * s, e1); let ly2 = store.alloc(0.0, e1);
+        let px = store.alloc(5.0 * s, e0);
+        let py = store.alloc(1.0 * s, e0);
+        let lx1 = store.alloc(0.0, e1);
+        let ly1 = store.alloc(0.0, e1);
+        let lx2 = store.alloc(10.0 * s, e1);
+        let ly2 = store.alloc(0.0, e1);
         let c = DistancePtLine::new(cid(0), e0, e1, px, py, lx1, ly1, lx2, ly2, 1.0 * s);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // Coincident
-        let xa = store.alloc(1.0 * s, e0); let ya = store.alloc(2.0 * s, e0);
-        let xb = store.alloc(1.0 * s, e1); let yb = store.alloc(2.0 * s, e1);
+        let xa = store.alloc(1.0 * s, e0);
+        let ya = store.alloc(2.0 * s, e0);
+        let xb = store.alloc(1.0 * s, e1);
+        let yb = store.alloc(2.0 * s, e1);
         let c = Coincident::new(cid(0), e0, e1, xa, ya, xb, yb);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // TangentLineCircle
-        let tlx1 = store.alloc(-10.0 * s, e0); let tly1 = store.alloc(5.0 * s, e0);
-        let tlx2 = store.alloc(10.0 * s, e0); let tly2 = store.alloc(5.0 * s, e0);
-        let tcx = store.alloc(0.0, e1); let tcy = store.alloc(0.0, e1);
+        let tlx1 = store.alloc(-10.0 * s, e0);
+        let tly1 = store.alloc(5.0 * s, e0);
+        let tlx2 = store.alloc(10.0 * s, e0);
+        let tly2 = store.alloc(5.0 * s, e0);
+        let tcx = store.alloc(0.0, e1);
+        let tcy = store.alloc(0.0, e1);
         let tr = store.alloc(5.0 * s, e1);
         let c = TangentLineCircle::new(cid(0), e0, e1, tlx1, tly1, tlx2, tly2, tcx, tcy, tr);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // TangentCircleCircle (external)
-        let c1x = store.alloc(0.0, e0); let c1y = store.alloc(0.0, e0);
+        let c1x = store.alloc(0.0, e0);
+        let c1y = store.alloc(0.0, e0);
         let r1 = store.alloc(3.0 * s, e0);
-        let c2x = store.alloc(5.0 * s, e1); let c2y = store.alloc(0.0, e1);
+        let c2x = store.alloc(5.0 * s, e1);
+        let c2y = store.alloc(0.0, e1);
         let r2 = store.alloc(2.0 * s, e1);
         let c = TangentCircleCircle::external(cid(0), e0, e1, c1x, c1y, r1, c2x, c2y, r2);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // Parallel
-        let px1 = store.alloc(0.0, e0); let py1 = store.alloc(0.0, e0);
-        let px2 = store.alloc(1.0 * s, e0); let py2 = store.alloc(2.0 * s, e0);
-        let px3 = store.alloc(3.0 * s, e1); let py3 = store.alloc(1.0 * s, e1);
-        let px4 = store.alloc(5.0 * s, e1); let py4 = store.alloc(5.0 * s, e1);
+        let px1 = store.alloc(0.0, e0);
+        let py1 = store.alloc(0.0, e0);
+        let px2 = store.alloc(1.0 * s, e0);
+        let py2 = store.alloc(2.0 * s, e0);
+        let px3 = store.alloc(3.0 * s, e1);
+        let py3 = store.alloc(1.0 * s, e1);
+        let px4 = store.alloc(5.0 * s, e1);
+        let py4 = store.alloc(5.0 * s, e1);
         let c = Parallel::new(cid(0), e0, e1, px1, py1, px2, py2, px3, py3, px4, py4);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // Perpendicular
-        let qx1 = store.alloc(0.0, e0); let qy1 = store.alloc(0.0, e0);
-        let qx2 = store.alloc(1.0 * s, e0); let qy2 = store.alloc(0.0, e0);
-        let qx3 = store.alloc(0.0, e1); let qy3 = store.alloc(0.0, e1);
-        let qx4 = store.alloc(0.0, e1); let qy4 = store.alloc(1.0 * s, e1);
+        let qx1 = store.alloc(0.0, e0);
+        let qy1 = store.alloc(0.0, e0);
+        let qx2 = store.alloc(1.0 * s, e0);
+        let qy2 = store.alloc(0.0, e0);
+        let qx3 = store.alloc(0.0, e1);
+        let qy3 = store.alloc(0.0, e1);
+        let qx4 = store.alloc(0.0, e1);
+        let qy4 = store.alloc(1.0 * s, e1);
         let c = Perpendicular::new(cid(0), e0, e1, qx1, qy1, qx2, qy2, qx3, qy3, qx4, qy4);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // Angle
-        let ax1 = store.alloc(0.0, e0); let ay1 = store.alloc(0.0, e0);
-        let ax2 = store.alloc(1.0 * s, e0); let ay2 = store.alloc(1.0 * s, e0);
+        let ax1 = store.alloc(0.0, e0);
+        let ay1 = store.alloc(0.0, e0);
+        let ax2 = store.alloc(1.0 * s, e0);
+        let ay2 = store.alloc(1.0 * s, e0);
         let c = Angle::new(cid(0), e0, ax1, ay1, ax2, ay2, std::f64::consts::FRAC_PI_4);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // Horizontal
-        let hy1 = store.alloc(5.0 * s, e0); let hy2 = store.alloc(5.0 * s, e1);
+        let hy1 = store.alloc(5.0 * s, e0);
+        let hy2 = store.alloc(5.0 * s, e1);
         let c = Horizontal::new(cid(0), e0, e1, hy1, hy2);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // Vertical
-        let vx1 = store.alloc(7.0 * s, e0); let vx2 = store.alloc(7.0 * s, e1);
+        let vx1 = store.alloc(7.0 * s, e0);
+        let vx2 = store.alloc(7.0 * s, e1);
         let c = Vertical::new(cid(0), e0, e1, vx1, vx2);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // Fixed
-        let fx = store.alloc(1.0 * s, e0); let fy = store.alloc(2.0 * s, e0);
+        let fx = store.alloc(1.0 * s, e0);
+        let fy = store.alloc(2.0 * s, e0);
         let c = Fixed::new(cid(0), e0, fx, fy, 1.0 * s, 2.0 * s);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // Midpoint
-        let mmx = store.alloc(5.0 * s, e0); let mmy = store.alloc(3.0 * s, e0);
-        let ml1 = store.alloc(2.0 * s, e1); let ml2 = store.alloc(1.0 * s, e1);
-        let ml3 = store.alloc(8.0 * s, e1); let ml4 = store.alloc(5.0 * s, e1);
+        let mmx = store.alloc(5.0 * s, e0);
+        let mmy = store.alloc(3.0 * s, e0);
+        let ml1 = store.alloc(2.0 * s, e1);
+        let ml2 = store.alloc(1.0 * s, e1);
+        let ml3 = store.alloc(8.0 * s, e1);
+        let ml4 = store.alloc(5.0 * s, e1);
         let c = Midpoint::new(cid(0), e0, e1, mmx, mmy, ml1, ml2, ml3, ml4);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // Symmetric
-        let sx1 = store.alloc(1.0 * s, e0); let sy1 = store.alloc(2.0 * s, e0);
-        let sx2 = store.alloc(5.0 * s, e1); let sy2 = store.alloc(8.0 * s, e1);
-        let scx = store.alloc(3.0 * s, e2); let scy = store.alloc(5.0 * s, e2);
+        let sx1 = store.alloc(1.0 * s, e0);
+        let sy1 = store.alloc(2.0 * s, e0);
+        let sx2 = store.alloc(5.0 * s, e1);
+        let sy2 = store.alloc(8.0 * s, e1);
+        let scx = store.alloc(3.0 * s, e2);
+        let scy = store.alloc(5.0 * s, e2);
         let c = Symmetric::new(cid(0), e0, e1, e2, sx1, sy1, sx2, sy2, scx, scy);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // EqualLength
-        let elx1 = store.alloc(0.0, e0); let ely1 = store.alloc(0.0, e0);
-        let elx2 = store.alloc(3.0 * s, e0); let ely2 = store.alloc(4.0 * s, e0);
-        let elx3 = store.alloc(1.0 * s, e1); let ely3 = store.alloc(1.0 * s, e1);
-        let elx4 = store.alloc(4.0 * s, e1); let ely4 = store.alloc(5.0 * s, e1);
-        let c = EqualLength::new(cid(0), e0, e1, elx1, ely1, elx2, ely2, elx3, ely3, elx4, ely4);
+        let elx1 = store.alloc(0.0, e0);
+        let ely1 = store.alloc(0.0, e0);
+        let elx2 = store.alloc(3.0 * s, e0);
+        let ely2 = store.alloc(4.0 * s, e0);
+        let elx3 = store.alloc(1.0 * s, e1);
+        let ely3 = store.alloc(1.0 * s, e1);
+        let elx4 = store.alloc(4.0 * s, e1);
+        let ely4 = store.alloc(5.0 * s, e1);
+        let c = EqualLength::new(
+            cid(0),
+            e0,
+            e1,
+            elx1,
+            ely1,
+            elx2,
+            ely2,
+            elx3,
+            ely3,
+            elx4,
+            ely4,
+        );
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
 
         // PointOnCircle
-        let pocpx = store.alloc(3.0 * s, e0); let pocpy = store.alloc(4.0 * s, e0);
-        let poccx = store.alloc(0.0, e1); let poccy = store.alloc(0.0, e1);
+        let pocpx = store.alloc(3.0 * s, e0);
+        let pocpy = store.alloc(4.0 * s, e0);
+        let poccx = store.alloc(0.0, e1);
+        let poccy = store.alloc(0.0, e1);
         let pocr = store.alloc(5.0 * s, e1);
         let c = PointOnCircle::new(cid(0), e0, e1, pocpx, pocpy, poccx, poccy, pocr);
         assert_contracts_with_eps(&c, &store, large_eps, large_tol);
@@ -1311,102 +1354,151 @@ mod sketch2d_constraint_contracts {
         let tiny_tol = 1e-4;
 
         // DistancePtPt
-        let x1 = store.alloc(0.0, e0); let y1 = store.alloc(0.0, e0);
-        let x2 = store.alloc(3.0 * s, e1); let y2 = store.alloc(4.0 * s, e1);
+        let x1 = store.alloc(0.0, e0);
+        let y1 = store.alloc(0.0, e0);
+        let x2 = store.alloc(3.0 * s, e1);
+        let y2 = store.alloc(4.0 * s, e1);
         let c = DistancePtPt::new(cid(0), e0, e1, x1, y1, x2, y2, 5.0 * s);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // DistancePtLine
-        let px = store.alloc(5.0 * s, e0); let py = store.alloc(1.0 * s, e0);
-        let lx1 = store.alloc(0.0, e1); let ly1 = store.alloc(0.0, e1);
-        let lx2 = store.alloc(10.0 * s, e1); let ly2 = store.alloc(0.0, e1);
+        let px = store.alloc(5.0 * s, e0);
+        let py = store.alloc(1.0 * s, e0);
+        let lx1 = store.alloc(0.0, e1);
+        let ly1 = store.alloc(0.0, e1);
+        let lx2 = store.alloc(10.0 * s, e1);
+        let ly2 = store.alloc(0.0, e1);
         let c = DistancePtLine::new(cid(0), e0, e1, px, py, lx1, ly1, lx2, ly2, 1.0 * s);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // Coincident
-        let xa = store.alloc(1.0 * s, e0); let ya = store.alloc(2.0 * s, e0);
-        let xb = store.alloc(1.0 * s, e1); let yb = store.alloc(2.0 * s, e1);
+        let xa = store.alloc(1.0 * s, e0);
+        let ya = store.alloc(2.0 * s, e0);
+        let xb = store.alloc(1.0 * s, e1);
+        let yb = store.alloc(2.0 * s, e1);
         let c = Coincident::new(cid(0), e0, e1, xa, ya, xb, yb);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // TangentLineCircle
-        let tlx1 = store.alloc(-10.0 * s, e0); let tly1 = store.alloc(5.0 * s, e0);
-        let tlx2 = store.alloc(10.0 * s, e0); let tly2 = store.alloc(5.0 * s, e0);
-        let tcx = store.alloc(0.0, e1); let tcy = store.alloc(0.0, e1);
+        let tlx1 = store.alloc(-10.0 * s, e0);
+        let tly1 = store.alloc(5.0 * s, e0);
+        let tlx2 = store.alloc(10.0 * s, e0);
+        let tly2 = store.alloc(5.0 * s, e0);
+        let tcx = store.alloc(0.0, e1);
+        let tcy = store.alloc(0.0, e1);
         let tr = store.alloc(5.0 * s, e1);
         let c = TangentLineCircle::new(cid(0), e0, e1, tlx1, tly1, tlx2, tly2, tcx, tcy, tr);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // TangentCircleCircle (external)
-        let c1x = store.alloc(0.0, e0); let c1y = store.alloc(0.0, e0);
+        let c1x = store.alloc(0.0, e0);
+        let c1y = store.alloc(0.0, e0);
         let r1 = store.alloc(3.0 * s, e0);
-        let c2x = store.alloc(5.0 * s, e1); let c2y = store.alloc(0.0, e1);
+        let c2x = store.alloc(5.0 * s, e1);
+        let c2y = store.alloc(0.0, e1);
         let r2 = store.alloc(2.0 * s, e1);
         let c = TangentCircleCircle::external(cid(0), e0, e1, c1x, c1y, r1, c2x, c2y, r2);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // Parallel
-        let px1 = store.alloc(0.0, e0); let py1 = store.alloc(0.0, e0);
-        let px2 = store.alloc(1.0 * s, e0); let py2 = store.alloc(2.0 * s, e0);
-        let px3 = store.alloc(3.0 * s, e1); let py3 = store.alloc(1.0 * s, e1);
-        let px4 = store.alloc(5.0 * s, e1); let py4 = store.alloc(5.0 * s, e1);
+        let px1 = store.alloc(0.0, e0);
+        let py1 = store.alloc(0.0, e0);
+        let px2 = store.alloc(1.0 * s, e0);
+        let py2 = store.alloc(2.0 * s, e0);
+        let px3 = store.alloc(3.0 * s, e1);
+        let py3 = store.alloc(1.0 * s, e1);
+        let px4 = store.alloc(5.0 * s, e1);
+        let py4 = store.alloc(5.0 * s, e1);
         let c = Parallel::new(cid(0), e0, e1, px1, py1, px2, py2, px3, py3, px4, py4);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // Perpendicular
-        let qx1 = store.alloc(0.0, e0); let qy1 = store.alloc(0.0, e0);
-        let qx2 = store.alloc(1.0 * s, e0); let qy2 = store.alloc(0.0, e0);
-        let qx3 = store.alloc(0.0, e1); let qy3 = store.alloc(0.0, e1);
-        let qx4 = store.alloc(0.0, e1); let qy4 = store.alloc(1.0 * s, e1);
+        let qx1 = store.alloc(0.0, e0);
+        let qy1 = store.alloc(0.0, e0);
+        let qx2 = store.alloc(1.0 * s, e0);
+        let qy2 = store.alloc(0.0, e0);
+        let qx3 = store.alloc(0.0, e1);
+        let qy3 = store.alloc(0.0, e1);
+        let qx4 = store.alloc(0.0, e1);
+        let qy4 = store.alloc(1.0 * s, e1);
         let c = Perpendicular::new(cid(0), e0, e1, qx1, qy1, qx2, qy2, qx3, qy3, qx4, qy4);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // Angle
-        let ax1 = store.alloc(0.0, e0); let ay1 = store.alloc(0.0, e0);
-        let ax2 = store.alloc(1.0 * s, e0); let ay2 = store.alloc(1.0 * s, e0);
+        let ax1 = store.alloc(0.0, e0);
+        let ay1 = store.alloc(0.0, e0);
+        let ax2 = store.alloc(1.0 * s, e0);
+        let ay2 = store.alloc(1.0 * s, e0);
         let c = Angle::new(cid(0), e0, ax1, ay1, ax2, ay2, std::f64::consts::FRAC_PI_4);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // Horizontal
-        let hy1 = store.alloc(5.0 * s, e0); let hy2 = store.alloc(5.0 * s, e1);
+        let hy1 = store.alloc(5.0 * s, e0);
+        let hy2 = store.alloc(5.0 * s, e1);
         let c = Horizontal::new(cid(0), e0, e1, hy1, hy2);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // Vertical
-        let vx1 = store.alloc(7.0 * s, e0); let vx2 = store.alloc(7.0 * s, e1);
+        let vx1 = store.alloc(7.0 * s, e0);
+        let vx2 = store.alloc(7.0 * s, e1);
         let c = Vertical::new(cid(0), e0, e1, vx1, vx2);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // Fixed
-        let fx = store.alloc(1.0 * s, e0); let fy = store.alloc(2.0 * s, e0);
+        let fx = store.alloc(1.0 * s, e0);
+        let fy = store.alloc(2.0 * s, e0);
         let c = Fixed::new(cid(0), e0, fx, fy, 1.0 * s, 2.0 * s);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // Midpoint
-        let mmx = store.alloc(5.0 * s, e0); let mmy = store.alloc(3.0 * s, e0);
-        let ml1 = store.alloc(2.0 * s, e1); let ml2 = store.alloc(1.0 * s, e1);
-        let ml3 = store.alloc(8.0 * s, e1); let ml4 = store.alloc(5.0 * s, e1);
+        let mmx = store.alloc(5.0 * s, e0);
+        let mmy = store.alloc(3.0 * s, e0);
+        let ml1 = store.alloc(2.0 * s, e1);
+        let ml2 = store.alloc(1.0 * s, e1);
+        let ml3 = store.alloc(8.0 * s, e1);
+        let ml4 = store.alloc(5.0 * s, e1);
         let c = Midpoint::new(cid(0), e0, e1, mmx, mmy, ml1, ml2, ml3, ml4);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // Symmetric
-        let sx1 = store.alloc(1.0 * s, e0); let sy1 = store.alloc(2.0 * s, e0);
-        let sx2 = store.alloc(5.0 * s, e1); let sy2 = store.alloc(8.0 * s, e1);
-        let scx = store.alloc(3.0 * s, e2); let scy = store.alloc(5.0 * s, e2);
+        let sx1 = store.alloc(1.0 * s, e0);
+        let sy1 = store.alloc(2.0 * s, e0);
+        let sx2 = store.alloc(5.0 * s, e1);
+        let sy2 = store.alloc(8.0 * s, e1);
+        let scx = store.alloc(3.0 * s, e2);
+        let scy = store.alloc(5.0 * s, e2);
         let c = Symmetric::new(cid(0), e0, e1, e2, sx1, sy1, sx2, sy2, scx, scy);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // EqualLength
-        let elx1 = store.alloc(0.0, e0); let ely1 = store.alloc(0.0, e0);
-        let elx2 = store.alloc(3.0 * s, e0); let ely2 = store.alloc(4.0 * s, e0);
-        let elx3 = store.alloc(1.0 * s, e1); let ely3 = store.alloc(1.0 * s, e1);
-        let elx4 = store.alloc(4.0 * s, e1); let ely4 = store.alloc(5.0 * s, e1);
-        let c = EqualLength::new(cid(0), e0, e1, elx1, ely1, elx2, ely2, elx3, ely3, elx4, ely4);
+        let elx1 = store.alloc(0.0, e0);
+        let ely1 = store.alloc(0.0, e0);
+        let elx2 = store.alloc(3.0 * s, e0);
+        let ely2 = store.alloc(4.0 * s, e0);
+        let elx3 = store.alloc(1.0 * s, e1);
+        let ely3 = store.alloc(1.0 * s, e1);
+        let elx4 = store.alloc(4.0 * s, e1);
+        let ely4 = store.alloc(5.0 * s, e1);
+        let c = EqualLength::new(
+            cid(0),
+            e0,
+            e1,
+            elx1,
+            ely1,
+            elx2,
+            ely2,
+            elx3,
+            ely3,
+            elx4,
+            ely4,
+        );
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
 
         // PointOnCircle
-        let pocpx = store.alloc(3.0 * s, e0); let pocpy = store.alloc(4.0 * s, e0);
-        let poccx = store.alloc(0.0, e1); let poccy = store.alloc(0.0, e1);
+        let pocpx = store.alloc(3.0 * s, e0);
+        let pocpy = store.alloc(4.0 * s, e0);
+        let poccx = store.alloc(0.0, e1);
+        let poccy = store.alloc(0.0, e1);
         let pocr = store.alloc(5.0 * s, e1);
         let c = PointOnCircle::new(cid(0), e0, e1, pocpx, pocpy, poccx, poccy, pocr);
         assert_contracts_with_eps(&c, &store, tiny_eps, tiny_tol);
@@ -1606,7 +1698,14 @@ mod sketch3d_constraint_contracts {
         let pz2 = store.alloc(0.0, pe2);
 
         let c = Coplanar::new(
-            cid(0), ple, p0x, p0y, p0z, nx, ny, nz,
+            cid(0),
+            ple,
+            p0x,
+            p0y,
+            p0z,
+            nx,
+            ny,
+            nz,
             &[(pe1, px1, py1, pz1), (pe2, px2, py2, pz2)],
         );
         assert_constraint_contracts(&c, &store);
@@ -1629,7 +1728,14 @@ mod sketch3d_constraint_contracts {
         let pz1 = store.alloc(0.5, pe1);
 
         let c = Coplanar::new(
-            cid(0), ple, p0x, p0y, p0z, nx, ny, nz,
+            cid(0),
+            ple,
+            p0x,
+            p0y,
+            p0z,
+            nx,
+            ny,
+            nz,
             &[(pe1, px1, py1, pz1)],
         );
         assert_constraint_contracts(&c, &store);
@@ -1657,8 +1763,21 @@ mod sketch3d_constraint_contracts {
         let l2_z2 = store.alloc(0.0, e2);
 
         let c = Parallel3D::new(
-            cid(0), e1, l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2,
-            e2, l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
+            cid(0),
+            e1,
+            l1_x1,
+            l1_y1,
+            l1_z1,
+            l1_x2,
+            l1_y2,
+            l1_z2,
+            e2,
+            l2_x1,
+            l2_y1,
+            l2_z1,
+            l2_x2,
+            l2_y2,
+            l2_z2,
         );
         assert_constraint_contracts(&c, &store);
         assert_constraint_satisfied(&c, &store, 1e-14);
@@ -1683,8 +1802,21 @@ mod sketch3d_constraint_contracts {
         let l2_z2 = store.alloc(0.7, e2);
 
         let c = Parallel3D::new(
-            cid(0), e1, l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2,
-            e2, l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
+            cid(0),
+            e1,
+            l1_x1,
+            l1_y1,
+            l1_z1,
+            l1_x2,
+            l1_y2,
+            l1_z2,
+            e2,
+            l2_x1,
+            l2_y1,
+            l2_z1,
+            l2_x2,
+            l2_y2,
+            l2_z2,
         );
         assert_constraint_contracts(&c, &store);
     }
@@ -1711,8 +1843,21 @@ mod sketch3d_constraint_contracts {
         let l2_z2 = store.alloc(0.0, e2);
 
         let c = Perpendicular3D::new(
-            cid(0), e1, l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2,
-            e2, l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
+            cid(0),
+            e1,
+            l1_x1,
+            l1_y1,
+            l1_z1,
+            l1_x2,
+            l1_y2,
+            l1_z2,
+            e2,
+            l2_x1,
+            l2_y1,
+            l2_z1,
+            l2_x2,
+            l2_y2,
+            l2_z2,
         );
         assert_constraint_contracts(&c, &store);
         assert_constraint_satisfied(&c, &store, 1e-14);
@@ -1737,8 +1882,21 @@ mod sketch3d_constraint_contracts {
         let l2_z2 = store.alloc(0.5, e2);
 
         let c = Perpendicular3D::new(
-            cid(0), e1, l1_x1, l1_y1, l1_z1, l1_x2, l1_y2, l1_z2,
-            e2, l2_x1, l2_y1, l2_z1, l2_x2, l2_y2, l2_z2,
+            cid(0),
+            e1,
+            l1_x1,
+            l1_y1,
+            l1_z1,
+            l1_x2,
+            l1_y2,
+            l1_z2,
+            e2,
+            l2_x1,
+            l2_y1,
+            l2_z1,
+            l2_x2,
+            l2_y2,
+            l2_z2,
         );
         assert_constraint_contracts(&c, &store);
     }
@@ -1765,8 +1923,21 @@ mod sketch3d_constraint_contracts {
         let d2z = store.alloc(0.0, e2);
 
         let c = Coaxial::new(
-            cid(0), e1, p1x, p1y, p1z, d1x, d1y, d1z,
-            e2, p2x, p2y, p2z, d2x, d2y, d2z,
+            cid(0),
+            e1,
+            p1x,
+            p1y,
+            p1z,
+            d1x,
+            d1y,
+            d1z,
+            e2,
+            p2x,
+            p2y,
+            p2z,
+            d2x,
+            d2y,
+            d2z,
         );
         assert_constraint_contracts(&c, &store);
         assert_constraint_satisfied(&c, &store, 1e-14);
@@ -1791,8 +1962,21 @@ mod sketch3d_constraint_contracts {
         let d2z = store.alloc(0.7, e2);
 
         let c = Coaxial::new(
-            cid(0), e1, p1x, p1y, p1z, d1x, d1y, d1z,
-            e2, p2x, p2y, p2z, d2x, d2y, d2z,
+            cid(0),
+            e1,
+            p1x,
+            p1y,
+            p1z,
+            d1x,
+            d1y,
+            d1z,
+            e2,
+            p2x,
+            p2y,
+            p2z,
+            d2x,
+            d2y,
+            d2z,
         );
         assert_constraint_contracts(&c, &store);
     }
@@ -1810,7 +1994,15 @@ mod assembly_constraint_contracts {
         store: &mut ParamStore,
         entity: EntityId,
         pos: [f64; 3],
-    ) -> (ParamId, ParamId, ParamId, ParamId, ParamId, ParamId, ParamId) {
+    ) -> (
+        ParamId,
+        ParamId,
+        ParamId,
+        ParamId,
+        ParamId,
+        ParamId,
+        ParamId,
+    ) {
         let tx = store.alloc(pos[0], entity);
         let ty = store.alloc(pos[1], entity);
         let tz = store.alloc(pos[2], entity);
@@ -1879,9 +2071,24 @@ mod assembly_constraint_contracts {
             make_body(&mut store, e2, [0.0, 0.0, 0.0]);
 
         let c = Mate::new(
-            cid(0), e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
+            cid(0),
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
             [1.0, 0.0, 0.0],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
             [1.0, 0.0, 0.0],
         );
         assert_constraint_contracts(&c, &store);
@@ -1899,9 +2106,24 @@ mod assembly_constraint_contracts {
             make_body(&mut store, e2, [10.0, 0.0, 0.0]);
 
         let c = Mate::new(
-            cid(0), e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
+            cid(0),
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
             [5.0, 0.0, 0.0],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
             [-5.0, 0.0, 0.0],
         );
         assert_constraint_contracts(&c, &store);
@@ -1925,9 +2147,24 @@ mod assembly_constraint_contracts {
         let b2_qz = store.alloc(0.0 / norm, e2);
 
         let c = Mate::new(
-            cid(0), e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
+            cid(0),
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
             [1.0, 0.5, -0.3],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
             [-0.5, 1.0, 0.2],
         );
         assert_constraint_contracts(&c, &store);
@@ -1946,10 +2183,27 @@ mod assembly_constraint_contracts {
             make_body(&mut store, e2, [0.0, 0.0, 5.0]);
 
         let c = CoaxialAssembly::new(
-            cid(0), e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
+            cid(0),
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
         );
         assert_constraint_contracts(&c, &store);
         assert_constraint_satisfied(&c, &store, 1e-10);
@@ -1972,10 +2226,27 @@ mod assembly_constraint_contracts {
         let b2_qz = store.alloc(0.3 / norm, e2);
 
         let c = CoaxialAssembly::new(
-            cid(0), e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
-            [0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
+            cid(0),
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
         );
         assert_constraint_contracts(&c, &store);
     }
@@ -1993,10 +2264,27 @@ mod assembly_constraint_contracts {
             make_body(&mut store, e2, [0.0, 0.0, 0.0]);
 
         let c = Insert::new(
-            cid(0), e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
+            cid(0),
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
             0.0,
         );
         assert_constraint_contracts(&c, &store);
@@ -2014,10 +2302,27 @@ mod assembly_constraint_contracts {
             make_body(&mut store, e2, [4.0, 5.0, 6.0]);
 
         let c = Insert::new(
-            cid(0), e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
+            cid(0),
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
             2.0,
         );
         assert_constraint_contracts(&c, &store);
@@ -2040,8 +2345,19 @@ mod assembly_constraint_contracts {
         let b2_qz = store.alloc(0.0, e2);
 
         let c = Gear::new(
-            cid(0), e1, b1_qw, b1_qx, b1_qy, b1_qz, [0.0, 0.0, 1.0],
-            e2, b2_qw, b2_qx, b2_qy, b2_qz, [0.0, 0.0, 1.0],
+            cid(0),
+            e1,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 1.0],
             2.0,
         );
         assert_constraint_contracts(&c, &store);
@@ -2066,8 +2382,19 @@ mod assembly_constraint_contracts {
         let b2_qz = store.alloc((theta2 / 2.0).sin(), e2);
 
         let c = Gear::new(
-            cid(0), e1, b1_qw, b1_qx, b1_qy, b1_qz, [0.0, 0.0, 1.0],
-            e2, b2_qw, b2_qx, b2_qy, b2_qz, [0.0, 0.0, 1.0],
+            cid(0),
+            e1,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 1.0],
             2.0,
         );
         assert_constraint_contracts(&c, &store);
@@ -2091,8 +2418,19 @@ mod assembly_constraint_contracts {
         let b2_qz = store.alloc((theta2 / 2.0).sin(), e2);
 
         let c = Gear::new(
-            cid(0), e1, b1_qw, b1_qx, b1_qy, b1_qz, [0.0, 0.0, 1.0],
-            e2, b2_qw, b2_qx, b2_qy, b2_qz, [0.0, 0.0, 1.0],
+            cid(0),
+            e1,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 1.0],
             2.0,
         );
         assert_constraint_contracts(&c, &store);
@@ -2105,9 +2443,9 @@ mod assembly_constraint_contracts {
 
 mod cross_module_tests {
     use super::*;
+    use solverang::assembly::*;
     use solverang::sketch2d::*;
     use solverang::sketch3d::*;
-    use solverang::assembly::*;
 
     /// Verify that the Constraint trait's default methods work correctly.
     #[test]
@@ -2175,8 +2513,7 @@ mod cross_module_tests {
             .chain(pt1.params().iter())
             .copied()
             .collect();
-        let constraint_params: HashSet<ParamId> =
-            c.param_ids().iter().copied().collect();
+        let constraint_params: HashSet<ParamId> = c.param_ids().iter().copied().collect();
 
         assert!(
             constraint_params.is_subset(&entity_params),
@@ -2207,7 +2544,18 @@ mod cross_module_tests {
         let y2_3d = store3d.alloc(4.0, e1);
         let z2_3d = store3d.alloc(0.0, e1); // z=0 => 2D equivalent
 
-        let c3d = Distance3D::new(cid(0), e0, x1_3d, y1_3d, z1_3d, e1, x2_3d, y2_3d, z2_3d, 5.0);
+        let c3d = Distance3D::new(
+            cid(0),
+            e0,
+            x1_3d,
+            y1_3d,
+            z1_3d,
+            e1,
+            x2_3d,
+            y2_3d,
+            z2_3d,
+            5.0,
+        );
 
         let r2d = c2d.residuals(&store2d);
         let r3d = c3d.residuals(&store3d);
@@ -2249,9 +2597,24 @@ mod cross_module_tests {
 
         // Mate between the bodies
         let mate = Mate::new(
-            cid(2), e1, tx1, ty1, tz1, qw1, qx1, qy1, qz1,
+            cid(2),
+            e1,
+            tx1,
+            ty1,
+            tz1,
+            qw1,
+            qx1,
+            qy1,
+            qz1,
             [5.0, 0.0, 0.0],
-            e2, tx2, ty2, tz2, qw2, qx2, qy2, qz2,
+            e2,
+            tx2,
+            ty2,
+            tz2,
+            qw2,
+            qx2,
+            qy2,
+            qz2,
             [-5.0, 0.0, 0.0],
         );
 

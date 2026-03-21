@@ -24,20 +24,33 @@ struct TestCtx {
 
 impl TestCtx {
     fn new() -> Self {
-        Self { sys: ConstraintSystem::new() }
+        Self {
+            sys: ConstraintSystem::new(),
+        }
     }
-    fn entity(&mut self) -> EntityId { self.sys.alloc_entity_id() }
-    fn cid(&mut self) -> ConstraintId { self.sys.alloc_constraint_id() }
+    fn entity(&mut self) -> EntityId {
+        self.sys.alloc_entity_id()
+    }
+    fn cid(&mut self) -> ConstraintId {
+        self.sys.alloc_constraint_id()
+    }
     fn alloc(&mut self, value: f64, owner: EntityId) -> ParamId {
         self.sys.alloc_param(value, owner)
     }
-    fn store(&self) -> ParamStore { self.sys.params().clone() }
+    fn store(&self) -> ParamStore {
+        self.sys.params().clone()
+    }
 }
 
 /// Allocate a rigid body (translation + unit quaternion) and return all 7 param IDs.
 struct BodyParams {
-    tx: ParamId, ty: ParamId, tz: ParamId,
-    qw: ParamId, qx: ParamId, qy: ParamId, qz: ParamId,
+    tx: ParamId,
+    ty: ParamId,
+    tz: ParamId,
+    qw: ParamId,
+    qx: ParamId,
+    qy: ParamId,
+    qz: ParamId,
 }
 
 fn alloc_body(ctx: &mut TestCtx, entity: EntityId, pos: [f64; 3], quat: [f64; 4]) -> BodyParams {
@@ -48,38 +61,53 @@ fn alloc_body(ctx: &mut TestCtx, entity: EntityId, pos: [f64; 3], quat: [f64; 4]
     let qx = ctx.alloc(quat[1], entity);
     let qy = ctx.alloc(quat[2], entity);
     let qz = ctx.alloc(quat[3], entity);
-    BodyParams { tx, ty, tz, qw, qx, qy, qz }
+    BodyParams {
+        tx,
+        ty,
+        tz,
+        qw,
+        qx,
+        qy,
+        qz,
+    }
 }
 
 // =============================================================================
 // Proptest strategies
 // =============================================================================
 
-fn coord() -> impl Strategy<Value = f64> { -50.0f64..50.0 }
+fn coord() -> impl Strategy<Value = f64> {
+    -50.0f64..50.0
+}
 
 /// Generate a unit quaternion from axis-angle representation.
 fn unit_quat() -> impl Strategy<Value = [f64; 4]> {
     (
-        0.01f64..std::f64::consts::PI - 0.01,  // theta (polar)
-        0.0f64..std::f64::consts::TAU,           // phi (azimuthal)
-        0.0f64..std::f64::consts::TAU,           // rotation angle
-    ).prop_map(|(theta, phi, angle)| {
-        // axis
-        let ax = theta.sin() * phi.cos();
-        let ay = theta.sin() * phi.sin();
-        let az = theta.cos();
-        // quaternion from axis-angle
-        let half = angle / 2.0;
-        let s = half.sin();
-        [half.cos(), ax * s, ay * s, az * s]
-    })
+        0.01f64..std::f64::consts::PI - 0.01, // theta (polar)
+        0.0f64..std::f64::consts::TAU,        // phi (azimuthal)
+        0.0f64..std::f64::consts::TAU,        // rotation angle
+    )
+        .prop_map(|(theta, phi, angle)| {
+            // axis
+            let ax = theta.sin() * phi.cos();
+            let ay = theta.sin() * phi.sin();
+            let az = theta.cos();
+            // quaternion from axis-angle
+            let half = angle / 2.0;
+            let s = half.sin();
+            [half.cos(), ax * s, ay * s, az * s]
+        })
 }
 
 /// Generate an identity quaternion (useful for known-satisfied configurations).
-fn identity_quat() -> [f64; 4] { [1.0, 0.0, 0.0, 0.0] }
+fn identity_quat() -> [f64; 4] {
+    [1.0, 0.0, 0.0, 0.0]
+}
 
 /// Small local coordinate offset.
-fn local_coord() -> impl Strategy<Value = f64> { -5.0f64..5.0 }
+fn local_coord() -> impl Strategy<Value = f64> {
+    -5.0f64..5.0
+}
 
 /// Small local point.
 fn local_point() -> impl Strategy<Value = [f64; 3]> {

@@ -27,7 +27,10 @@ impl Watson {
     ///
     /// n must be between 2 and 31 (inclusive).
     pub fn new(n: usize) -> Self {
-        assert!((2..=31).contains(&n), "Watson problem requires 2 <= n <= 31");
+        assert!(
+            (2..=31).contains(&n),
+            "Watson problem requires 2 <= n <= 31"
+        );
         Self { n }
     }
 }
@@ -108,11 +111,7 @@ impl Problem for Watson {
             for k in 1..=self.n {
                 let k_f = k as f64;
                 // dF_i/dx_k = (k-1)*t_i^{k-2} - 2*sum2*t_i^{k-1}
-                let dk = if k >= 2 {
-                    (k_f - 1.0) * temp / ti
-                } else {
-                    0.0
-                };
+                let dk = if k >= 2 { (k_f - 1.0) * temp / ti } else { 0.0 };
                 let jac_val = dk - 2.0 * sum2 * temp;
                 entries.push((i - 1, k - 1, jac_val));
                 temp *= ti;

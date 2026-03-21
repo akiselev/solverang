@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/chwirut2.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Data for Chwirut2 problem: (x, y) pairs
 /// From NIST data file (y, x columns) converted to (x, y).
@@ -73,16 +73,16 @@ const DATA: [(f64, f64); 54] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 3] = [
-    1.6657666537E-01,  // b1
-    5.1653291286E-03,  // b2
-    1.2150007096E-02,  // b3
+    1.6657666537E-01, // b1
+    5.1653291286E-03, // b2
+    1.2150007096E-02, // b3
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 3] = [
-    3.8303286810E-02,  // b1
-    6.6621605126E-04,  // b2
-    1.5304234767E-03,  // b3
+    3.8303286810E-02, // b1
+    6.6621605126E-04, // b2
+    1.5304234767E-03, // b3
 ];
 
 /// Certified residual sum of squares

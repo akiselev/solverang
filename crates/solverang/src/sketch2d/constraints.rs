@@ -526,11 +526,7 @@ impl Constraint for TangentCircleCircle {
         let r1v = store.get(self.r1);
         let r2v = store.get(self.r2);
         let dist_sq = dcx * dcx + dcy * dcy;
-        let rsum = if self.external {
-            r1v + r2v
-        } else {
-            r1v - r2v
-        };
+        let rsum = if self.external { r1v + r2v } else { r1v - r2v };
         vec![dist_sq - rsum * rsum]
     }
 
@@ -539,11 +535,7 @@ impl Constraint for TangentCircleCircle {
         let dcy = store.get(self.cy2) - store.get(self.cy1);
         let r1v = store.get(self.r1);
         let r2v = store.get(self.r2);
-        let rsum = if self.external {
-            r1v + r2v
-        } else {
-            r1v - r2v
-        };
+        let rsum = if self.external { r1v + r2v } else { r1v - r2v };
 
         let dr_dr2 = if self.external {
             -2.0 * rsum
@@ -861,13 +853,7 @@ pub struct Horizontal {
 }
 
 impl Horizontal {
-    pub fn new(
-        id: ConstraintId,
-        e1: EntityId,
-        e2: EntityId,
-        y1: ParamId,
-        y2: ParamId,
-    ) -> Self {
+    pub fn new(id: ConstraintId, e1: EntityId, e2: EntityId, y1: ParamId, y2: ParamId) -> Self {
         Self {
             id,
             entities: [e1, e2],
@@ -921,13 +907,7 @@ pub struct Vertical {
 }
 
 impl Vertical {
-    pub fn new(
-        id: ConstraintId,
-        e1: EntityId,
-        e2: EntityId,
-        x1: ParamId,
-        x2: ParamId,
-    ) -> Self {
+    pub fn new(id: ConstraintId, e1: EntityId, e2: EntityId, x1: ParamId, x2: ParamId) -> Self {
         Self {
             id,
             entities: [e1, e2],
@@ -1021,10 +1001,7 @@ impl Constraint for Fixed {
     }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
-        vec![
-            store.get(self.x) - self.tx,
-            store.get(self.y) - self.ty,
-        ]
+        vec![store.get(self.x) - self.tx, store.get(self.y) - self.ty]
     }
 
     fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
@@ -1099,10 +1076,7 @@ impl Constraint for Midpoint {
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
         let mid_x = (store.get(self.x1) + store.get(self.x2)) * 0.5;
         let mid_y = (store.get(self.y1) + store.get(self.y2)) * 0.5;
-        vec![
-            store.get(self.mx) - mid_x,
-            store.get(self.my) - mid_y,
-        ]
+        vec![store.get(self.mx) - mid_x, store.get(self.my) - mid_y]
     }
 
     fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
@@ -1381,6 +1355,167 @@ impl Constraint for PointOnCircle {
 }
 
 // ===========================================================================
+// EqualRadius
+// ===========================================================================
+
+/// Equal radius: r1 - r2 = 0 (1 equation, constant Jacobian)
+#[derive(Debug)]
+pub struct EqualRadius {
+    id: ConstraintId,
+    entities: [EntityId; 2],
+    r1: ParamId,
+    r2: ParamId,
+    params: [ParamId; 2],
+}
+
+impl EqualRadius {
+    /// Create an equal-radius constraint between two circular entities.
+    pub fn new(
+        id: ConstraintId,
+        e1: EntityId,
+        r1: ParamId,
+        e2: EntityId,
+        r2: ParamId,
+    ) -> Self {
+        Self {
+            id,
+            entities: [e1, e2],
+            r1,
+            r2,
+            params: [r1, r2],
+        }
+    }
+}
+
+impl Constraint for EqualRadius {
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+
+    fn name(&self) -> &str {
+        "EqualRadius"
+    }
+
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+
+    fn equation_count(&self) -> usize {
+        1
+    }
+
+    fn residuals(&self, store: &ParamStore) -> Vec<f64> {
+        vec![store.get(self.r1) - store.get(self.r2)]
+    }
+
+    fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
+        vec![
+            (0, self.r1, 1.0),
+            (0, self.r2, -1.0),
+        ]
+    }
+}
+
+// ===========================================================================
+// Collinear
+// ===========================================================================
+
+/// Collinear: (x2-x1)*(y3-y1) - (y2-y1)*(x3-x1) = 0 (1 equation)
+#[derive(Debug)]
+pub struct Collinear {
+    id: ConstraintId,
+    entities: [EntityId; 3],
+    x1: ParamId,
+    y1: ParamId,
+    x2: ParamId,
+    y2: ParamId,
+    x3: ParamId,
+    y3: ParamId,
+    params: [ParamId; 6],
+}
+
+impl Collinear {
+    /// Create a collinearity constraint on three points.
+    pub fn new(
+        id: ConstraintId,
+        e1: EntityId,
+        x1: ParamId,
+        y1: ParamId,
+        e2: EntityId,
+        x2: ParamId,
+        y2: ParamId,
+        e3: EntityId,
+        x3: ParamId,
+        y3: ParamId,
+    ) -> Self {
+        Self {
+            id,
+            entities: [e1, e2, e3],
+            x1,
+            y1,
+            x2,
+            y2,
+            x3,
+            y3,
+            params: [x1, y1, x2, y2, x3, y3],
+        }
+    }
+}
+
+impl Constraint for Collinear {
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+
+    fn name(&self) -> &str {
+        "Collinear"
+    }
+
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+
+    fn equation_count(&self) -> usize {
+        1
+    }
+
+    fn residuals(&self, store: &ParamStore) -> Vec<f64> {
+        let x1 = store.get(self.x1);
+        let y1 = store.get(self.y1);
+        let x2 = store.get(self.x2);
+        let y2 = store.get(self.y2);
+        let x3 = store.get(self.x3);
+        let y3 = store.get(self.y3);
+        vec![(x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1)]
+    }
+
+    fn jacobian(&self, store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
+        let x1 = store.get(self.x1);
+        let y1 = store.get(self.y1);
+        let x2 = store.get(self.x2);
+        let y2 = store.get(self.y2);
+        let x3 = store.get(self.x3);
+        let y3 = store.get(self.y3);
+        vec![
+            (0, self.x1, (y2 - y1) - (y3 - y1)),
+            (0, self.y1, (x3 - x1) - (x2 - x1)),
+            (0, self.x2, y3 - y1),
+            (0, self.y2, -(x3 - x1)),
+            (0, self.x3, -(y2 - y1)),
+            (0, self.y3, x2 - x1),
+        ]
+    }
+}
+
+// ===========================================================================
 // Tests
 // ===========================================================================
 
@@ -1456,7 +1591,11 @@ mod tests {
 
         let c = DistancePtPt::new(cid(0), e0, e1, x1, y1, x2, y2, 5.0);
         let r = c.residuals(&store);
-        assert!(r[0].abs() < 1e-12, "residual should be ~0 for d=5, got {}", r[0]);
+        assert!(
+            r[0].abs() < 1e-12,
+            "residual should be ~0 for d=5, got {}",
+            r[0]
+        );
     }
 
     #[test]
@@ -2043,18 +2182,9 @@ mod tests {
             Coincident::new(cid(0), e, e2, a, b, c, d).equation_count(),
             2
         );
-        assert_eq!(
-            Horizontal::new(cid(0), e, e2, a, b).equation_count(),
-            1
-        );
-        assert_eq!(
-            Vertical::new(cid(0), e, e2, a, b).equation_count(),
-            1
-        );
-        assert_eq!(
-            Fixed::new(cid(0), e, a, b, 0.0, 0.0).equation_count(),
-            2
-        );
+        assert_eq!(Horizontal::new(cid(0), e, e2, a, b).equation_count(), 1);
+        assert_eq!(Vertical::new(cid(0), e, e2, a, b).equation_count(), 1);
+        assert_eq!(Fixed::new(cid(0), e, a, b, 0.0, 0.0).equation_count(), 2);
     }
 
     #[test]

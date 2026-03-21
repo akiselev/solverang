@@ -25,7 +25,10 @@ pub struct LinearRank1ZeroColumns {
 impl LinearRank1ZeroColumns {
     /// Create a new LinearRank1ZeroColumns problem with specified dimensions.
     pub fn new(n: usize, m: usize) -> Self {
-        assert!(m >= n && n >= 2, "LinearRank1ZeroColumns requires m >= n >= 2");
+        assert!(
+            m >= n && n >= 2,
+            "LinearRank1ZeroColumns requires m >= n >= 2"
+        );
         Self { n, m }
     }
 }
@@ -53,7 +56,8 @@ impl Problem for LinearRank1ZeroColumns {
         debug_assert_eq!(x.len(), self.n);
 
         // Compute sum_{j=2}^{n-1} j*x_j  (excluding first and last variables)
-        let sum: f64 = x.iter()
+        let sum: f64 = x
+            .iter()
             .enumerate()
             .skip(1)
             .take(self.n - 2)

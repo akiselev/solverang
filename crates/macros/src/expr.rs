@@ -42,6 +42,10 @@ pub enum Expr {
     Pow(Box<Expr>, f64),
     /// Absolute value: |e|.
     Abs(Box<Expr>),
+    /// Natural logarithm: ln(e).
+    Ln(Box<Expr>),
+    /// Exponential: exp(e).
+    Exp(Box<Expr>),
 }
 
 /// A reference to a variable in the state vector.
@@ -136,7 +140,10 @@ impl Expr {
             Expr::Cos(e) => {
                 // d(cos(e)) = -sin(e) * de (chain rule)
                 let de = e.differentiate(var_id);
-                Expr::Neg(Box::new(Expr::Mul(Box::new(Expr::Sin(e.clone())), Box::new(de))))
+                Expr::Neg(Box::new(Expr::Mul(
+                    Box::new(Expr::Sin(e.clone())),
+                    Box::new(de),
+                )))
             }
             Expr::Tan(e) => {
                 // d(tan(e)) = de / cos^2(e) = de * (1 + tan^2(e)) (chain rule)
@@ -180,6 +187,16 @@ impl Expr {
                     Box::new(Expr::Div(e.clone(), Box::new(Expr::Abs(e.clone())))),
                     Box::new(de),
                 )
+            }
+            Expr::Ln(e) => {
+                // d(ln(e)) = de / e  (chain rule)
+                let de = e.differentiate(var_id);
+                Expr::Div(Box::new(de), e.clone())
+            }
+            Expr::Exp(e) => {
+                // d(exp(e)) = exp(e) * de  (chain rule)
+                let de = e.differentiate(var_id);
+                Expr::Mul(Box::new(Expr::Exp(e.clone())), Box::new(de))
             }
         }
     }
@@ -259,6 +276,20 @@ impl Expr {
             Expr::Tan(e) => Expr::Tan(Box::new(e.simplify())),
             Expr::Atan2(y, x) => Expr::Atan2(Box::new(y.simplify()), Box::new(x.simplify())),
             Expr::Abs(e) => Expr::Abs(Box::new(e.simplify())),
+            Expr::Ln(e) => {
+                let e = e.simplify();
+                match &e {
+                    Expr::Const(v) if *v > 0.0 => Expr::Const(v.ln()),
+                    _ => Expr::Ln(Box::new(e)),
+                }
+            }
+            Expr::Exp(e) => {
+                let e = e.simplify();
+                match &e {
+                    Expr::Const(v) => Expr::Const(v.exp()),
+                    _ => Expr::Exp(Box::new(e)),
+                }
+            }
             Expr::RuntimeConst(_) => self,
             other => other,
         }
@@ -280,13 +311,24 @@ impl Expr {
                 }
             }
             Expr::Const(_) | Expr::RuntimeConst(_) => {}
-            Expr::Neg(e) | Expr::Sqrt(e) | Expr::Sin(e) | Expr::Cos(e) | Expr::Tan(e) | Expr::Abs(e) => {
+            Expr::Neg(e)
+            | Expr::Sqrt(e)
+            | Expr::Sin(e)
+            | Expr::Cos(e)
+            | Expr::Tan(e)
+            | Expr::Abs(e)
+            | Expr::Ln(e)
+            | Expr::Exp(e) => {
                 e.collect_variables_into(vars);
             }
             Expr::Pow(base, _) => {
                 base.collect_variables_into(vars);
             }
-            Expr::Add(a, b) | Expr::Sub(a, b) | Expr::Mul(a, b) | Expr::Div(a, b) | Expr::Atan2(a, b) => {
+            Expr::Add(a, b)
+            | Expr::Sub(a, b)
+            | Expr::Mul(a, b)
+            | Expr::Div(a, b)
+            | Expr::Atan2(a, b) => {
                 a.collect_variables_into(vars);
                 b.collect_variables_into(vars);
             }
@@ -380,6 +422,14 @@ impl Expr {
             Expr::Abs(e) => {
                 let e = e.to_tokens();
                 quote! { (#e).abs() }
+            }
+            Expr::Ln(e) => {
+                let e = e.to_tokens();
+                quote! { (#e).ln() }
+            }
+            Expr::Exp(e) => {
+                let e = e.to_tokens();
+                quote! { (#e).exp() }
             }
         }
     }

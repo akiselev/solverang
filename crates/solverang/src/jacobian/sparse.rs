@@ -47,11 +47,7 @@ impl SparseJacobian {
     }
 
     /// Create from triplet vectors.
-    pub fn from_triplets(
-        nrows: usize,
-        ncols: usize,
-        triplets: Vec<(usize, usize, f64)>,
-    ) -> Self {
+    pub fn from_triplets(nrows: usize, ncols: usize, triplets: Vec<(usize, usize, f64)>) -> Self {
         let len = triplets.len();
         let mut rows = Vec::with_capacity(len);
         let mut cols = Vec::with_capacity(len);
@@ -76,8 +72,18 @@ impl SparseJacobian {
     ///
     /// Panics if row >= nrows or col >= ncols.
     pub fn add_entry(&mut self, row: usize, col: usize, value: f64) {
-        assert!(row < self.nrows, "row index {} out of bounds (nrows = {})", row, self.nrows);
-        assert!(col < self.ncols, "col index {} out of bounds (ncols = {})", col, self.ncols);
+        assert!(
+            row < self.nrows,
+            "row index {} out of bounds (nrows = {})",
+            row,
+            self.nrows
+        );
+        assert!(
+            col < self.ncols,
+            "col index {} out of bounds (ncols = {})",
+            col,
+            self.ncols
+        );
 
         self.rows.push(row);
         self.cols.push(col);

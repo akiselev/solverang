@@ -350,7 +350,10 @@ mod tests {
 
         let result = project_drag(&constraints, &store, &mapping, &[], 1e-10);
 
-        assert!(result.projected_displacement.iter().all(|x| x.abs() < 1e-15));
+        assert!(result
+            .projected_displacement
+            .iter()
+            .all(|x| x.abs() < 1e-15));
         assert!((result.preservation_ratio - 1.0).abs() < 1e-10);
     }
 

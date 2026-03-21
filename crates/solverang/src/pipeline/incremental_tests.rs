@@ -10,9 +10,7 @@ mod tests {
     use crate::entity::Entity;
     use crate::id::{ConstraintId, EntityId, ParamId};
     use crate::param::ParamStore;
-    use crate::system::{
-        ClusterSolveStatus, ConstraintSystem, DiagnosticIssue, SystemStatus,
-    };
+    use crate::system::{ClusterSolveStatus, ConstraintSystem, DiagnosticIssue, SystemStatus};
 
     // ===================================================================
     // Test entity: a 2D point with two parameters (x, y).
@@ -103,10 +101,7 @@ mod tests {
             vec![a + b - self.target]
         }
         fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
-            vec![
-                (0, self.params[0], 1.0),
-                (0, self.params[1], 1.0),
-            ]
+            vec![(0, self.params[0], 1.0), (0, self.params[1], 1.0)]
         }
     }
 
@@ -178,10 +173,7 @@ mod tests {
             vec![store.get(self.params[0]) - store.get(self.params[1])]
         }
         fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
-            vec![
-                (0, self.params[0], 1.0),
-                (0, self.params[1], -1.0),
-            ]
+            vec![(0, self.params[0], 1.0), (0, self.params[1], -1.0)]
         }
     }
 
@@ -273,11 +265,12 @@ mod tests {
     }
 
     /// Count clusters with a given status.
-    fn count_status(
-        result: &crate::system::SystemResult,
-        status: ClusterSolveStatus,
-    ) -> usize {
-        result.clusters.iter().filter(|c| c.status == status).count()
+    fn count_status(result: &crate::system::SystemResult, status: ClusterSolveStatus) -> usize {
+        result
+            .clusters
+            .iter()
+            .filter(|c| c.status == status)
+            .count()
     }
 
     // ===================================================================
@@ -292,12 +285,10 @@ mod tests {
         let mut system = ConstraintSystem::new();
 
         // Cluster 1: px1 = 3.0, px1 + py1 = 10.0  =>  py1 = 7.0
-        let (_eid1, px1, py1) =
-            add_coupled_point(&mut system, 0.0, 0.0, 3.0, 10.0);
+        let (_eid1, px1, py1) = add_coupled_point(&mut system, 0.0, 0.0, 3.0, 10.0);
 
         // Cluster 2: px2 = 5.0, px2 + py2 = 15.0  =>  py2 = 10.0
-        let (_eid2, px2, py2) =
-            add_coupled_point(&mut system, 0.0, 0.0, 5.0, 15.0);
+        let (_eid2, px2, py2) = add_coupled_point(&mut system, 0.0, 0.0, 5.0, 15.0);
 
         // First solve: both clusters solve.
         let result1 = system.solve();
@@ -340,7 +331,11 @@ mod tests {
             "Expected at least 1 skipped cluster (the unchanged one), got {}. \
              Statuses: {:?}",
             skipped,
-            result2.clusters.iter().map(|c| c.status).collect::<Vec<_>>(),
+            result2
+                .clusters
+                .iter()
+                .map(|c| c.status)
+                .collect::<Vec<_>>(),
         );
 
         // Values should be correct.
@@ -373,14 +368,11 @@ mod tests {
         // Three independent clusters, each with coupled constraints so
         // the solver has numerical work to do.
         // Cluster 1: px1 = 1.0, px1 + py1 = 3.0  =>  py1 = 2.0
-        let (_eid1, _px1, py1) =
-            add_coupled_point(&mut system, 0.0, 0.0, 1.0, 3.0);
+        let (_eid1, _px1, py1) = add_coupled_point(&mut system, 0.0, 0.0, 1.0, 3.0);
         // Cluster 2: px2 = 2.0, px2 + py2 = 6.0  =>  py2 = 4.0
-        let (_eid2, _px2, py2) =
-            add_coupled_point(&mut system, 0.0, 0.0, 2.0, 6.0);
+        let (_eid2, _px2, py2) = add_coupled_point(&mut system, 0.0, 0.0, 2.0, 6.0);
         // Cluster 3: px3 = 3.0, px3 + py3 = 9.0  =>  py3 = 6.0
-        let (_eid3, _px3, py3) =
-            add_coupled_point(&mut system, 0.0, 0.0, 3.0, 9.0);
+        let (_eid3, _px3, py3) = add_coupled_point(&mut system, 0.0, 0.0, 3.0, 9.0);
 
         // Round 1: First solve -- all 3 clusters solve.
         let r1 = system.solve();
@@ -452,10 +444,8 @@ mod tests {
     fn test_structural_change_invalidates_all_clusters() {
         let mut system = ConstraintSystem::new();
 
-        let (_eid1, _px1, _py1) =
-            add_coupled_point(&mut system, 0.0, 0.0, 1.0, 3.0);
-        let (_eid2, _px2, _py2) =
-            add_coupled_point(&mut system, 0.0, 0.0, 2.0, 6.0);
+        let (_eid1, _px1, _py1) = add_coupled_point(&mut system, 0.0, 0.0, 1.0, 3.0);
+        let (_eid2, _px2, _py2) = add_coupled_point(&mut system, 0.0, 0.0, 2.0, 6.0);
 
         // First solve: everything resolves.
         let _r1 = system.solve();
@@ -953,8 +943,7 @@ mod tests {
         // clusters are skipped on the second call.
         let mut system = ConstraintSystem::new();
 
-        let (_eid, px, py) =
-            add_coupled_point(&mut system, 0.0, 0.0, 4.0, 12.0);
+        let (_eid, px, py) = add_coupled_point(&mut system, 0.0, 0.0, 4.0, 12.0);
 
         // First solve.
         let r1 = system.solve();

@@ -4,8 +4,8 @@
 //! transforming high-level constraint representations into low-level opcodes
 //! suitable for JIT compilation.
 
-use crate::problem::Problem;
 use super::opcodes::{CompiledConstraints, ConstraintOp, JacobianEntry, Reg};
+use crate::problem::Problem;
 
 /// Context for lowering operations.
 ///
@@ -241,6 +241,34 @@ impl OpcodeEmitter {
         dst
     }
 
+    /// Exponential: dst = exp(src)
+    pub fn exp(&mut self, src: Reg) -> Reg {
+        let dst = self.alloc_reg();
+        self.ops.push(ConstraintOp::Exp { dst, src });
+        dst
+    }
+
+    /// Natural logarithm: dst = ln(src)
+    pub fn ln(&mut self, src: Reg) -> Reg {
+        let dst = self.alloc_reg();
+        self.ops.push(ConstraintOp::Ln { dst, src });
+        dst
+    }
+
+    /// Power: dst = base^exp
+    pub fn pow(&mut self, base: Reg, exp: Reg) -> Reg {
+        let dst = self.alloc_reg();
+        self.ops.push(ConstraintOp::Pow { dst, base, exp });
+        dst
+    }
+
+    /// Tangent: dst = tan(src)
+    pub fn tan(&mut self, src: Reg) -> Reg {
+        let dst = self.alloc_reg();
+        self.ops.push(ConstraintOp::Tan { dst, src });
+        dst
+    }
+
     // ========================================================================
     // Compound operations
     // ========================================================================
@@ -265,14 +293,16 @@ impl OpcodeEmitter {
 
     /// Store a residual value.
     pub fn store_residual(&mut self, residual_idx: u32, src: Reg) {
-        self.ops.push(ConstraintOp::StoreResidual { residual_idx, src });
+        self.ops
+            .push(ConstraintOp::StoreResidual { residual_idx, src });
     }
 
     /// Store a Jacobian entry.
     pub fn store_jacobian(&mut self, row: u32, col: u32, src: Reg) {
         let output_idx = self.jacobian_entries.len() as u32;
         self.jacobian_entries.push(JacobianEntry { row, col });
-        self.ops.push(ConstraintOp::StoreJacobianIndexed { output_idx, src });
+        self.ops
+            .push(ConstraintOp::StoreJacobianIndexed { output_idx, src });
     }
 
     /// Store a Jacobian entry using the current residual index.
@@ -400,7 +430,13 @@ mod tests {
         assert!(matches!(ops[0], ConstraintOp::LoadVar { var_idx: 0, .. }));
         assert!(matches!(ops[1], ConstraintOp::LoadVar { var_idx: 1, .. }));
         assert!(matches!(ops[2], ConstraintOp::Add { .. }));
-        assert!(matches!(ops[3], ConstraintOp::StoreResidual { residual_idx: 0, .. }));
+        assert!(matches!(
+            ops[3],
+            ConstraintOp::StoreResidual {
+                residual_idx: 0,
+                ..
+            }
+        ));
     }
 
     #[test]

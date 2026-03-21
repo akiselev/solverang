@@ -261,11 +261,7 @@ impl SparseNonlinearMega {
             .map(|i| {
                 let xi = solution[i];
                 let x_prev = if i > 0 { solution[i - 1] } else { 0.0 };
-                let x_next = if i < size - 1 {
-                    solution[i + 1]
-                } else {
-                    0.0
-                };
+                let x_next = if i < size - 1 { solution[i + 1] } else { 0.0 };
                 -(xi * xi * xi - 3.0 * xi - alpha * (x_prev + x_next))
             })
             .collect();
@@ -341,11 +337,7 @@ impl Problem for SparseNonlinearMega {
 // ============================================================================
 
 fn assert_solution_close(actual: &[f64], expected: &[f64], tol: f64, label: &str) {
-    assert_eq!(
-        actual.len(),
-        expected.len(),
-        "{label}: dimension mismatch"
-    );
+    assert_eq!(actual.len(), expected.len(), "{label}: dimension mismatch");
     let max_err = actual
         .iter()
         .zip(expected.iter())
@@ -605,8 +597,7 @@ fn megatest_jacobian_coupled_nonlinear() {
     assert!(
         verification.passed,
         "Coupled nonlinear chain Jacobian failed: max error = {:.2e} at {:?}",
-        verification.max_absolute_error,
-        verification.max_error_location
+        verification.max_absolute_error, verification.max_error_location
     );
 }
 
@@ -620,8 +611,7 @@ fn megatest_jacobian_overdetermined() {
     assert!(
         verification.passed,
         "Overdetermined Jacobian failed: max error = {:.2e} at {:?}",
-        verification.max_absolute_error,
-        verification.max_error_location
+        verification.max_absolute_error, verification.max_error_location
     );
 }
 
@@ -635,8 +625,7 @@ fn megatest_jacobian_sparse_nonlinear() {
     assert!(
         verification.passed,
         "Sparse nonlinear Jacobian failed: max error = {:.2e} at {:?}",
-        verification.max_absolute_error,
-        verification.max_error_location
+        verification.max_absolute_error, verification.max_error_location
     );
 }
 
@@ -933,7 +922,7 @@ mod v3_pipeline_megatest {
         b.constrain_symmetric(sym_p1, sym_p2, sym_center);
         b.constrain_horizontal(sym_p1, sym_p2);
         b.constrain_distance(sym_p1, sym_center, 5.0);
-        b.constrain_vertical(sym_center, grid[1][2]);   // x_center = 20
+        b.constrain_vertical(sym_center, grid[1][2]); // x_center = 20
         b.constrain_distance(sym_center, grid[1][2], 5.0); // d((20,15),(20,10))=5
 
         // === Tangent line-circle ===
@@ -943,7 +932,7 @@ mod v3_pipeline_megatest {
         let tang_line = b.add_line_segment(tang_p1, tang_p2);
         b.constrain_tangent_line_circle(tang_line, circle);
         b.constrain_horizontal(tang_p1, tang_p2);
-        b.constrain_vertical(tang_p1, cp3);  // x_tang_p1 = 17
+        b.constrain_vertical(tang_p1, cp3); // x_tang_p1 = 17
         b.constrain_distance(tang_p1, tang_p2, 16.0);
 
         // === Build and solve ===
@@ -1005,11 +994,17 @@ mod v3_pipeline_megatest {
         let cid = sys.alloc_constraint_id();
         sys.add_constraint(Box::new(Horizontal::new(cid, ea0, ea1, ya0, ya1)));
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, ea0, ea1, xa0, ya0, xa1, ya1, 3.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, ea0, ea1, xa0, ya0, xa1, ya1, 3.0,
+        )));
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, ea1, ea2, xa1, ya1, xa2, ya2, 5.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, ea1, ea2, xa1, ya1, xa2, ya2, 5.0,
+        )));
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, ea2, ea0, xa2, ya2, xa0, ya0, 4.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, ea2, ea0, xa2, ya2, xa0, ya0, 4.0,
+        )));
 
         // --- Cluster B: rectangle at (100,100) ---
         let (eb0, xb0, yb0) = add_fixed_pt(&mut sys, 100.0, 100.0);
@@ -1018,13 +1013,21 @@ mod v3_pipeline_megatest {
         let (eb3, xb3, yb3) = add_point(&mut sys, 99.9, 110.1);
 
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, eb0, eb1, xb0, yb0, xb1, yb1, 10.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, eb0, eb1, xb0, yb0, xb1, yb1, 10.0,
+        )));
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, eb1, eb2, xb1, yb1, xb2, yb2, 10.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, eb1, eb2, xb1, yb1, xb2, yb2, 10.0,
+        )));
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, eb2, eb3, xb2, yb2, xb3, yb3, 10.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, eb2, eb3, xb2, yb2, xb3, yb3, 10.0,
+        )));
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, eb3, eb0, xb3, yb3, xb0, yb0, 10.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, eb3, eb0, xb3, yb3, xb0, yb0, 10.0,
+        )));
         let cid = sys.alloc_constraint_id();
         sys.add_constraint(Box::new(Horizontal::new(cid, eb0, eb1, yb0, yb1)));
         let cid = sys.alloc_constraint_id();
@@ -1040,7 +1043,9 @@ mod v3_pipeline_megatest {
         // Use fix_param instead of Horizontal to avoid reduce phase coupling issues.
         sys.fix_param(yp);
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(PointOnCircle::new(cid, ep, ec, xp, yp, cxc, cyc, crc)));
+        sys.add_constraint(Box::new(PointOnCircle::new(
+            cid, ep, ec, xp, yp, cxc, cyc, crc,
+        )));
 
         let result = sys.solve();
         assert_solved(&result);
@@ -1055,15 +1060,24 @@ mod v3_pipeline_megatest {
 
         // Verify triangle.
         let da01 = pt_dist(&sys, xa0, ya0, xa1, ya1);
-        assert!((da01 - 3.0).abs() < 0.01, "Triangle d01={da01}, expected 3.0");
+        assert!(
+            (da01 - 3.0).abs() < 0.01,
+            "Triangle d01={da01}, expected 3.0"
+        );
 
         // Verify square sides.
         let db01 = pt_dist(&sys, xb0, yb0, xb1, yb1);
-        assert!((db01 - 10.0).abs() < 0.01, "Square d01={db01}, expected 10.0");
+        assert!(
+            (db01 - 10.0).abs() < 0.01,
+            "Square d01={db01}, expected 10.0"
+        );
 
         // Verify point on circle.
         let dp = pt_dist(&sys, xp, yp, cxc, cyc);
-        assert!((dp - 5.0).abs() < 0.01, "Point-on-circle dist={dp}, expected 5.0");
+        assert!(
+            (dp - 5.0).abs() < 0.01,
+            "Point-on-circle dist={dp}, expected 5.0"
+        );
     }
 
     // =====================================================================
@@ -1085,17 +1099,25 @@ mod v3_pipeline_megatest {
         let cid = sys.alloc_constraint_id();
         sys.add_constraint(Box::new(Horizontal::new(cid, ea0, ea1, ya0, ya1)));
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, ea0, ea1, xa0, ya0, xa1, ya1, 3.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, ea0, ea1, xa0, ya0, xa1, ya1, 3.0,
+        )));
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, ea1, ea2, xa1, ya1, xa2, ya2, 5.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, ea1, ea2, xa1, ya1, xa2, ya2, 5.0,
+        )));
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, ea2, ea0, xa2, ya2, xa0, ya0, 4.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, ea2, ea0, xa2, ya2, xa0, ya0, 4.0,
+        )));
 
         // Cluster B: separate pair (fix_param anchor + distance + horizontal).
         let (eb0, xb0, yb0) = add_fixed_pt(&mut sys, 100.0, 100.0);
         let (eb1, xb1, yb1) = add_point(&mut sys, 115.0, 100.5);
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, eb0, eb1, xb0, yb0, xb1, yb1, 15.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, eb0, eb1, xb0, yb0, xb1, yb1, 15.0,
+        )));
         let cid = sys.alloc_constraint_id();
         sys.add_constraint(Box::new(Horizontal::new(cid, eb0, eb1, yb0, yb1)));
 
@@ -1151,14 +1173,19 @@ mod v3_pipeline_megatest {
 
         // Distance constraint: |p0 - p1| = 10 (1 DOF: rotation).
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, e0, e1, x0, y0, x1, y1, 10.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, e0, e1, x0, y0, x1, y1, 10.0,
+        )));
 
         // Initial solve to establish the system.
         let result = sys.solve();
         assert_solved(&result);
 
         let dist_before = pt_dist(&sys, x0, y0, x1, y1);
-        assert!((dist_before - 10.0).abs() < 0.01, "Pre-drag distance wrong: {dist_before}");
+        assert!(
+            (dist_before - 10.0).abs() < 0.01,
+            "Pre-drag distance wrong: {dist_before}"
+        );
 
         // Apply a small drag: move p1 upward by 0.5 units.
         // At (10,0), the null space of the distance constraint is [0,1] (tangent to circle),
@@ -1206,7 +1233,9 @@ mod v3_pipeline_megatest {
         sys.fix_param(x0);
         sys.fix_param(y0);
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, e0, e1, x0, y0, x1, y1, 10.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, e0, e1, x0, y0, x1, y1, 10.0,
+        )));
         let cid = sys.alloc_constraint_id();
         sys.add_constraint(Box::new(Horizontal::new(cid, e0, e1, y0, y1)));
 
@@ -1219,9 +1248,15 @@ mod v3_pipeline_megatest {
         sys2.fix_param(x0);
         sys2.fix_param(y0);
         let cid = sys2.alloc_constraint_id();
-        sys2.add_constraint(Box::new(DistancePtPt::new(cid, e0, e1, x0, y0, x1, y1, 10.0)));
+        sys2.add_constraint(Box::new(DistancePtPt::new(
+            cid, e0, e1, x0, y0, x1, y1, 10.0,
+        )));
 
-        assert_eq!(sys2.degrees_of_freedom(), 1, "Should be under-constrained (1 DOF)");
+        assert_eq!(
+            sys2.degrees_of_freedom(),
+            1,
+            "Should be under-constrained (1 DOF)"
+        );
 
         // Over-constrained: 2 fixed points + distance + horizontal + vertical.
         // 2 free params, 3 equations → DOF = -1.
@@ -1231,13 +1266,19 @@ mod v3_pipeline_megatest {
         sys3.fix_param(x0);
         sys3.fix_param(y0);
         let cid = sys3.alloc_constraint_id();
-        sys3.add_constraint(Box::new(DistancePtPt::new(cid, e0, e1, x0, y0, x1, y1, 10.0)));
+        sys3.add_constraint(Box::new(DistancePtPt::new(
+            cid, e0, e1, x0, y0, x1, y1, 10.0,
+        )));
         let cid = sys3.alloc_constraint_id();
         sys3.add_constraint(Box::new(Horizontal::new(cid, e0, e1, y0, y1)));
         let cid = sys3.alloc_constraint_id();
         sys3.add_constraint(Box::new(Vertical::new(cid, e0, e1, x0, x1)));
 
-        assert_eq!(sys3.degrees_of_freedom(), -1, "Should be over-constrained (-1 DOF)");
+        assert_eq!(
+            sys3.degrees_of_freedom(),
+            -1,
+            "Should be over-constrained (-1 DOF)"
+        );
     }
 
     // =====================================================================
@@ -1259,11 +1300,17 @@ mod v3_pipeline_megatest {
         let cid_h = sys.alloc_constraint_id();
         sys.add_constraint(Box::new(Horizontal::new(cid_h, e0, e1, y0, y1)));
         let cid1 = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid1, e0, e1, x0, y0, x1, y1, 3.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid1, e0, e1, x0, y0, x1, y1, 3.0,
+        )));
         let cid2 = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid2, e1, e2, x1, y1, x2, y2, 5.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid2, e1, e2, x1, y1, x2, y2, 5.0,
+        )));
         let cid3 = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid3, e2, e0, x2, y2, x0, y0, 4.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid3, e2, e0, x2, y2, x0, y0, 4.0,
+        )));
 
         // First solve: well-constrained triangle (DOF=0).
         let result1 = sys.solve();
@@ -1273,11 +1320,17 @@ mod v3_pipeline_megatest {
 
         // Remove the distance(e1,e2)=5 constraint (structural change).
         sys.remove_constraint(cid2);
-        assert_eq!(sys.constraint_count(), 3, "Should have 3 constraints after removal");
+        assert_eq!(
+            sys.constraint_count(),
+            3,
+            "Should have 3 constraints after removal"
+        );
 
         // Add a distance(e1,e2)=4 constraint instead (different target).
         let cid4 = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid4, e1, e2, x1, y1, x2, y2, 4.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid4, e1, e2, x1, y1, x2, y2, 4.0,
+        )));
 
         // Re-solve after structural change.
         let result2 = sys.solve();
@@ -1353,10 +1406,7 @@ mod v3_pipeline_megatest {
         // Verify residuals are near zero.
         let residuals = sys.compute_residuals();
         let max_r = residuals.iter().map(|r| r.abs()).fold(0.0, f64::max);
-        assert!(
-            max_r < 1e-3,
-            "Rectangle+circle max residual {max_r:.2e}"
-        );
+        assert!(max_r < 1e-3, "Rectangle+circle max residual {max_r:.2e}");
 
         eprintln!(
             "Rectangle+inscribed circle: solved in {} iterations",
@@ -1430,11 +1480,12 @@ mod v3_pipeline_megatest {
         let n_entities = sys.entity_count();
         let n_constraints = sys.constraint_count();
         let dof = sys.degrees_of_freedom();
-        eprintln!(
-            "Large grid: {n_entities} entities, {n_constraints} constraints, DOF = {dof}"
-        );
+        eprintln!("Large grid: {n_entities} entities, {n_constraints} constraints, DOF = {dof}");
 
-        assert!(n_entities >= 100, "Expected 100+ entities, got {n_entities}");
+        assert!(
+            n_entities >= 100,
+            "Expected 100+ entities, got {n_entities}"
+        );
         assert!(
             n_constraints >= 190,
             "Expected 190+ constraints, got {n_constraints}"
@@ -1445,10 +1496,7 @@ mod v3_pipeline_megatest {
 
         let residuals = sys.compute_residuals();
         let max_r = residuals.iter().map(|r| r.abs()).fold(0.0, f64::max);
-        assert!(
-            max_r < 1e-3,
-            "Large grid max residual {max_r:.2e}"
-        );
+        assert!(max_r < 1e-3, "Large grid max residual {max_r:.2e}");
 
         eprintln!(
             "  Solved in {} iterations across {} clusters, duration {:?}",
@@ -1477,9 +1525,13 @@ mod v3_pipeline_megatest {
 
         // Two distance constraints that say the same thing (redundant).
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, e0, e1, x0, y0, x1, y1, 10.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, e0, e1, x0, y0, x1, y1, 10.0,
+        )));
         let cid = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid, e0, e1, x0, y0, x1, y1, 10.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid, e0, e1, x0, y0, x1, y1, 10.0,
+        )));
 
         // Horizontal constraint.
         let cid = sys.alloc_constraint_id();
@@ -1490,7 +1542,10 @@ mod v3_pipeline_megatest {
         assert_solved(&result);
 
         let dist = pt_dist(&sys, x0, y0, x1, y1);
-        assert!((dist - 10.0).abs() < 0.01, "Distance should be 10, got {dist}");
+        assert!(
+            (dist - 10.0).abs() < 0.01,
+            "Distance should be 10, got {dist}"
+        );
 
         // Run redundancy analysis.
         let analysis = sys.analyze_redundancy();
@@ -1525,24 +1580,36 @@ mod v3_pipeline_megatest {
         sys.add_constraint(Box::new(Horizontal::new(cid_h, e0, e1, y0, y1)));
 
         let cid_d01 = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid_d01, e0, e1, x0, y0, x1, y1, 3.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid_d01, e0, e1, x0, y0, x1, y1, 3.0,
+        )));
         let cid_d12 = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid_d12, e1, e2, x1, y1, x2, y2, 5.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid_d12, e1, e2, x1, y1, x2, y2, 5.0,
+        )));
         let cid_d20 = sys.alloc_constraint_id();
-        sys.add_constraint(Box::new(DistancePtPt::new(cid_d20, e2, e0, x2, y2, x0, y0, 4.0)));
+        sys.add_constraint(Box::new(DistancePtPt::new(
+            cid_d20, e2, e0, x2, y2, x0, y0, 4.0,
+        )));
 
         // Cycle 1: solve the triangle.
         let r1 = sys.solve();
         assert_solved(&r1);
         let d01_1 = pt_dist(&sys, x0, y0, x1, y1);
-        assert!((d01_1 - 3.0).abs() < 0.01, "Cycle 1: d01={d01_1}, expected 3.0");
+        assert!(
+            (d01_1 - 3.0).abs() < 0.01,
+            "Cycle 1: d01={d01_1}, expected 3.0"
+        );
 
         // Cycle 2: perturb p1 and re-solve (value change only).
         sys.set_param(x1, 3.5);
         let r2 = sys.solve();
         assert_solved(&r2);
         let d01_2 = pt_dist(&sys, x0, y0, x1, y1);
-        assert!((d01_2 - 3.0).abs() < 0.01, "Cycle 2: d01={d01_2}, expected 3.0");
+        assert!(
+            (d01_2 - 3.0).abs() < 0.01,
+            "Cycle 2: d01={d01_2}, expected 3.0"
+        );
 
         // Cycle 3: remove distance d12, add vertical on p2, re-solve (structural change).
         sys.remove_constraint(cid_d12);
@@ -1552,7 +1619,10 @@ mod v3_pipeline_megatest {
         let r3 = sys.solve();
         assert_solved(&r3);
         let d01_3 = pt_dist(&sys, x0, y0, x1, y1);
-        assert!((d01_3 - 3.0).abs() < 0.01, "Cycle 3: d01={d01_3}, expected 3.0");
+        assert!(
+            (d01_3 - 3.0).abs() < 0.01,
+            "Cycle 3: d01={d01_3}, expected 3.0"
+        );
 
         // p0 and p1 should still be horizontal (same y).
         let py0 = sys.get_param(y0);

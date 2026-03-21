@@ -54,7 +54,8 @@ impl Problem for BrownAlmostLinear {
         let sum: f64 = x.iter().sum();
         let n_plus_1 = (self.n + 1) as f64;
 
-        let mut fvec: Vec<f64> = x.iter()
+        let mut fvec: Vec<f64> = x
+            .iter()
             .take(self.n - 1)
             .map(|&xi| xi + sum - n_plus_1)
             .collect();

@@ -21,9 +21,9 @@
 //!            -> solution written back to ParamStore
 //! ```
 
-mod sub_problem;
 pub mod branch;
 pub mod closed_form;
 pub mod drag;
+mod sub_problem;
 
 pub use sub_problem::ReducedSubProblem;

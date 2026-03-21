@@ -52,8 +52,7 @@ impl Problem for Box3D {
         (1..=self.m)
             .map(|i| {
                 let t = 0.1 * (i as f64);
-                (-t * x[0]).exp() - (-t * x[1]).exp()
-                    - x[2] * ((-t).exp() - (-10.0 * t).exp())
+                (-t * x[0]).exp() - (-t * x[1]).exp() - x[2] * ((-t).exp() - (-10.0 * t).exp())
             })
             .collect()
     }

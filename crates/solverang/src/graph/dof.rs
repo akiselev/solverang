@@ -140,7 +140,10 @@ pub fn analyze_dof(
             let eid = entity.id();
             let all_params = entity.params();
             let total_params = all_params.len();
-            let fixed_params = all_params.iter().filter(|&&pid| store.is_fixed(pid)).count();
+            let fixed_params = all_params
+                .iter()
+                .filter(|&&pid| store.is_fixed(pid))
+                .count();
             let free_cols = entity_cols.get(&eid).cloned().unwrap_or_default();
             let free_count = free_cols.len();
 

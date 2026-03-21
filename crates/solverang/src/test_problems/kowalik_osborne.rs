@@ -83,12 +83,7 @@ impl Problem for KowalikOsborne {
     }
 
     fn initial_point(&self, factor: f64) -> Vec<f64> {
-        vec![
-            0.25 * factor,
-            0.39 * factor,
-            0.415 * factor,
-            0.39 * factor,
-        ]
+        vec![0.25 * factor, 0.39 * factor, 0.415 * factor, 0.39 * factor]
     }
 
     fn known_solution(&self) -> Option<Vec<f64>> {

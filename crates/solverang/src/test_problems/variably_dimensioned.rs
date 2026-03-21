@@ -52,7 +52,8 @@ impl Problem for VariablyDimensioned {
         debug_assert_eq!(x.len(), self.n);
 
         // s = sum_j j*(x_j - 1)
-        let s: f64 = x.iter()
+        let s: f64 = x
+            .iter()
             .enumerate()
             .map(|(j, &xj)| ((j + 1) as f64) * (xj - 1.0))
             .sum();
@@ -71,7 +72,8 @@ impl Problem for VariablyDimensioned {
         debug_assert_eq!(x.len(), self.n);
 
         // s = sum_j j*(x_j - 1)
-        let s: f64 = x.iter()
+        let s: f64 = x
+            .iter()
             .enumerate()
             .map(|(j, &xj)| ((j + 1) as f64) * (xj - 1.0))
             .sum();

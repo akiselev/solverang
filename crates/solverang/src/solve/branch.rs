@@ -261,7 +261,10 @@ mod tests {
 
         // Perturbed points should differ from the original.
         for start in &starts[1..] {
-            let differs = start.iter().zip(initial.iter()).any(|(a, b)| (a - b).abs() > 1e-15);
+            let differs = start
+                .iter()
+                .zip(initial.iter())
+                .any(|(a, b)| (a - b).abs() > 1e-15);
             assert!(differs, "perturbed point should differ from original");
         }
     }

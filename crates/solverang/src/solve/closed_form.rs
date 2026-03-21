@@ -74,7 +74,9 @@ fn solve_scalar(
     let pid = pattern.param_ids[0];
 
     // Find the constraint by matching its index.
-    let c = constraints.iter().find(|c| c.id().raw_index() as usize == cidx);
+    let c = constraints
+        .iter()
+        .find(|c| c.id().raw_index() as usize == cidx);
     // Fallback: try using index directly into the slice.
     let c = match c {
         Some(c) => *c,
@@ -611,8 +613,7 @@ mod tests {
         assert_eq!(result.branch_count, 1);
 
         // Check that we solved both parameters.
-        let vals: std::collections::HashMap<ParamId, f64> =
-            result.values.iter().copied().collect();
+        let vals: std::collections::HashMap<ParamId, f64> = result.values.iter().copied().collect();
         assert!((vals[&py] - 7.0).abs() < 1e-10);
         assert!((vals[&px] - 3.0).abs() < 1e-10);
     }
@@ -653,8 +654,7 @@ mod tests {
         let result = solve_pattern(&pattern, &constraints, &store).unwrap();
 
         assert!(result.solved);
-        let vals: std::collections::HashMap<ParamId, f64> =
-            result.values.iter().copied().collect();
+        let vals: std::collections::HashMap<ParamId, f64> = result.values.iter().copied().collect();
         assert!((vals[&px] - 5.0).abs() < 1e-10);
         assert!((vals[&py] - 3.0).abs() < 1e-10);
     }

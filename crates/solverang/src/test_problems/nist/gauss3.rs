@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/gauss3.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Generate Gauss3 data programmatically
 fn generate_data() -> Vec<(f64, f64)> {
@@ -38,26 +38,26 @@ fn generate_data() -> Vec<(f64, f64)> {
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 8] = [
-    9.8940147369E+01,  // b1
-    1.0502541170E-02,  // b2
-    1.0069632010E+02,  // b3
-    1.1160000000E+02,  // b4
-    2.3300000000E+01,  // b5
-    7.3705031418E+01,  // b6
-    1.4776000000E+02,  // b7
-    1.9668000000E+01,  // b8
+    9.8940147369E+01, // b1
+    1.0502541170E-02, // b2
+    1.0069632010E+02, // b3
+    1.1160000000E+02, // b4
+    2.3300000000E+01, // b5
+    7.3705031418E+01, // b6
+    1.4776000000E+02, // b7
+    1.9668000000E+01, // b8
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 8] = [
-    4.7542522121E-03,  // b1
-    1.2517584449E-06,  // b2
-    6.7073630878E-03,  // b3
-    1.1220055389E-02,  // b4
-    1.4369156553E-02,  // b5
-    6.5721767082E-03,  // b6
-    4.6336049653E-02,  // b7
-    4.4621949604E-02,  // b8
+    4.7542522121E-03, // b1
+    1.2517584449E-06, // b2
+    6.7073630878E-03, // b3
+    1.1220055389E-02, // b4
+    1.4369156553E-02, // b5
+    6.5721767082E-03, // b6
+    4.6336049653E-02, // b7
+    4.4621949604E-02, // b8
 ];
 
 /// Certified residual sum of squares

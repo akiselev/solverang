@@ -177,10 +177,7 @@ mod tests {
                     free_directions: 2,
                 },
                 DiagnosticIssue::ConflictingConstraints {
-                    constraints: vec![
-                        ConstraintId::new(0, 0),
-                        ConstraintId::new(1, 0),
-                    ],
+                    constraints: vec![ConstraintId::new(0, 0), ConstraintId::new(1, 0)],
                 },
             ],
         };

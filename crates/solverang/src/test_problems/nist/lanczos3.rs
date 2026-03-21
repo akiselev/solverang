@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/lanczos3.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Data for Lanczos3 problem: (x, y) pairs
 const DATA: [(f64, f64); 24] = [
@@ -42,22 +42,22 @@ const DATA: [(f64, f64); 24] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 6] = [
-    8.6816414977E-02,  // b1
-    9.5498101505E-01,  // b2
-    8.4400777463E-01,  // b3
-    2.9515951832E+00,  // b4
-    1.5825685901E+00,  // b5
-    4.9863565084E+00,  // b6
+    8.6816414977E-02, // b1
+    9.5498101505E-01, // b2
+    8.4400777463E-01, // b3
+    2.9515951832E+00, // b4
+    1.5825685901E+00, // b5
+    4.9863565084E+00, // b6
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 6] = [
-    1.7197908859E-02,  // b1
-    9.6835007636E-02,  // b2
-    1.7930388738E-02,  // b3
-    9.9476291256E-02,  // b4
-    5.3027988387E-02,  // b5
-    1.3354331184E-01,  // b6
+    1.7197908859E-02, // b1
+    9.6835007636E-02, // b2
+    1.7930388738E-02, // b3
+    9.9476291256E-02, // b4
+    5.3027988387E-02, // b5
+    1.3354331184E-01, // b6
 ];
 
 /// Certified residual sum of squares
@@ -91,9 +91,8 @@ impl Problem for Lanczos3 {
 
         DATA.iter()
             .map(|&(x, y)| {
-                let model = b[0] * (-b[1] * x).exp()
-                    + b[2] * (-b[3] * x).exp()
-                    + b[4] * (-b[5] * x).exp();
+                let model =
+                    b[0] * (-b[1] * x).exp() + b[2] * (-b[3] * x).exp() + b[4] * (-b[5] * x).exp();
                 y - model
             })
             .collect()

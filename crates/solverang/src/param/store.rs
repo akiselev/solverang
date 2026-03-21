@@ -102,9 +102,7 @@ impl ParamStore {
 
     /// Mark a parameter as free (included in solving).
     pub fn unfix(&mut self, id: ParamId) {
-        self.entry_mut(id)
-            .expect("unfix: invalid ParamId")
-            .fixed = false;
+        self.entry_mut(id).expect("unfix: invalid ParamId").fixed = false;
     }
 
     /// Returns the owner entity of this parameter.
@@ -114,10 +112,7 @@ impl ParamStore {
 
     /// Number of currently alive, free (non-fixed) parameters.
     pub fn free_param_count(&self) -> usize {
-        self.entries
-            .iter()
-            .filter(|e| e.alive && !e.fixed)
-            .count()
+        self.entries.iter().filter(|e| e.alive && !e.fixed).count()
     }
 
     /// Number of currently alive parameters (including fixed).
@@ -220,16 +215,16 @@ impl ParamStore {
 
     fn entry(&self, id: ParamId) -> Option<&ParamEntry> {
         let idx = id.raw_index() as usize;
-        self.entries.get(idx).filter(|e| {
-            e.alive && e.generation == id.generation
-        })
+        self.entries
+            .get(idx)
+            .filter(|e| e.alive && e.generation == id.generation)
     }
 
     fn entry_mut(&mut self, id: ParamId) -> Option<&mut ParamEntry> {
         let idx = id.raw_index() as usize;
-        self.entries.get_mut(idx).filter(|e| {
-            e.alive && e.generation == id.generation
-        })
+        self.entries
+            .get_mut(idx)
+            .filter(|e| e.alive && e.generation == id.generation)
     }
 }
 

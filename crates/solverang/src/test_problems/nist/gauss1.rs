@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/gauss1.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Generate Gauss1 data programmatically (250 observations)
 fn generate_data() -> Vec<(f64, f64)> {
@@ -39,26 +39,26 @@ fn generate_data() -> Vec<(f64, f64)> {
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 8] = [
-    9.8778210871E+01,  // b1
-    1.0502761639E-02,  // b2
-    1.0048989926E+02,  // b3
-    6.7481311179E+01,  // b4
-    2.3129773238E+01,  // b5
-    7.3851891595E+01,  // b6
-    1.7851306931E+02,  // b7
-    1.8389389410E+01,  // b8
+    9.8778210871E+01, // b1
+    1.0502761639E-02, // b2
+    1.0048989926E+02, // b3
+    6.7481311179E+01, // b4
+    2.3129773238E+01, // b5
+    7.3851891595E+01, // b6
+    1.7851306931E+02, // b7
+    1.8389389410E+01, // b8
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 8] = [
-    4.6893415768E-03,  // b1
-    1.2350628864E-06,  // b2
-    5.8692576630E-03,  // b3
-    5.3648614726E-03,  // b4
-    7.8552938217E-03,  // b5
-    5.6319083938E-03,  // b6
-    3.6089684084E-02,  // b7
-    2.4660142642E-02,  // b8
+    4.6893415768E-03, // b1
+    1.2350628864E-06, // b2
+    5.8692576630E-03, // b3
+    5.3648614726E-03, // b4
+    7.8552938217E-03, // b5
+    5.6319083938E-03, // b6
+    3.6089684084E-02, // b7
+    2.4660142642E-02, // b8
 ];
 
 /// Certified residual sum of squares
@@ -186,10 +186,6 @@ mod tests {
         let rss: f64 = residuals.iter().map(|r| r * r).sum();
 
         // The RSS should be very small at certified values
-        assert!(
-            rss < 1e-2,
-            "RSS should be small at certified: {}",
-            rss
-        );
+        assert!(rss < 1e-2, "RSS should be small at certified: {}", rss);
     }
 }

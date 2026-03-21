@@ -1,8 +1,8 @@
 //! Tests for the parallel solver.
 
 use solverang::{
-    decompose, decompose_from_edges, Component, ComponentId, DecomposableProblem,
-    ParallelSolver, ParallelSolverConfig, Problem, SolveError,
+    decompose, decompose_from_edges, Component, ComponentId, DecomposableProblem, ParallelSolver,
+    ParallelSolverConfig, Problem, SolveError,
 };
 
 /// A multi-component test problem with three independent sub-systems.
@@ -38,12 +38,12 @@ impl Problem for ThreeComponentProblem {
     fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
         vec![
             (0, 0, 2.0 * x[0]), // d(x0^2-2)/dx0
-            (1, 1, 1.0),       // d(x1-1)/dx1
-            (2, 2, 1.0),       // d(x2-2)/dx2
+            (1, 1, 1.0),        // d(x1-1)/dx1
+            (2, 2, 1.0),        // d(x2-2)/dx2
             (3, 3, 2.0 * x[3]), // d(x3^2+x4^2-1)/dx3
             (3, 4, 2.0 * x[4]), // d(x3^2+x4^2-1)/dx4
-            (4, 3, 1.0),       // d(x3-x4)/dx3
-            (4, 4, -1.0),      // d(x3-x4)/dx4
+            (4, 3, 1.0),        // d(x3-x4)/dx3
+            (4, 4, -1.0),       // d(x3-x4)/dx4
         ]
     }
 
@@ -103,11 +103,7 @@ fn test_parallel_solver_three_components() {
     let x0 = vec![1.5, 0.5, 0.5, 0.7, 0.7];
     let result = solver.solve(&problem, &x0);
 
-    assert!(
-        result.is_converged(),
-        "Should converge, got {:?}",
-        result
-    );
+    assert!(result.is_converged(), "Should converge, got {:?}", result);
 
     let solution = result.solution().expect("should have solution");
 
@@ -226,10 +222,14 @@ fn test_parallel_solver_chain() {
 fn test_decompose_from_edges() {
     // Two independent 2-constraint components
     let edges = vec![
-        (0, 0), (0, 1), // c0 uses v0, v1
-        (1, 0), (1, 1), // c1 uses v0, v1 (same component as c0)
-        (2, 2), (2, 3), // c2 uses v2, v3
-        (3, 2), (3, 3), // c3 uses v2, v3 (same component as c2)
+        (0, 0),
+        (0, 1), // c0 uses v0, v1
+        (1, 0),
+        (1, 1), // c1 uses v0, v1 (same component as c0)
+        (2, 2),
+        (2, 3), // c2 uses v2, v3
+        (3, 2),
+        (3, 3), // c3 uses v2, v3 (same component as c2)
     ];
 
     let components = decompose_from_edges(4, 4, &edges);

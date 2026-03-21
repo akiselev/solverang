@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/mgh17.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Data for MGH17 problem: (x, y) pairs
 const DATA: [(f64, f64); 33] = [
@@ -51,20 +51,20 @@ const DATA: [(f64, f64); 33] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 5] = [
-    3.7541005211E-01,   // b1
-    1.9358469127E+00,   // b2
-    -1.4646871366E+00,  // b3
-    1.2867534640E-02,   // b4
-    2.2122699662E-02,   // b5
+    3.7541005211E-01,  // b1
+    1.9358469127E+00,  // b2
+    -1.4646871366E+00, // b3
+    1.2867534640E-02,  // b4
+    2.2122699662E-02,  // b5
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 5] = [
-    2.0723153551E-03,   // b1
-    2.2031669222E-01,   // b2
-    2.2175707739E-01,   // b3
-    4.4861358114E-04,   // b4
-    8.9471996575E-04,   // b5
+    2.0723153551E-03, // b1
+    2.2031669222E-01, // b2
+    2.2175707739E-01, // b3
+    4.4861358114E-04, // b4
+    8.9471996575E-04, // b5
 ];
 
 /// Certified residual sum of squares

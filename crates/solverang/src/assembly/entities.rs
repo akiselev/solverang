@@ -41,13 +41,23 @@ impl RigidBody {
     /// Create a new rigid body entity.
     pub fn new(
         id: EntityId,
-        tx: ParamId, ty: ParamId, tz: ParamId,
-        qw: ParamId, qx: ParamId, qy: ParamId, qz: ParamId,
+        tx: ParamId,
+        ty: ParamId,
+        tz: ParamId,
+        qw: ParamId,
+        qx: ParamId,
+        qy: ParamId,
+        qz: ParamId,
     ) -> Self {
         Self {
             id,
-            tx, ty, tz,
-            qw, qx, qy, qz,
+            tx,
+            ty,
+            tz,
+            qw,
+            qx,
+            qy,
+            qz,
             params: [tx, ty, tz, qw, qx, qy, qz],
         }
     }
@@ -137,12 +147,18 @@ impl UnitQuaternion {
     pub fn new(
         id: ConstraintId,
         body_entity: EntityId,
-        qw: ParamId, qx: ParamId, qy: ParamId, qz: ParamId,
+        qw: ParamId,
+        qx: ParamId,
+        qy: ParamId,
+        qz: ParamId,
     ) -> Self {
         Self {
             id,
             body_entity,
-            qw, qx, qy, qz,
+            qw,
+            qx,
+            qy,
+            qz,
             params: [qw, qx, qy, qz],
             entities: [body_entity],
         }
@@ -150,11 +166,21 @@ impl UnitQuaternion {
 }
 
 impl Constraint for UnitQuaternion {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "UnitQuaternion" }
-    fn entity_ids(&self) -> &[EntityId] { &self.entities }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
-    fn equation_count(&self) -> usize { 1 }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "UnitQuaternion"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+    fn equation_count(&self) -> usize {
+        1
+    }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
         let w = store.get(self.qw);
@@ -195,9 +221,9 @@ pub(crate) fn quat_to_rotation_matrix(w: f64, x: f64, y: f64, z: f64) -> [[f64; 
     let wz = w * z;
 
     [
-        [1.0 - 2.0 * (y2 + z2), 2.0 * (xy - wz),       2.0 * (xz + wy)],
-        [2.0 * (xy + wz),       1.0 - 2.0 * (x2 + z2), 2.0 * (yz - wx)],
-        [2.0 * (xz - wy),       2.0 * (yz + wx),       1.0 - 2.0 * (x2 + y2)],
+        [1.0 - 2.0 * (y2 + z2), 2.0 * (xy - wz), 2.0 * (xz + wy)],
+        [2.0 * (xy + wz), 1.0 - 2.0 * (x2 + z2), 2.0 * (yz - wx)],
+        [2.0 * (xz - wy), 2.0 * (yz + wx), 1.0 - 2.0 * (x2 + y2)],
     ]
 }
 
@@ -211,7 +237,10 @@ pub(crate) fn quat_to_rotation_matrix(w: f64, x: f64, y: f64, z: f64) -> [[f64; 
 /// dRv_i/dw = sum_j (dR_ij/dw) * v_j
 /// ```
 pub(crate) fn quat_rotate_derivatives(
-    w: f64, x: f64, y: f64, z: f64,
+    w: f64,
+    x: f64,
+    y: f64,
+    z: f64,
     v: [f64; 3],
 ) -> [[f64; 3]; 4] {
     // dR/dw:
@@ -225,9 +254,9 @@ pub(crate) fn quat_rotate_derivatives(
     // R21 = 2(yz + wx)    => dR21/dw = 2x
     // R22 = 1-2(x^2+y^2)  => dR22/dw = 0
     let dr_dw = [
-        [0.0,      -2.0 * z,  2.0 * y],
-        [2.0 * z,   0.0,     -2.0 * x],
-        [-2.0 * y,  2.0 * x,  0.0],
+        [0.0, -2.0 * z, 2.0 * y],
+        [2.0 * z, 0.0, -2.0 * x],
+        [-2.0 * y, 2.0 * x, 0.0],
     ];
 
     // dR/dx:
@@ -241,9 +270,9 @@ pub(crate) fn quat_rotate_derivatives(
     // R21 = 2(yz + wx)    => 2w
     // R22 = 1-2(x^2+y^2)  => -4x
     let dr_dx = [
-        [0.0,       2.0 * y,  2.0 * z],
-        [2.0 * y,  -4.0 * x, -2.0 * w],
-        [2.0 * z,   2.0 * w, -4.0 * x],
+        [0.0, 2.0 * y, 2.0 * z],
+        [2.0 * y, -4.0 * x, -2.0 * w],
+        [2.0 * z, 2.0 * w, -4.0 * x],
     ];
 
     // dR/dy:
@@ -257,9 +286,9 @@ pub(crate) fn quat_rotate_derivatives(
     // R21 = 2(yz + wx)    => 2z
     // R22 = 1-2(x^2+y^2)  => -4y
     let dr_dy = [
-        [-4.0 * y,  2.0 * x,  2.0 * w],
-        [2.0 * x,   0.0,      2.0 * z],
-        [-2.0 * w,  2.0 * z, -4.0 * y],
+        [-4.0 * y, 2.0 * x, 2.0 * w],
+        [2.0 * x, 0.0, 2.0 * z],
+        [-2.0 * w, 2.0 * z, -4.0 * y],
     ];
 
     // dR/dz:
@@ -273,9 +302,9 @@ pub(crate) fn quat_rotate_derivatives(
     // R21 = 2(yz + wx)    => 2y
     // R22 = 1-2(x^2+y^2)  => 0
     let dr_dz = [
-        [-4.0 * z, -2.0 * w,  2.0 * x],
-        [2.0 * w,  -4.0 * z,  2.0 * y],
-        [2.0 * x,   2.0 * y,  0.0],
+        [-4.0 * z, -2.0 * w, 2.0 * x],
+        [2.0 * w, -4.0 * z, 2.0 * y],
+        [2.0 * x, 2.0 * y, 0.0],
     ];
 
     let mat_vec = |m: [[f64; 3]; 3], v: [f64; 3]| -> [f64; 3] {
@@ -302,8 +331,12 @@ pub(crate) fn quat_rotate_derivatives(
 mod tests {
     use super::*;
 
-    fn eid(i: u32) -> EntityId { EntityId::new(i, 0) }
-    fn cid(i: u32) -> ConstraintId { ConstraintId::new(i, 0) }
+    fn eid(i: u32) -> EntityId {
+        EntityId::new(i, 0)
+    }
+    fn cid(i: u32) -> ConstraintId {
+        ConstraintId::new(i, 0)
+    }
 
     #[test]
     fn rigid_body_identity() {
@@ -395,7 +428,10 @@ mod tests {
                 assert!(
                     (dot - expected).abs() < 1e-12,
                     "R*R^T[{}][{}] = {}, expected {}",
-                    i, j, dot, expected,
+                    i,
+                    j,
+                    dot,
+                    expected,
                 );
             }
         }
@@ -441,7 +477,8 @@ mod tests {
             assert!(
                 (av - fd).abs() < 1e-5,
                 "UnitQuaternion jac mismatch: analytic={}, fd={}",
-                av, fd,
+                av,
+                fd,
             );
         }
     }
@@ -462,64 +499,88 @@ mod tests {
         let rv_w = |w_: f64| {
             let r = quat_to_rotation_matrix(w_, x, y, z);
             [
-                r[0][0]*v[0] + r[0][1]*v[1] + r[0][2]*v[2],
-                r[1][0]*v[0] + r[1][1]*v[1] + r[1][2]*v[2],
-                r[2][0]*v[0] + r[2][1]*v[1] + r[2][2]*v[2],
+                r[0][0] * v[0] + r[0][1] * v[1] + r[0][2] * v[2],
+                r[1][0] * v[0] + r[1][1] * v[1] + r[1][2] * v[2],
+                r[2][0] * v[0] + r[2][1] * v[1] + r[2][2] * v[2],
             ]
         };
         let rp = rv_w(w + eps);
         let rm = rv_w(w - eps);
         for i in 0..3 {
             let fd = (rp[i] - rm[i]) / (2.0 * eps);
-            assert!((derivs[0][i] - fd).abs() < 1e-5, "dRv/dw[{}]: a={}, fd={}", i, derivs[0][i], fd);
+            assert!(
+                (derivs[0][i] - fd).abs() < 1e-5,
+                "dRv/dw[{}]: a={}, fd={}",
+                i,
+                derivs[0][i],
+                fd
+            );
         }
 
         // Test dRv/dx
         let rv_x = |x_: f64| {
             let r = quat_to_rotation_matrix(w, x_, y, z);
             [
-                r[0][0]*v[0] + r[0][1]*v[1] + r[0][2]*v[2],
-                r[1][0]*v[0] + r[1][1]*v[1] + r[1][2]*v[2],
-                r[2][0]*v[0] + r[2][1]*v[1] + r[2][2]*v[2],
+                r[0][0] * v[0] + r[0][1] * v[1] + r[0][2] * v[2],
+                r[1][0] * v[0] + r[1][1] * v[1] + r[1][2] * v[2],
+                r[2][0] * v[0] + r[2][1] * v[1] + r[2][2] * v[2],
             ]
         };
         let rp = rv_x(x + eps);
         let rm = rv_x(x - eps);
         for i in 0..3 {
             let fd = (rp[i] - rm[i]) / (2.0 * eps);
-            assert!((derivs[1][i] - fd).abs() < 1e-5, "dRv/dx[{}]: a={}, fd={}", i, derivs[1][i], fd);
+            assert!(
+                (derivs[1][i] - fd).abs() < 1e-5,
+                "dRv/dx[{}]: a={}, fd={}",
+                i,
+                derivs[1][i],
+                fd
+            );
         }
 
         // Test dRv/dy
         let rv_y = |y_: f64| {
             let r = quat_to_rotation_matrix(w, x, y_, z);
             [
-                r[0][0]*v[0] + r[0][1]*v[1] + r[0][2]*v[2],
-                r[1][0]*v[0] + r[1][1]*v[1] + r[1][2]*v[2],
-                r[2][0]*v[0] + r[2][1]*v[1] + r[2][2]*v[2],
+                r[0][0] * v[0] + r[0][1] * v[1] + r[0][2] * v[2],
+                r[1][0] * v[0] + r[1][1] * v[1] + r[1][2] * v[2],
+                r[2][0] * v[0] + r[2][1] * v[1] + r[2][2] * v[2],
             ]
         };
         let rp = rv_y(y + eps);
         let rm = rv_y(y - eps);
         for i in 0..3 {
             let fd = (rp[i] - rm[i]) / (2.0 * eps);
-            assert!((derivs[2][i] - fd).abs() < 1e-5, "dRv/dy[{}]: a={}, fd={}", i, derivs[2][i], fd);
+            assert!(
+                (derivs[2][i] - fd).abs() < 1e-5,
+                "dRv/dy[{}]: a={}, fd={}",
+                i,
+                derivs[2][i],
+                fd
+            );
         }
 
         // Test dRv/dz
         let rv_z = |z_: f64| {
             let r = quat_to_rotation_matrix(w, x, y, z_);
             [
-                r[0][0]*v[0] + r[0][1]*v[1] + r[0][2]*v[2],
-                r[1][0]*v[0] + r[1][1]*v[1] + r[1][2]*v[2],
-                r[2][0]*v[0] + r[2][1]*v[1] + r[2][2]*v[2],
+                r[0][0] * v[0] + r[0][1] * v[1] + r[0][2] * v[2],
+                r[1][0] * v[0] + r[1][1] * v[1] + r[1][2] * v[2],
+                r[2][0] * v[0] + r[2][1] * v[1] + r[2][2] * v[2],
             ]
         };
         let rp = rv_z(z + eps);
         let rm = rv_z(z - eps);
         for i in 0..3 {
             let fd = (rp[i] - rm[i]) / (2.0 * eps);
-            assert!((derivs[3][i] - fd).abs() < 1e-5, "dRv/dz[{}]: a={}, fd={}", i, derivs[3][i], fd);
+            assert!(
+                (derivs[3][i] - fd).abs() < 1e-5,
+                "dRv/dz[{}]: a={}, fd={}",
+                i,
+                derivs[3][i],
+                fd
+            );
         }
     }
 }

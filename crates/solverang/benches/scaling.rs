@@ -248,15 +248,11 @@ fn bench_problem_sizes() {
         });
 
         // Sparse solver
-        benchmark(
-            &format!("Sparse diagonal n={}", size),
-            iterations,
-            || {
-                let mut solver = SparseSolver::new(SparseSolverConfig::default());
-                let result = solver.solve(&problem, &x0);
-                black_box(result);
-            },
-        );
+        benchmark(&format!("Sparse diagonal n={}", size), iterations, || {
+            let mut solver = SparseSolver::new(SparseSolverConfig::default());
+            let result = solver.solve(&problem, &x0);
+            black_box(result);
+        });
 
         println!();
     }

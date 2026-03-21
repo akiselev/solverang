@@ -30,17 +30,13 @@ fn bench_nist_by_difficulty(c: &mut Criterion) {
             let x0_close = problem.starting_values_2();
 
             // Benchmark with starting values closer to solution
-            group.bench_with_input(
-                BenchmarkId::new("sv2", name),
-                &x0_close,
-                |b, x0| {
-                    let solver = LMSolver::new(LMConfig::default());
-                    b.iter(|| {
-                        let result = solver.solve(problem.as_ref(), x0);
-                        black_box(result)
-                    });
-                },
-            );
+            group.bench_with_input(BenchmarkId::new("sv2", name), &x0_close, |b, x0| {
+                let solver = LMSolver::new(LMConfig::default());
+                b.iter(|| {
+                    let result = solver.solve(problem.as_ref(), x0);
+                    black_box(result)
+                });
+            });
         }
 
         group.finish();

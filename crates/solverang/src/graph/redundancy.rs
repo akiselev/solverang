@@ -380,8 +380,7 @@ fn build_conflict_groups(
     }
 
     // Collect groups.
-    let mut groups: std::collections::HashMap<usize, Vec<usize>> =
-        std::collections::HashMap::new();
+    let mut groups: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
     for i in 0..n {
         let root = find(&mut parent, i);
         groups.entry(root).or_default().push(conflicting[i]);
@@ -565,10 +564,7 @@ mod tests {
 
         assert_eq!(result.jacobian_rank, 1);
         assert_eq!(result.equation_count, 2);
-        assert!(
-            !result.conflicts.is_empty(),
-            "should detect conflict"
-        );
+        assert!(!result.conflicts.is_empty(), "should detect conflict");
     }
 
     #[test]

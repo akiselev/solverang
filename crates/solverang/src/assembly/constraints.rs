@@ -16,7 +16,12 @@ use super::entities::{quat_rotate_derivatives, quat_to_rotation_matrix};
 // ---------------------------------------------------------------------------
 
 /// Compute `world = R(q)*local + t` and return the world point.
-fn transform_local(store: &ParamStore, t: [ParamId; 3], q: [ParamId; 4], local: [f64; 3]) -> [f64; 3] {
+fn transform_local(
+    store: &ParamStore,
+    t: [ParamId; 3],
+    q: [ParamId; 4],
+    local: [f64; 3],
+) -> [f64; 3] {
     let w = store.get(q[0]);
     let x = store.get(q[1]);
     let y = store.get(q[2]);
@@ -100,11 +105,21 @@ pub struct Mate {
     params: Vec<ParamId>,
     entities: [EntityId; 2],
     // Body 1 params
-    b1_tx: ParamId, b1_ty: ParamId, b1_tz: ParamId,
-    b1_qw: ParamId, b1_qx: ParamId, b1_qy: ParamId, b1_qz: ParamId,
+    b1_tx: ParamId,
+    b1_ty: ParamId,
+    b1_tz: ParamId,
+    b1_qw: ParamId,
+    b1_qx: ParamId,
+    b1_qy: ParamId,
+    b1_qz: ParamId,
     // Body 2 params
-    b2_tx: ParamId, b2_ty: ParamId, b2_tz: ParamId,
-    b2_qw: ParamId, b2_qx: ParamId, b2_qy: ParamId, b2_qz: ParamId,
+    b2_tx: ParamId,
+    b2_ty: ParamId,
+    b2_tz: ParamId,
+    b2_qw: ParamId,
+    b2_qx: ParamId,
+    b2_qy: ParamId,
+    b2_qz: ParamId,
 }
 
 impl Mate {
@@ -115,41 +130,83 @@ impl Mate {
     pub fn new(
         id: ConstraintId,
         body1: EntityId,
-        b1_tx: ParamId, b1_ty: ParamId, b1_tz: ParamId,
-        b1_qw: ParamId, b1_qx: ParamId, b1_qy: ParamId, b1_qz: ParamId,
+        b1_tx: ParamId,
+        b1_ty: ParamId,
+        b1_tz: ParamId,
+        b1_qw: ParamId,
+        b1_qx: ParamId,
+        b1_qy: ParamId,
+        b1_qz: ParamId,
         local1: [f64; 3],
         body2: EntityId,
-        b2_tx: ParamId, b2_ty: ParamId, b2_tz: ParamId,
-        b2_qw: ParamId, b2_qx: ParamId, b2_qy: ParamId, b2_qz: ParamId,
+        b2_tx: ParamId,
+        b2_ty: ParamId,
+        b2_tz: ParamId,
+        b2_qw: ParamId,
+        b2_qx: ParamId,
+        b2_qy: ParamId,
+        b2_qz: ParamId,
         local2: [f64; 3],
     ) -> Self {
         let params = vec![
-            b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
+            b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx,
+            b2_qy, b2_qz,
         ];
         Self {
             id,
-            body1, body2,
-            local1, local2,
+            body1,
+            body2,
+            local1,
+            local2,
             params,
             entities: [body1, body2],
-            b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
         }
     }
 
-    fn t1(&self) -> [ParamId; 3] { [self.b1_tx, self.b1_ty, self.b1_tz] }
-    fn q1(&self) -> [ParamId; 4] { [self.b1_qw, self.b1_qx, self.b1_qy, self.b1_qz] }
-    fn t2(&self) -> [ParamId; 3] { [self.b2_tx, self.b2_ty, self.b2_tz] }
-    fn q2(&self) -> [ParamId; 4] { [self.b2_qw, self.b2_qx, self.b2_qy, self.b2_qz] }
+    fn t1(&self) -> [ParamId; 3] {
+        [self.b1_tx, self.b1_ty, self.b1_tz]
+    }
+    fn q1(&self) -> [ParamId; 4] {
+        [self.b1_qw, self.b1_qx, self.b1_qy, self.b1_qz]
+    }
+    fn t2(&self) -> [ParamId; 3] {
+        [self.b2_tx, self.b2_ty, self.b2_tz]
+    }
+    fn q2(&self) -> [ParamId; 4] {
+        [self.b2_qw, self.b2_qx, self.b2_qy, self.b2_qz]
+    }
 }
 
 impl Constraint for Mate {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "Mate" }
-    fn entity_ids(&self) -> &[EntityId] { &self.entities }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
-    fn equation_count(&self) -> usize { 3 }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "Mate"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+    fn equation_count(&self) -> usize {
+        3
+    }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
         let w1 = transform_local(store, self.t1(), self.q1(), self.local1);
@@ -192,10 +249,20 @@ pub struct CoaxialAssembly {
     params: Vec<ParamId>,
     entities: [EntityId; 2],
     // Body params
-    b1_tx: ParamId, b1_ty: ParamId, b1_tz: ParamId,
-    b1_qw: ParamId, b1_qx: ParamId, b1_qy: ParamId, b1_qz: ParamId,
-    b2_tx: ParamId, b2_ty: ParamId, b2_tz: ParamId,
-    b2_qw: ParamId, b2_qx: ParamId, b2_qy: ParamId, b2_qz: ParamId,
+    b1_tx: ParamId,
+    b1_ty: ParamId,
+    b1_tz: ParamId,
+    b1_qw: ParamId,
+    b1_qx: ParamId,
+    b1_qy: ParamId,
+    b1_qz: ParamId,
+    b2_tx: ParamId,
+    b2_ty: ParamId,
+    b2_tz: ParamId,
+    b2_qw: ParamId,
+    b2_qx: ParamId,
+    b2_qy: ParamId,
+    b2_qz: ParamId,
 }
 
 impl CoaxialAssembly {
@@ -204,44 +271,87 @@ impl CoaxialAssembly {
     pub fn new(
         id: ConstraintId,
         body1: EntityId,
-        b1_tx: ParamId, b1_ty: ParamId, b1_tz: ParamId,
-        b1_qw: ParamId, b1_qx: ParamId, b1_qy: ParamId, b1_qz: ParamId,
+        b1_tx: ParamId,
+        b1_ty: ParamId,
+        b1_tz: ParamId,
+        b1_qw: ParamId,
+        b1_qx: ParamId,
+        b1_qy: ParamId,
+        b1_qz: ParamId,
         local_point1: [f64; 3],
         local_dir1: [f64; 3],
         body2: EntityId,
-        b2_tx: ParamId, b2_ty: ParamId, b2_tz: ParamId,
-        b2_qw: ParamId, b2_qx: ParamId, b2_qy: ParamId, b2_qz: ParamId,
+        b2_tx: ParamId,
+        b2_ty: ParamId,
+        b2_tz: ParamId,
+        b2_qw: ParamId,
+        b2_qx: ParamId,
+        b2_qy: ParamId,
+        b2_qz: ParamId,
         local_point2: [f64; 3],
         local_dir2: [f64; 3],
     ) -> Self {
         let params = vec![
-            b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
+            b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx,
+            b2_qy, b2_qz,
         ];
         Self {
             id,
-            body1, body2,
-            local_point1, local_dir1,
-            local_point2, local_dir2,
+            body1,
+            body2,
+            local_point1,
+            local_dir1,
+            local_point2,
+            local_dir2,
             params,
             entities: [body1, body2],
-            b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
         }
     }
 
-    fn t1(&self) -> [ParamId; 3] { [self.b1_tx, self.b1_ty, self.b1_tz] }
-    fn q1(&self) -> [ParamId; 4] { [self.b1_qw, self.b1_qx, self.b1_qy, self.b1_qz] }
-    fn t2(&self) -> [ParamId; 3] { [self.b2_tx, self.b2_ty, self.b2_tz] }
-    fn q2(&self) -> [ParamId; 4] { [self.b2_qw, self.b2_qx, self.b2_qy, self.b2_qz] }
+    fn t1(&self) -> [ParamId; 3] {
+        [self.b1_tx, self.b1_ty, self.b1_tz]
+    }
+    fn q1(&self) -> [ParamId; 4] {
+        [self.b1_qw, self.b1_qx, self.b1_qy, self.b1_qz]
+    }
+    fn t2(&self) -> [ParamId; 3] {
+        [self.b2_tx, self.b2_ty, self.b2_tz]
+    }
+    fn q2(&self) -> [ParamId; 4] {
+        [self.b2_qw, self.b2_qx, self.b2_qy, self.b2_qz]
+    }
 }
 
 impl Constraint for CoaxialAssembly {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "CoaxialAssembly" }
-    fn entity_ids(&self) -> &[EntityId] { &self.entities }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
-    fn equation_count(&self) -> usize { 4 }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "CoaxialAssembly"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+    fn equation_count(&self) -> usize {
+        4
+    }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
         let wd1 = rotate_direction(store, self.q1(), self.local_dir1);
@@ -296,10 +406,20 @@ pub struct Insert {
     offset: f64,
     params: Vec<ParamId>,
     entities: [EntityId; 2],
-    b1_tx: ParamId, b1_ty: ParamId, b1_tz: ParamId,
-    b1_qw: ParamId, b1_qx: ParamId, b1_qy: ParamId, b1_qz: ParamId,
-    b2_tx: ParamId, b2_ty: ParamId, b2_tz: ParamId,
-    b2_qw: ParamId, b2_qx: ParamId, b2_qy: ParamId, b2_qz: ParamId,
+    b1_tx: ParamId,
+    b1_ty: ParamId,
+    b1_tz: ParamId,
+    b1_qw: ParamId,
+    b1_qx: ParamId,
+    b1_qy: ParamId,
+    b1_qz: ParamId,
+    b2_tx: ParamId,
+    b2_ty: ParamId,
+    b2_tz: ParamId,
+    b2_qw: ParamId,
+    b2_qx: ParamId,
+    b2_qy: ParamId,
+    b2_qz: ParamId,
 }
 
 impl Insert {
@@ -311,46 +431,89 @@ impl Insert {
     pub fn new(
         id: ConstraintId,
         body1: EntityId,
-        b1_tx: ParamId, b1_ty: ParamId, b1_tz: ParamId,
-        b1_qw: ParamId, b1_qx: ParamId, b1_qy: ParamId, b1_qz: ParamId,
+        b1_tx: ParamId,
+        b1_ty: ParamId,
+        b1_tz: ParamId,
+        b1_qw: ParamId,
+        b1_qx: ParamId,
+        b1_qy: ParamId,
+        b1_qz: ParamId,
         local_point1: [f64; 3],
         local_dir1: [f64; 3],
         body2: EntityId,
-        b2_tx: ParamId, b2_ty: ParamId, b2_tz: ParamId,
-        b2_qw: ParamId, b2_qx: ParamId, b2_qy: ParamId, b2_qz: ParamId,
+        b2_tx: ParamId,
+        b2_ty: ParamId,
+        b2_tz: ParamId,
+        b2_qw: ParamId,
+        b2_qx: ParamId,
+        b2_qy: ParamId,
+        b2_qz: ParamId,
         local_point2: [f64; 3],
         local_dir2: [f64; 3],
         offset: f64,
     ) -> Self {
         let params = vec![
-            b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
+            b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx,
+            b2_qy, b2_qz,
         ];
         Self {
             id,
-            body1, body2,
-            local_point1, local_dir1,
-            local_point2, local_dir2,
+            body1,
+            body2,
+            local_point1,
+            local_dir1,
+            local_point2,
+            local_dir2,
             offset,
             params,
             entities: [body1, body2],
-            b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
         }
     }
 
-    fn t1(&self) -> [ParamId; 3] { [self.b1_tx, self.b1_ty, self.b1_tz] }
-    fn q1(&self) -> [ParamId; 4] { [self.b1_qw, self.b1_qx, self.b1_qy, self.b1_qz] }
-    fn t2(&self) -> [ParamId; 3] { [self.b2_tx, self.b2_ty, self.b2_tz] }
-    fn q2(&self) -> [ParamId; 4] { [self.b2_qw, self.b2_qx, self.b2_qy, self.b2_qz] }
+    fn t1(&self) -> [ParamId; 3] {
+        [self.b1_tx, self.b1_ty, self.b1_tz]
+    }
+    fn q1(&self) -> [ParamId; 4] {
+        [self.b1_qw, self.b1_qx, self.b1_qy, self.b1_qz]
+    }
+    fn t2(&self) -> [ParamId; 3] {
+        [self.b2_tx, self.b2_ty, self.b2_tz]
+    }
+    fn q2(&self) -> [ParamId; 4] {
+        [self.b2_qw, self.b2_qx, self.b2_qy, self.b2_qz]
+    }
 }
 
 impl Constraint for Insert {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "Insert" }
-    fn entity_ids(&self) -> &[EntityId] { &self.entities }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
-    fn equation_count(&self) -> usize { 5 }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "Insert"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+    fn equation_count(&self) -> usize {
+        5
+    }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
         let wd1 = rotate_direction(store, self.q1(), self.local_dir1);
@@ -373,7 +536,13 @@ impl Constraint for Insert {
         let len = len_sq.sqrt().max(1e-15);
         let axial_residual = dot / len - self.offset;
 
-        vec![cross_dir_x, cross_dir_y, cross_pt_x, cross_pt_y, axial_residual]
+        vec![
+            cross_dir_x,
+            cross_dir_y,
+            cross_pt_x,
+            cross_pt_y,
+            axial_residual,
+        ]
     }
 
     fn jacobian(&self, store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
@@ -415,8 +584,14 @@ pub struct Gear {
     ratio: f64,
     params: Vec<ParamId>,
     entities: [EntityId; 2],
-    b1_qw: ParamId, b1_qx: ParamId, b1_qy: ParamId, b1_qz: ParamId,
-    b2_qw: ParamId, b2_qx: ParamId, b2_qy: ParamId, b2_qz: ParamId,
+    b1_qw: ParamId,
+    b1_qx: ParamId,
+    b1_qy: ParamId,
+    b1_qz: ParamId,
+    b2_qw: ParamId,
+    b2_qx: ParamId,
+    b2_qy: ParamId,
+    b2_qz: ParamId,
 }
 
 impl Gear {
@@ -428,28 +603,49 @@ impl Gear {
     pub fn new(
         id: ConstraintId,
         body1: EntityId,
-        b1_qw: ParamId, b1_qx: ParamId, b1_qy: ParamId, b1_qz: ParamId,
+        b1_qw: ParamId,
+        b1_qx: ParamId,
+        b1_qy: ParamId,
+        b1_qz: ParamId,
         local_axis1: [f64; 3],
         body2: EntityId,
-        b2_qw: ParamId, b2_qx: ParamId, b2_qy: ParamId, b2_qz: ParamId,
+        b2_qw: ParamId,
+        b2_qx: ParamId,
+        b2_qy: ParamId,
+        b2_qz: ParamId,
         local_axis2: [f64; 3],
         ratio: f64,
     ) -> Self {
         let params = vec![b1_qw, b1_qx, b1_qy, b1_qz, b2_qw, b2_qx, b2_qy, b2_qz];
         Self {
             id,
-            body1, body2,
-            local_axis1, local_axis2,
+            body1,
+            body2,
+            local_axis1,
+            local_axis2,
             ratio,
             params,
             entities: [body1, body2],
-            b1_qw, b1_qx, b1_qy, b1_qz,
-            b2_qw, b2_qx, b2_qy, b2_qz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
         }
     }
 
     /// Extract the rotation angle about the local axis from quaternion components.
-    fn axis_angle(store: &ParamStore, qw: ParamId, qx: ParamId, qy: ParamId, qz: ParamId, axis: [f64; 3]) -> f64 {
+    fn axis_angle(
+        store: &ParamStore,
+        qw: ParamId,
+        qx: ParamId,
+        qy: ParamId,
+        qz: ParamId,
+        axis: [f64; 3],
+    ) -> f64 {
         let w = store.get(qw);
         let x = store.get(qx);
         let y = store.get(qy);
@@ -461,15 +657,39 @@ impl Gear {
 }
 
 impl Constraint for Gear {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "Gear" }
-    fn entity_ids(&self) -> &[EntityId] { &self.entities }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
-    fn equation_count(&self) -> usize { 1 }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "Gear"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+    fn equation_count(&self) -> usize {
+        1
+    }
 
     fn residuals(&self, store: &ParamStore) -> Vec<f64> {
-        let theta1 = Self::axis_angle(store, self.b1_qw, self.b1_qx, self.b1_qy, self.b1_qz, self.local_axis1);
-        let theta2 = Self::axis_angle(store, self.b2_qw, self.b2_qx, self.b2_qy, self.b2_qz, self.local_axis2);
+        let theta1 = Self::axis_angle(
+            store,
+            self.b1_qw,
+            self.b1_qx,
+            self.b1_qy,
+            self.b1_qz,
+            self.local_axis1,
+        );
+        let theta2 = Self::axis_angle(
+            store,
+            self.b2_qw,
+            self.b2_qx,
+            self.b2_qy,
+            self.b2_qz,
+            self.local_axis2,
+        );
         vec![theta1 * self.ratio - theta2]
     }
 
@@ -484,7 +704,13 @@ impl Constraint for Gear {
         //
         // For atan2(y,x): d/dy = x/(x^2+y^2), d/dx = -y/(x^2+y^2)
 
-        let compute_derivs = |qw: ParamId, qx: ParamId, qy: ParamId, qz: ParamId, axis: [f64; 3], scale: f64| -> Vec<(usize, ParamId, f64)> {
+        let compute_derivs = |qw: ParamId,
+                              qx: ParamId,
+                              qy: ParamId,
+                              qz: ParamId,
+                              axis: [f64; 3],
+                              scale: f64|
+         -> Vec<(usize, ParamId, f64)> {
             let w = store.get(qw);
             let xv = store.get(qx);
             let yv = store.get(qy);
@@ -510,8 +736,22 @@ impl Constraint for Gear {
             ]
         };
 
-        let mut jac = compute_derivs(self.b1_qw, self.b1_qx, self.b1_qy, self.b1_qz, self.local_axis1, self.ratio);
-        jac.extend(compute_derivs(self.b2_qw, self.b2_qx, self.b2_qy, self.b2_qz, self.local_axis2, -1.0));
+        let mut jac = compute_derivs(
+            self.b1_qw,
+            self.b1_qx,
+            self.b1_qy,
+            self.b1_qz,
+            self.local_axis1,
+            self.ratio,
+        );
+        jac.extend(compute_derivs(
+            self.b2_qw,
+            self.b2_qx,
+            self.b2_qy,
+            self.b2_qz,
+            self.local_axis2,
+            -1.0,
+        ));
         jac
     }
 }
@@ -565,13 +805,26 @@ mod tests {
     use super::*;
     use crate::id::EntityId;
 
-    fn eid(i: u32) -> EntityId { EntityId::new(i, 0) }
-    fn cid(i: u32) -> ConstraintId { ConstraintId::new(i, 0) }
+    fn eid(i: u32) -> EntityId {
+        EntityId::new(i, 0)
+    }
+    fn cid(i: u32) -> ConstraintId {
+        ConstraintId::new(i, 0)
+    }
 
     /// Create a rigid body with identity orientation and given translation.
-    fn make_body(store: &mut ParamStore, entity: EntityId, pos: [f64; 3]) -> (
-        ParamId, ParamId, ParamId,
-        ParamId, ParamId, ParamId, ParamId,
+    fn make_body(
+        store: &mut ParamStore,
+        entity: EntityId,
+        pos: [f64; 3],
+    ) -> (
+        ParamId,
+        ParamId,
+        ParamId,
+        ParamId,
+        ParamId,
+        ParamId,
+        ParamId,
     ) {
         let tx = store.alloc(pos[0], entity);
         let ty = store.alloc(pos[1], entity);
@@ -584,12 +837,7 @@ mod tests {
     }
 
     /// Verify Jacobian via finite differences.
-    fn verify_jacobian_fd(
-        constraint: &dyn Constraint,
-        store: &mut ParamStore,
-        eps: f64,
-        tol: f64,
-    ) {
+    fn verify_jacobian_fd(constraint: &dyn Constraint, store: &mut ParamStore, eps: f64, tol: f64) {
         let analytic = constraint.jacobian(store);
         let n_eq = constraint.equation_count();
 
@@ -608,7 +856,11 @@ mod tests {
             assert!(
                 err < tol,
                 "Jacobian mismatch for {:?} row {}: analytic={}, fd={}, err={}",
-                pid, row, analytic_val, fd, err,
+                pid,
+                row,
+                analytic_val,
+                fd,
+                err,
             );
         }
     }
@@ -628,9 +880,23 @@ mod tests {
 
         let c = Mate::new(
             cid(0),
-            e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
             [1.0, 0.0, 0.0],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
             [1.0, 0.0, 0.0],
         );
 
@@ -654,9 +920,23 @@ mod tests {
         // World: 0+(5,0,0) = (5,0,0), 10+(-5,0,0) = (5,0,0)
         let c = Mate::new(
             cid(0),
-            e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
             [5.0, 0.0, 0.0],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
             [-5.0, 0.0, 0.0],
         );
 
@@ -684,9 +964,23 @@ mod tests {
 
         let c = Mate::new(
             cid(0),
-            e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
             [1.0, 0.5, -0.3],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
             [-0.5, 1.0, 0.2],
         );
 
@@ -709,10 +1003,26 @@ mod tests {
 
         let c = CoaxialAssembly::new(
             cid(0),
-            e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
         );
 
         let r = c.residuals(&store);
@@ -738,10 +1048,26 @@ mod tests {
 
         let c = CoaxialAssembly::new(
             cid(0),
-            e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
-            [0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
         );
 
         // Since CoaxialAssembly uses FD internally, verify against independent FD
@@ -763,10 +1089,26 @@ mod tests {
 
         let c = Insert::new(
             cid(0),
-            e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
             0.0,
         );
 
@@ -787,10 +1129,26 @@ mod tests {
 
         let c = Insert::new(
             cid(0),
-            e1, b1_tx, b1_ty, b1_tz, b1_qw, b1_qx, b1_qy, b1_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
-            e2, b2_tx, b2_ty, b2_tz, b2_qw, b2_qx, b2_qy, b2_qz,
-            [0.0, 0.0, 0.0], [0.0, 0.0, 1.0],
+            e1,
+            b1_tx,
+            b1_ty,
+            b1_tz,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_tx,
+            b2_ty,
+            b2_tz,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
             2.0,
         );
 
@@ -817,8 +1175,18 @@ mod tests {
 
         let c = Gear::new(
             cid(0),
-            e1, b1_qw, b1_qx, b1_qy, b1_qz, [0.0, 0.0, 1.0],
-            e2, b2_qw, b2_qx, b2_qy, b2_qz, [0.0, 0.0, 1.0],
+            e1,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 1.0],
             2.0,
         );
 
@@ -849,8 +1217,18 @@ mod tests {
         // ratio * theta1 - theta2 = 2 * 30 - 60 = 0
         let c = Gear::new(
             cid(0),
-            e1, b1_qw, b1_qx, b1_qy, b1_qz, [0.0, 0.0, 1.0],
-            e2, b2_qw, b2_qx, b2_qy, b2_qz, [0.0, 0.0, 1.0],
+            e1,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 1.0],
             2.0,
         );
 
@@ -878,8 +1256,18 @@ mod tests {
 
         let c = Gear::new(
             cid(0),
-            e1, b1_qw, b1_qx, b1_qy, b1_qz, [0.0, 0.0, 1.0],
-            e2, b2_qw, b2_qx, b2_qy, b2_qz, [0.0, 0.0, 1.0],
+            e1,
+            b1_qw,
+            b1_qx,
+            b1_qy,
+            b1_qz,
+            [0.0, 0.0, 1.0],
+            e2,
+            b2_qw,
+            b2_qx,
+            b2_qy,
+            b2_qz,
+            [0.0, 0.0, 1.0],
             2.0,
         );
 

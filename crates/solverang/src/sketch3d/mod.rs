@@ -6,11 +6,10 @@
 //! - **Constraints**: [`Distance3D`], [`Coincident3D`], [`Fixed3D`], [`PointOnPlane`],
 //!   [`Coplanar`], [`Parallel3D`], [`Perpendicular3D`], [`Coaxial`]
 
-pub mod entities;
 pub mod constraints;
+pub mod entities;
 
-pub use entities::{Point3D, LineSegment3D, Plane, Axis3D};
 pub use constraints::{
-    Distance3D, Coincident3D, Fixed3D, PointOnPlane, Coplanar,
-    Parallel3D, Perpendicular3D, Coaxial,
+    Coaxial, Coincident3D, Coplanar, Distance3D, Fixed3D, Parallel3D, Perpendicular3D, PointOnPlane,
 };
+pub use entities::{Axis3D, LineSegment3D, Plane, Point3D};

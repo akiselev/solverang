@@ -88,13 +88,7 @@ pub struct LineSegment2D {
 
 impl LineSegment2D {
     /// Create a new 2D line segment entity.
-    pub fn new(
-        id: EntityId,
-        x1: ParamId,
-        y1: ParamId,
-        x2: ParamId,
-        y2: ParamId,
-    ) -> Self {
+    pub fn new(id: EntityId, x1: ParamId, y1: ParamId, x2: ParamId, y2: ParamId) -> Self {
         Self {
             id,
             x1,
@@ -358,13 +352,7 @@ pub struct InfiniteLine2D {
 
 impl InfiniteLine2D {
     /// Create a new infinite line entity.
-    pub fn new(
-        id: EntityId,
-        px: ParamId,
-        py: ParamId,
-        dx: ParamId,
-        dy: ParamId,
-    ) -> Self {
+    pub fn new(id: EntityId, px: ParamId, py: ParamId, dx: ParamId, dy: ParamId) -> Self {
         Self {
             id,
             px,
@@ -417,6 +405,157 @@ impl Entity for InfiniteLine2D {
 
     fn name(&self) -> &str {
         "InfiniteLine2D"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Ellipse2D
+// ---------------------------------------------------------------------------
+
+/// A 2D ellipse with center (cx, cy), semi-major axis a, semi-minor axis b,
+/// and rotation angle theta (radians).
+/// Parametric: x(t) = cx + a*cos(t)*cos(θ) - b*sin(t)*sin(θ)
+///             y(t) = cy + a*cos(t)*sin(θ) + b*sin(t)*cos(θ)
+/// 5 DOF: [cx, cy, a, b, theta]
+#[derive(Debug)]
+pub struct Ellipse2D {
+    id: EntityId,
+    cx: ParamId,
+    cy: ParamId,
+    a: ParamId,
+    b: ParamId,
+    theta: ParamId,
+    params: [ParamId; 5],
+}
+
+impl Ellipse2D {
+    /// Create a new 2D ellipse entity.
+    pub fn new(
+        id: EntityId,
+        cx: ParamId,
+        cy: ParamId,
+        a: ParamId,
+        b: ParamId,
+        theta: ParamId,
+    ) -> Self {
+        Self {
+            id,
+            cx,
+            cy,
+            a,
+            b,
+            theta,
+            params: [cx, cy, a, b, theta],
+        }
+    }
+
+    /// Parameter ID for the center x-coordinate.
+    pub fn center_x(&self) -> ParamId {
+        self.cx
+    }
+
+    /// Parameter ID for the center y-coordinate.
+    pub fn center_y(&self) -> ParamId {
+        self.cy
+    }
+
+    /// Parameter ID for the semi-major axis.
+    pub fn semi_major(&self) -> ParamId {
+        self.a
+    }
+
+    /// Parameter ID for the semi-minor axis.
+    pub fn semi_minor(&self) -> ParamId {
+        self.b
+    }
+
+    /// Parameter ID for the rotation angle.
+    pub fn rotation(&self) -> ParamId {
+        self.theta
+    }
+
+    /// Compute a point on the ellipse at parameter `t` (radians).
+    pub fn point_at(&self, store: &ParamStore, t: f64) -> (f64, f64) {
+        let cx = store.get(self.cx);
+        let cy = store.get(self.cy);
+        let a = store.get(self.a);
+        let b = store.get(self.b);
+        let th = store.get(self.theta);
+        let x = cx + a * t.cos() * th.cos() - b * t.sin() * th.sin();
+        let y = cy + a * t.cos() * th.sin() + b * t.sin() * th.cos();
+        (x, y)
+    }
+}
+
+impl Entity for Ellipse2D {
+    fn id(&self) -> EntityId {
+        self.id
+    }
+
+    fn params(&self) -> &[ParamId] {
+        &self.params
+    }
+
+    fn name(&self) -> &str {
+        "Ellipse2D"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Spline2D
+// ---------------------------------------------------------------------------
+
+/// A 2D spline defined by n control points. DOF = 2n.
+#[derive(Debug)]
+pub struct Spline2D {
+    id: EntityId,
+    params: Vec<ParamId>,
+    n_points: usize,
+}
+
+impl Spline2D {
+    /// Create a new 2D spline entity from a list of (x, y) parameter ID pairs.
+    pub fn new(id: EntityId, control_points: Vec<(ParamId, ParamId)>) -> Self {
+        let n_points = control_points.len();
+        let params: Vec<ParamId> = control_points
+            .into_iter()
+            .flat_map(|(x, y)| [x, y])
+            .collect();
+        Self { id, params, n_points }
+    }
+
+    /// Number of control points.
+    pub fn n_points(&self) -> usize {
+        self.n_points
+    }
+
+    /// Parameter ID for the x-coordinate of control point `i`.
+    pub fn control_point_x(&self, i: usize) -> ParamId {
+        self.params[2 * i]
+    }
+
+    /// Parameter ID for the y-coordinate of control point `i`.
+    pub fn control_point_y(&self, i: usize) -> ParamId {
+        self.params[2 * i + 1]
+    }
+
+    /// Read the coordinates of control point `i` from the store.
+    pub fn get_control_point(&self, store: &ParamStore, i: usize) -> (f64, f64) {
+        (store.get(self.params[2 * i]), store.get(self.params[2 * i + 1]))
+    }
+}
+
+impl Entity for Spline2D {
+    fn id(&self) -> EntityId {
+        self.id
+    }
+
+    fn params(&self) -> &[ParamId] {
+        &self.params
+    }
+
+    fn name(&self) -> &str {
+        "Spline2D"
     }
 }
 

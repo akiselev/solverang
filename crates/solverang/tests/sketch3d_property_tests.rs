@@ -11,8 +11,7 @@ use solverang::constraint::Constraint;
 use solverang::id::{ConstraintId, EntityId, ParamId};
 use solverang::param::ParamStore;
 use solverang::sketch3d::{
-    Coaxial, Coincident3D, Coplanar, Distance3D, Fixed3D, Parallel3D,
-    Perpendicular3D, PointOnPlane,
+    Coaxial, Coincident3D, Coplanar, Distance3D, Fixed3D, Parallel3D, Perpendicular3D, PointOnPlane,
 };
 use solverang::ConstraintSystem;
 
@@ -28,38 +27,56 @@ struct TestCtx {
 
 impl TestCtx {
     fn new() -> Self {
-        Self { sys: ConstraintSystem::new() }
+        Self {
+            sys: ConstraintSystem::new(),
+        }
     }
 
-    fn entity(&mut self) -> EntityId { self.sys.alloc_entity_id() }
-    fn cid(&mut self) -> ConstraintId { self.sys.alloc_constraint_id() }
+    fn entity(&mut self) -> EntityId {
+        self.sys.alloc_entity_id()
+    }
+    fn cid(&mut self) -> ConstraintId {
+        self.sys.alloc_constraint_id()
+    }
     fn alloc(&mut self, value: f64, owner: EntityId) -> ParamId {
         self.sys.alloc_param(value, owner)
     }
-    fn store(&self) -> ParamStore { self.sys.params().clone() }
+    fn store(&self) -> ParamStore {
+        self.sys.params().clone()
+    }
 }
 
 // =============================================================================
 // Proptest strategies
 // =============================================================================
 
-fn coord() -> impl Strategy<Value = f64> { -500.0f64..500.0 }
-fn positive_dist() -> impl Strategy<Value = f64> { 0.1f64..200.0 }
+fn coord() -> impl Strategy<Value = f64> {
+    -500.0f64..500.0
+}
+fn positive_dist() -> impl Strategy<Value = f64> {
+    0.1f64..200.0
+}
 
 /// Non-degenerate 3D unit normal vector via spherical coordinates.
 fn unit_normal() -> impl Strategy<Value = (f64, f64, f64)> {
-    (0.01f64..std::f64::consts::PI - 0.01, 0.0f64..std::f64::consts::TAU)
+    (
+        0.01f64..std::f64::consts::PI - 0.01,
+        0.0f64..std::f64::consts::TAU,
+    )
         .prop_map(|(theta, phi)| {
-            (theta.sin() * phi.cos(), theta.sin() * phi.sin(), theta.cos())
+            (
+                theta.sin() * phi.cos(),
+                theta.sin() * phi.sin(),
+                theta.cos(),
+            )
         })
 }
 
 /// Non-degenerate 3D direction vector (not too short).
 fn direction3d() -> impl Strategy<Value = (f64, f64, f64)> {
-    (coord(), coord(), coord())
-        .prop_filter("direction too short", |&(dx, dy, dz)| {
-            dx * dx + dy * dy + dz * dz > 1.0
-        })
+    (coord(), coord(), coord()).prop_filter("direction too short", |&(dx, dy, dz)| {
+        dx * dx + dy * dy + dz * dz > 1.0
+    })
 }
 
 // =============================================================================

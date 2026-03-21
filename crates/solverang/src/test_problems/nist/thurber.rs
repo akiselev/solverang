@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/thurber.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 
 /// Data for Thurber problem: (x, y) pairs
 const DATA: [(f64, f64); 37] = [
@@ -55,24 +55,24 @@ const DATA: [(f64, f64); 37] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 7] = [
-    1.2881396800E+03,   // b1
-    1.4910792535E+03,   // b2
-    5.8323836877E+02,   // b3
-    7.5416644291E+01,   // b4
-    9.6629502864E-01,   // b5
-    3.9797285797E-01,   // b6
-    4.9727297349E-02,   // b7
+    1.2881396800E+03, // b1
+    1.4910792535E+03, // b2
+    5.8323836877E+02, // b3
+    7.5416644291E+01, // b4
+    9.6629502864E-01, // b5
+    3.9797285797E-01, // b6
+    4.9727297349E-02, // b7
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 7] = [
-    4.6647963344E+01,   // b1
-    3.9571156086E+01,   // b2
-    2.8698696102E+01,   // b3
-    5.5049381320E+00,   // b4
-    3.1801927260E-02,   // b5
-    1.4560302752E-02,   // b6
-    6.5842344623E-03,   // b7
+    4.6647963344E+01, // b1
+    3.9571156086E+01, // b2
+    2.8698696102E+01, // b3
+    5.5049381320E+00, // b4
+    3.1801927260E-02, // b5
+    1.4560302752E-02, // b6
+    6.5842344623E-03, // b7
 ];
 
 /// Certified residual sum of squares

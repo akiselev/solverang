@@ -224,10 +224,7 @@ mod tests {
             vec![store.get(self.params[0]) - store.get(self.params[1])]
         }
         fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
-            vec![
-                (0, self.params[0], 1.0),
-                (0, self.params[1], -1.0),
-            ]
+            vec![(0, self.params[0], 1.0), (0, self.params[1], -1.0)]
         }
     }
 

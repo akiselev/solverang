@@ -9,8 +9,8 @@
 //!
 //! Reference: <https://www.itl.nist.gov/div898/strd/nls/data/roszman1.shtml>
 
+use super::{NISTDifficulty, NISTProblem};
 use crate::Problem;
-use super::{NISTProblem, NISTDifficulty};
 use std::f64::consts::PI;
 
 /// Data for Roszman1 problem: (x, y) pairs
@@ -44,18 +44,18 @@ const DATA: [(f64, f64); 25] = [
 
 /// Certified parameter values from NIST
 const CERTIFIED_VALUES: [f64; 4] = [
-    2.0196866396E-01,   // b1
-    -6.1953516256E-06,  // b2
-    1.2044556708E+03,   // b3
-    -1.8134269537E+02,  // b4
+    2.0196866396E-01,  // b1
+    -6.1953516256E-06, // b2
+    1.2044556708E+03,  // b3
+    -1.8134269537E+02, // b4
 ];
 
 /// Certified standard errors from NIST
 const CERTIFIED_STD_ERRORS: [f64; 4] = [
-    1.9172666023E-02,   // b1
-    3.2160514428E-06,   // b2
-    7.4050293788E+01,   // b3
-    2.9974905535E+01,   // b4
+    1.9172666023E-02, // b1
+    3.2160514428E-06, // b2
+    7.4050293788E+01, // b3
+    2.9974905535E+01, // b4
 ];
 
 /// Certified residual sum of squares

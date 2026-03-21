@@ -109,9 +109,7 @@ pub enum DiagnosticIssue {
         implied_by: Vec<ConstraintId>,
     },
     /// Two or more constraints conflict (cannot be simultaneously satisfied).
-    ConflictingConstraints {
-        constraints: Vec<ConstraintId>,
-    },
+    ConflictingConstraints { constraints: Vec<ConstraintId> },
     /// An entity has unconstrained directions.
     UnderConstrained {
         entity: EntityId,
@@ -418,7 +416,13 @@ impl ConstraintSystem {
             .collect();
         let mapping = self.params.build_solver_mapping();
 
-        let result = project_drag(&constraint_refs, &self.params, &mapping, displacements, 1e-10);
+        let result = project_drag(
+            &constraint_refs,
+            &self.params,
+            &mapping,
+            displacements,
+            1e-10,
+        );
 
         apply_drag(&mut self.params, &mapping, &result);
 
@@ -439,16 +443,18 @@ impl ConstraintSystem {
             .filter_map(|(i, c)| c.as_deref().map(|c| (i, c as &dyn Constraint)))
             .collect();
         let mapping = self.params.build_solver_mapping();
-        crate::graph::redundancy::analyze_redundancy(&constraint_refs, &self.params, &mapping, 1e-10)
+        crate::graph::redundancy::analyze_redundancy(
+            &constraint_refs,
+            &self.params,
+            &mapping,
+            1e-10,
+        )
     }
 
     /// Analyze degrees of freedom per entity.
     pub fn analyze_dof(&self) -> crate::graph::dof::DofAnalysis {
-        let entity_refs: Vec<&dyn Entity> = self
-            .entities
-            .iter()
-            .filter_map(|e| e.as_deref())
-            .collect();
+        let entity_refs: Vec<&dyn Entity> =
+            self.entities.iter().filter_map(|e| e.as_deref()).collect();
         let constraint_refs: Vec<(usize, &dyn Constraint)> = self
             .constraints
             .iter()
@@ -622,15 +628,16 @@ mod tests {
             vec![a + b - self.target]
         }
         fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
-            vec![
-                (0, self.params[0], 1.0),
-                (0, self.params[1], 1.0),
-            ]
+            vec![(0, self.params[0], 1.0), (0, self.params[1], 1.0)]
         }
     }
 
     /// Helper to build a point entity in the system.
-    fn add_test_point(system: &mut ConstraintSystem, x: f64, y: f64) -> (EntityId, ParamId, ParamId) {
+    fn add_test_point(
+        system: &mut ConstraintSystem,
+        x: f64,
+        y: f64,
+    ) -> (EntityId, ParamId, ParamId) {
         let eid = system.alloc_entity_id();
         let px = system.alloc_param(x, eid);
         let py = system.alloc_param(y, eid);
@@ -759,18 +766,17 @@ mod tests {
 
         let result = system.solve();
         assert!(
-            matches!(result.status, SystemStatus::Solved | SystemStatus::PartiallySolved),
+            matches!(
+                result.status,
+                SystemStatus::Solved | SystemStatus::PartiallySolved
+            ),
             "Expected Solved or PartiallySolved, got {:?}",
             result.status
         );
 
         // px should now be close to 7.0
         let val = system.get_param(px);
-        assert!(
-            (val - 7.0).abs() < 1e-6,
-            "Expected px ~ 7.0, got {}",
-            val
-        );
+        assert!((val - 7.0).abs() < 1e-6, "Expected px ~ 7.0, got {}", val);
     }
 
     #[test]
@@ -804,7 +810,10 @@ mod tests {
 
         // Both should converge
         assert!(
-            matches!(result.status, SystemStatus::Solved | SystemStatus::PartiallySolved),
+            matches!(
+                result.status,
+                SystemStatus::Solved | SystemStatus::PartiallySolved
+            ),
             "Expected Solved or PartiallySolved, got {:?}",
             result.status
         );
@@ -839,10 +848,17 @@ mod tests {
         let result = system.solve();
 
         // These two constraints share px, so they should be in the same cluster
-        assert_eq!(result.clusters.len(), 1, "Coupled constraints should form 1 cluster");
+        assert_eq!(
+            result.clusters.len(),
+            1,
+            "Coupled constraints should form 1 cluster"
+        );
 
         assert!(
-            matches!(result.status, SystemStatus::Solved | SystemStatus::PartiallySolved),
+            matches!(
+                result.status,
+                SystemStatus::Solved | SystemStatus::PartiallySolved
+            ),
             "Solve status: {:?}",
             result.status
         );

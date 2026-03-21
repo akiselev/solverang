@@ -308,27 +308,23 @@ pub fn detect_patterns(
         }
 
         // Try patterns in order of specificity (most specific first).
-        let matched = try_horizontal_vertical(
-            entity,
-            &free_params,
-            &constraint_indices,
-            constraints,
-        )
-        .or_else(|| {
-            try_two_distances(entity, &free_params, &constraint_indices, constraints)
-        })
-        .or_else(|| {
-            try_distance_angle(entity, &free_params, &constraint_indices, constraints)
-        })
-        .or_else(|| {
-            try_scalar_solve(
-                entity,
-                &free_params,
-                &constraint_indices,
-                constraints,
-                store,
-            )
-        });
+        let matched =
+            try_horizontal_vertical(entity, &free_params, &constraint_indices, constraints)
+                .or_else(|| {
+                    try_two_distances(entity, &free_params, &constraint_indices, constraints)
+                })
+                .or_else(|| {
+                    try_distance_angle(entity, &free_params, &constraint_indices, constraints)
+                })
+                .or_else(|| {
+                    try_scalar_solve(
+                        entity,
+                        &free_params,
+                        &constraint_indices,
+                        constraints,
+                        store,
+                    )
+                });
 
         if let Some(pattern) = matched {
             // Mark the constraints as claimed so they are not double-matched.
@@ -663,7 +659,10 @@ mod tests {
     #[test]
     fn test_categorize() {
         assert_eq!(categorize("Distance"), ConstraintCategory::Distance);
-        assert_eq!(categorize("distance_to_point"), ConstraintCategory::Distance);
+        assert_eq!(
+            categorize("distance_to_point"),
+            ConstraintCategory::Distance
+        );
         assert_eq!(categorize("Horizontal"), ConstraintCategory::Horizontal);
         assert_eq!(categorize("Vertical"), ConstraintCategory::Vertical);
         assert_eq!(categorize("Angle"), ConstraintCategory::Angle);

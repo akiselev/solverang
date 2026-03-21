@@ -91,8 +91,16 @@ pub fn verify_jacobian<P: Problem + ?Sized>(
 
     for i in 0..m {
         for j in 0..n {
-            let analytical_val = analytical.get(i).and_then(|row| row.get(j)).copied().unwrap_or(0.0);
-            let numerical_val = numerical.get(i).and_then(|row| row.get(j)).copied().unwrap_or(0.0);
+            let analytical_val = analytical
+                .get(i)
+                .and_then(|row| row.get(j))
+                .copied()
+                .unwrap_or(0.0);
+            let numerical_val = numerical
+                .get(i)
+                .and_then(|row| row.get(j))
+                .copied()
+                .unwrap_or(0.0);
 
             let abs_error = (analytical_val - numerical_val).abs();
             sum_error += abs_error;
@@ -206,12 +214,7 @@ mod tests {
             vec![2.0 * x[0] + 3.0 * x[1], 4.0 * x[0] + 5.0 * x[1]]
         }
         fn jacobian(&self, _x: &[f64]) -> Vec<(usize, usize, f64)> {
-            vec![
-                (0, 0, 2.0),
-                (0, 1, 3.0),
-                (1, 0, 4.0),
-                (1, 1, 5.0),
-            ]
+            vec![(0, 0, 2.0), (0, 1, 3.0), (1, 0, 4.0), (1, 1, 5.0)]
         }
         fn initial_point(&self, factor: f64) -> Vec<f64> {
             vec![factor, factor]
@@ -234,12 +237,7 @@ mod tests {
             vec![x[0] * x[0] + x[1], x[0] * x[1]]
         }
         fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
-            vec![
-                (0, 0, 2.0 * x[0]),
-                (0, 1, 1.0),
-                (1, 0, x[1]),
-                (1, 1, x[0]),
-            ]
+            vec![(0, 0, 2.0 * x[0]), (0, 1, 1.0), (1, 0, x[1]), (1, 1, x[0])]
         }
         fn initial_point(&self, factor: f64) -> Vec<f64> {
             vec![factor, factor]

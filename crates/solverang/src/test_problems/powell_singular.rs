@@ -41,10 +41,10 @@ impl Problem for PowellSingular {
         let sqrt10 = 10.0_f64.sqrt();
 
         vec![
-            x[0] + 10.0 * x[1],              // x(1) + ten*x(2)
-            sqrt5 * (x[2] - x[3]),           // sqrt(five)*(x(3) - x(4))
-            (x[1] - 2.0 * x[2]).powi(2),     // (x(2) - two*x(3))**2
-            sqrt10 * (x[0] - x[3]).powi(2),  // sqrt(ten)*(x(1) - x(4))**2
+            x[0] + 10.0 * x[1],             // x(1) + ten*x(2)
+            sqrt5 * (x[2] - x[3]),          // sqrt(five)*(x(3) - x(4))
+            (x[1] - 2.0 * x[2]).powi(2),    // (x(2) - two*x(3))**2
+            sqrt10 * (x[0] - x[3]).powi(2), // sqrt(ten)*(x(1) - x(4))**2
         ]
     }
 
@@ -55,7 +55,7 @@ impl Problem for PowellSingular {
         let sqrt10 = 10.0_f64.sqrt();
 
         let d3 = x[1] - 2.0 * x[2]; // For F_3
-        let d4 = x[0] - x[3];       // For F_4
+        let d4 = x[0] - x[3]; // For F_4
 
         vec![
             // Row 0: dF_1/dx

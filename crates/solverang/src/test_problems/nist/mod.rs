@@ -52,68 +52,68 @@
 //! <https://www.itl.nist.gov/div898/strd/nls/nls_main.shtml>
 
 // Lower difficulty problems
-mod misra1a;
 mod chwirut1;
 mod chwirut2;
-mod lanczos1;
-mod lanczos2;
-mod lanczos3;
 mod gauss1;
 mod gauss2;
 mod gauss3;
+mod lanczos1;
+mod lanczos2;
+mod lanczos3;
+mod misra1a;
 
 // Average difficulty problems
+mod enso;
 mod misra1b;
 mod misra1c;
 mod misra1d;
 mod roszman1;
-mod enso;
 
 // Higher difficulty problems
-mod eckerle4;
-mod rat42;
-mod rat43;
 mod bennett5;
 mod boxbod;
-mod thurber;
+mod eckerle4;
 mod mgh09;
 mod mgh10;
 mod nelson;
+mod rat42;
+mod rat43;
+mod thurber;
 
 // Additional NIST problems
-mod kirby2;
-mod hahn1;
 mod danwood;
+mod hahn1;
+mod kirby2;
 mod mgh17;
 
 // Re-exports
-pub use misra1a::Misra1a;
+pub use bennett5::Bennett5;
+pub use boxbod::BoxBOD;
 pub use chwirut1::Chwirut1;
 pub use chwirut2::Chwirut2;
-pub use lanczos1::Lanczos1;
-pub use lanczos2::Lanczos2;
-pub use lanczos3::Lanczos3;
+pub use danwood::DanWood;
+pub use eckerle4::Eckerle4;
+pub use enso::ENSO;
 pub use gauss1::Gauss1;
 pub use gauss2::Gauss2;
 pub use gauss3::Gauss3;
+pub use hahn1::Hahn1;
+pub use kirby2::Kirby2;
+pub use lanczos1::Lanczos1;
+pub use lanczos2::Lanczos2;
+pub use lanczos3::Lanczos3;
+pub use mgh09::MGH09;
+pub use mgh10::MGH10;
+pub use mgh17::MGH17;
+pub use misra1a::Misra1a;
 pub use misra1b::Misra1b;
 pub use misra1c::Misra1c;
 pub use misra1d::Misra1d;
-pub use roszman1::Roszman1;
-pub use enso::ENSO;
-pub use eckerle4::Eckerle4;
+pub use nelson::Nelson;
 pub use rat42::Rat42;
 pub use rat43::Rat43;
-pub use bennett5::Bennett5;
-pub use boxbod::BoxBOD;
+pub use roszman1::Roszman1;
 pub use thurber::Thurber;
-pub use mgh09::MGH09;
-pub use mgh10::MGH10;
-pub use nelson::Nelson;
-pub use kirby2::Kirby2;
-pub use hahn1::Hahn1;
-pub use danwood::DanWood;
-pub use mgh17::MGH17;
 
 use crate::Problem;
 
@@ -224,7 +224,11 @@ pub trait NISTProblem: Problem {
     }
 
     /// Verify that the residual sum of squares matches the certified value.
-    fn verify_residual_sum_of_squares(&self, solution: &[f64], tolerance: f64) -> Result<(), String> {
+    fn verify_residual_sum_of_squares(
+        &self,
+        solution: &[f64],
+        tolerance: f64,
+    ) -> Result<(), String> {
         let residuals = self.residuals(solution);
         let computed_rss: f64 = residuals.iter().map(|r| r * r).sum();
         let certified_rss = self.certified_residual_sum_of_squares();
@@ -306,9 +310,8 @@ pub fn all_problems() -> Vec<Box<dyn NISTProblem>> {
 pub fn all_problem_names() -> Vec<&'static str> {
     vec![
         // Lower
-        "Misra1a", "Chwirut1", "Chwirut2", "Lanczos1", "Lanczos2", "Lanczos3",
-        "Gauss1", "Gauss2", "Gauss3", "DanWood",
-        // Average
+        "Misra1a", "Chwirut1", "Chwirut2", "Lanczos1", "Lanczos2", "Lanczos3", "Gauss1", "Gauss2",
+        "Gauss3", "DanWood", // Average
         "Misra1b", "Misra1c", "Misra1d", "Roszman1", "ENSO", "Kirby2", "Hahn1", "MGH17",
         // Higher
         "Eckerle4", "Rat42", "Rat43", "Bennett5", "BoxBOD", "Thurber", "MGH09", "MGH10", "Nelson",
@@ -326,7 +329,10 @@ mod tests {
             assert!(!problem.name().is_empty(), "Problem should have a name");
             assert!(problem.variable_count() > 0, "Should have variables");
             assert!(problem.residual_count() > 0, "Should have residuals");
-            assert!(!problem.certified_values().is_empty(), "Should have certified values");
+            assert!(
+                !problem.certified_values().is_empty(),
+                "Should have certified values"
+            );
             assert_eq!(
                 problem.certified_values().len(),
                 problem.variable_count(),
@@ -367,10 +373,7 @@ mod tests {
     fn test_solve_lower_difficulty() {
         let solver = LMSolver::new(LMConfig::robust());
 
-        let lower_problems: Vec<Box<dyn NISTProblem>> = vec![
-            Box::new(Misra1a),
-            Box::new(DanWood),
-        ];
+        let lower_problems: Vec<Box<dyn NISTProblem>> = vec![Box::new(Misra1a), Box::new(DanWood)];
 
         for problem in lower_problems {
             let x0 = problem.starting_values_2();
