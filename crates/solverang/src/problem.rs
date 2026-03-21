@@ -105,6 +105,165 @@ pub trait Problem: Send + Sync {
         let r = self.residuals(x);
         r.iter().map(|v| v * v).sum()
     }
+
+    /// Lower this problem to compiled constraints for JIT compilation.
+    ///
+    /// Returns `None` by default. Types annotated with `#[auto_jacobian]` can
+    /// override this to return `Some(CompiledConstraints)`, enabling automatic
+    /// JIT compilation in `JITSolver::solve()`.
+    #[cfg(feature = "jit")]
+    fn lower_to_compiled_constraints(&self) -> Option<crate::jit::CompiledConstraints> {
+        None
+    }
+}
+
+/// A problem built from closure functions.
+///
+/// Created by [`ProblemBuilder::build`]. Implements [`Problem`] by dispatching
+/// to the closures provided during construction.
+pub struct ClosureProblem {
+    n_vars: usize,
+    residual_fns: Vec<Box<dyn Fn(&[f64]) -> f64 + Send + Sync>>,
+    jacobian_fn: Option<Box<dyn Fn(&[f64]) -> Vec<(usize, usize, f64)> + Send + Sync>>,
+    name: String,
+}
+
+impl Problem for ClosureProblem {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn residual_count(&self) -> usize {
+        self.residual_fns.len()
+    }
+
+    fn variable_count(&self) -> usize {
+        self.n_vars
+    }
+
+    fn residuals(&self, x: &[f64]) -> Vec<f64> {
+        self.residual_fns.iter().map(|f| f(x)).collect()
+    }
+
+    fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+        if let Some(ref jac_fn) = self.jacobian_fn {
+            return jac_fn(x);
+        }
+
+        // Central finite differences fallback.
+        let m = self.residual_fns.len();
+        let n = self.n_vars;
+        // Central-difference step: balances truncation error O(h^2) against
+        // cancellation error. Slightly larger than sqrt(f64::EPSILON) ≈ 1.5e-8
+        // to tolerate mildly nonsmooth functions.
+        let eps = 1e-7;
+
+        if n == 0 || m == 0 {
+            return vec![];
+        }
+
+        let mut entries = Vec::with_capacity(m * n);
+        let mut x_plus = x.to_vec();
+        let mut x_minus = x.to_vec();
+
+        for j in 0..n {
+            let h = eps * (1.0 + x[j].abs());
+
+            x_plus[j] = x[j] + h;
+            x_minus[j] = x[j] - h;
+
+            for (i, f) in self.residual_fns.iter().enumerate() {
+                let derivative = (f(&x_plus) - f(&x_minus)) / (2.0 * h);
+                entries.push((i, j, derivative));
+            }
+
+            x_plus[j] = x[j];
+            x_minus[j] = x[j];
+        }
+
+        entries
+    }
+
+    fn initial_point(&self, factor: f64) -> Vec<f64> {
+        vec![factor; self.n_vars]
+    }
+}
+
+/// Ergonomic builder for constructing [`ClosureProblem`] instances.
+///
+/// Allows assembling multi-residual problems from individual closure functions
+/// without manually implementing the [`Problem`] trait.
+///
+/// # Example
+///
+/// ```rust
+/// use solverang::{Problem, ProblemBuilder};
+///
+/// // Rosenbrock: minimum at (1, 1)
+/// let problem = ProblemBuilder::new(2)
+///     .residual(|x| 10.0 * (x[1] - x[0].powi(2)))
+///     .residual(|x| 1.0 - x[0])
+///     .build();
+///
+/// assert_eq!(problem.residual_count(), 2);
+/// assert_eq!(problem.variable_count(), 2);
+/// ```
+pub struct ProblemBuilder {
+    n_vars: usize,
+    residual_fns: Vec<Box<dyn Fn(&[f64]) -> f64 + Send + Sync>>,
+    jacobian_fn: Option<Box<dyn Fn(&[f64]) -> Vec<(usize, usize, f64)> + Send + Sync>>,
+    name: String,
+}
+
+impl ProblemBuilder {
+    /// Create a new builder for a problem with `n_vars` variables.
+    pub fn new(n_vars: usize) -> Self {
+        Self {
+            n_vars,
+            residual_fns: Vec::new(),
+            jacobian_fn: None,
+            name: String::from("ClosureProblem"),
+        }
+    }
+
+    /// Set the problem name used for reporting and debugging.
+    pub fn name(mut self, name: &str) -> Self {
+        self.name = name.to_owned();
+        self
+    }
+
+    /// Append a residual closure.
+    ///
+    /// Each call adds one equation to the system. Closures receive a slice of
+    /// the current variable values `x` and return the scalar residual value.
+    pub fn residual<F: Fn(&[f64]) -> f64 + Send + Sync + 'static>(mut self, f: F) -> Self {
+        self.residual_fns.push(Box::new(f));
+        self
+    }
+
+    /// Provide an explicit Jacobian closure.
+    ///
+    /// The closure receives `x` and returns sparse triplets `(row, col, value)`
+    /// where `row` is the residual index and `col` is the variable index.
+    ///
+    /// When not provided, the Jacobian is approximated via central finite differences.
+    pub fn jacobian<F: Fn(&[f64]) -> Vec<(usize, usize, f64)> + Send + Sync + 'static>(
+        mut self,
+        f: F,
+    ) -> Self {
+        self.jacobian_fn = Some(Box::new(f));
+        self
+    }
+
+    /// Consume the builder and produce a [`ClosureProblem`].
+    pub fn build(self) -> ClosureProblem {
+        ClosureProblem {
+            n_vars: self.n_vars,
+            residual_fns: self.residual_fns,
+            jacobian_fn: self.jacobian_fn,
+            name: self.name,
+        }
+    }
 }
 
 /// Extension trait for problems with configurable dimensions.
@@ -238,5 +397,85 @@ mod tests {
         assert!((dense[0][1] - 0.0).abs() < 1e-10);
         assert!((dense[1][0] - 0.0).abs() < 1e-10);
         assert!((dense[1][1] - 1.0).abs() < 1e-10);
+    }
+
+    // --- ProblemBuilder tests ---
+
+    #[test]
+    fn test_builder_rosenbrock() {
+        let problem = ProblemBuilder::new(2)
+            .residual(|x| 10.0 * (x[1] - x[0].powi(2)))
+            .residual(|x| 1.0 - x[0])
+            .build();
+
+        assert_eq!(problem.residual_count(), 2);
+        assert_eq!(problem.variable_count(), 2);
+
+        // Rosenbrock residuals at (1, 1) are both zero.
+        let r = problem.residuals(&[1.0, 1.0]);
+        assert!(r[0].abs() < 1e-10, "r[0] = {} (expected 0)", r[0]);
+        assert!(r[1].abs() < 1e-10, "r[1] = {} (expected 0)", r[1]);
+    }
+
+    #[test]
+    fn test_builder_explicit_jacobian() {
+        let problem = ProblemBuilder::new(1)
+            .residual(|x| x[0] * x[0] - 4.0)
+            .jacobian(|x| vec![(0, 0, 2.0 * x[0])])
+            .build();
+
+        let jac = problem.jacobian(&[3.0]);
+        assert_eq!(jac.len(), 1);
+        let (row, col, val) = jac[0];
+        assert_eq!(row, 0);
+        assert_eq!(col, 0);
+        assert!((val - 6.0).abs() < 1e-10, "expected 6.0, got {}", val);
+    }
+
+    #[test]
+    fn test_builder_finite_difference_jacobian() {
+        let problem = ProblemBuilder::new(2)
+            .residual(|x| x[0] + x[1] - 3.0)
+            .build();
+
+        // No explicit Jacobian: finite differences should approximate [1.0, 1.0].
+        let jac = problem.jacobian(&[1.0, 2.0]);
+
+        // Collect into a dense row-0 slice.
+        let mut row0 = [0.0f64; 2];
+        for (row, col, val) in &jac {
+            if *row == 0 {
+                row0[*col] = *val;
+            }
+        }
+
+        assert!(
+            (row0[0] - 1.0).abs() < 1e-5,
+            "J[0,0] = {} (expected ~1.0)",
+            row0[0]
+        );
+        assert!(
+            (row0[1] - 1.0).abs() < 1e-5,
+            "J[0,1] = {} (expected ~1.0)",
+            row0[1]
+        );
+    }
+
+    #[test]
+    fn test_builder_name() {
+        let problem = ProblemBuilder::new(1)
+            .name("my_problem")
+            .residual(|x| x[0])
+            .build();
+
+        assert_eq!(problem.name(), "my_problem");
+    }
+
+    #[test]
+    fn test_builder_initial_point() {
+        let problem = ProblemBuilder::new(3).residual(|x| x[0]).build();
+
+        let pt = problem.initial_point(2.0);
+        assert_eq!(pt, vec![2.0, 2.0, 2.0]);
     }
 }

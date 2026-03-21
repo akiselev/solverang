@@ -207,11 +207,119 @@
 //!
 //! The test problems are available in the [`test_problems`] module.
 //!
+//! # Two Paths to Solving
+//!
+//! `solverang` exposes two complementary APIs depending on how much control
+//! you need:
+//!
+//! ## `Problem` trait — low-level, full control
+//!
+//! Implement [`Problem`] directly when you want to supply residuals and the
+//! Jacobian yourself. You own every detail: variable layout, sparsity pattern,
+//! and initial point.  The quick-start example above uses this path.
+//!
+//! ## `ConstraintSystem` — high-level, entity + constraint model
+//!
+//! [`ConstraintSystem`] (and the [`sketch2d::Sketch2DBuilder`] /
+//! [`sketch3d::Sketch3DBuilder`] convenience wrappers) let you think in terms
+//! of geometric *entities* (points, lines, circles, rigid bodies) and
+//! *constraints* between them (distance, angle, coincident, mate …).
+//!
+//! The system automatically:
+//!
+//! 1. Builds a bipartite entity-constraint graph.
+//! 2. Decomposes it into independent clusters.
+//! 3. Applies symbolic reductions (fixed-param elimination, coincident merging).
+//! 4. Selects the right solver for each cluster.
+//! 5. Writes solutions back to the parameter store.
+//!
+//! See the `V3 Sketch2D` section below for a worked example.
+//!
+//! # Automatic Jacobian with `#[auto_jacobian]`
+//!
+//! Enable the `macros` feature and annotate your `impl` block to have the
+//! Jacobian computed via symbolic differentiation at compile time.
+//!
+//! ## Single-residual (distance constraint)
+//!
+//! ```rust,ignore
+//! use solverang::{auto_jacobian, Problem};
+//!
+//! struct DistanceConstraint { target: f64 }
+//!
+//! #[auto_jacobian(array_param = "x")]
+//! impl DistanceConstraint {
+//!     #[residual]
+//!     fn residual(&self, x: &[f64]) -> f64 {
+//!         let dx = x[2] - x[0];
+//!         let dy = x[3] - x[1];
+//!         (dx * dx + dy * dy).sqrt() - self.target
+//!     }
+//! }
+//!
+//! impl Problem for DistanceConstraint {
+//!     fn name(&self) -> &str { "Distance" }
+//!     fn residual_count(&self) -> usize { 1 }
+//!     fn variable_count(&self) -> usize { 4 }
+//!     fn residuals(&self, x: &[f64]) -> Vec<f64> { vec![self.residual(x)] }
+//!     fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+//!         self.jacobian_entries(x)
+//!     }
+//!     fn initial_point(&self, _: f64) -> Vec<f64> { vec![0.0, 0.0, 1.0, 0.0] }
+//! }
+//! ```
+//!
+//! ## Multi-residual (Rosenbrock)
+//!
+//! Multiple `#[residual]` methods produce a combined `jacobian_entries` that
+//! assembles all rows in order.
+//!
+//! ```rust,ignore
+//! use solverang::{auto_jacobian, Problem};
+//!
+//! struct Rosenbrock;
+//!
+//! #[auto_jacobian(array_param = "x")]
+//! impl Rosenbrock {
+//!     #[residual]
+//!     fn r1(&self, x: &[f64]) -> f64 {
+//!         10.0 * (x[1] - x[0] * x[0])
+//!     }
+//!
+//!     #[residual]
+//!     fn r2(&self, x: &[f64]) -> f64 {
+//!         1.0 - x[0]
+//!     }
+//! }
+//!
+//! impl Problem for Rosenbrock {
+//!     fn name(&self) -> &str { "Rosenbrock" }
+//!     fn residual_count(&self) -> usize { 2 }
+//!     fn variable_count(&self) -> usize { 2 }
+//!
+//!     fn residuals(&self, x: &[f64]) -> Vec<f64> {
+//!         vec![self.r1(x), self.r2(x)]
+//!     }
+//!
+//!     fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+//!         self.jacobian_entries(x)  // rows 0 and 1 filled automatically
+//!     }
+//!
+//!     fn initial_point(&self, factor: f64) -> Vec<f64> {
+//!         vec![-1.2 * factor, factor]
+//!     }
+//! }
+//! ```
+//!
 //! # Feature Flags
 //!
-//! - `std` (default) - Standard library support
-//! - `parallel` - Enable parallel component solving with rayon
-//! - `sparse` - Enable sparse matrix operations with faer
+//! | Feature | Default | Description |
+//! |---------|---------|-------------|
+//! | `std` | yes | Standard library support |
+//! | `macros` | yes | Enables `#[auto_jacobian]` proc macro for automatic symbolic differentiation |
+//! | `jit` | yes | Enables JIT compilation of constraint evaluators via Cranelift |
+//! | `parallel` | yes | Parallel component solving with rayon |
+//! | `sparse` | yes | Sparse matrix operations with faer |
 //!
 //! # Performance Considerations
 //!
@@ -250,13 +358,13 @@
 // --- V3 Solver-First Architecture modules ---
 pub mod assembly;
 pub mod constraint;
-pub mod dataflow;
+pub(crate) mod dataflow;
 pub mod entity;
-pub mod graph;
+pub(crate) mod graph;
 pub mod id;
 pub mod param;
 pub mod pipeline;
-pub mod reduce;
+pub(crate) mod reduce;
 pub mod sketch2d;
 pub mod sketch3d;
 pub mod solve;
@@ -274,7 +382,7 @@ pub mod test_problems;
 pub mod jit;
 
 // --- Re-export existing types at crate root ---
-pub use problem::{ConfigurableProblem, Problem};
+pub use problem::{ClosureProblem, ConfigurableProblem, Problem, ProblemBuilder};
 pub use solver::{
     AutoSolver, LMConfig, LMSolver, ParallelSolver, ParallelSolverConfig, RobustSolver, SolveError,
     SolveResult, Solver, SolverChoice, SolverConfig, SparseSolver, SparseSolverConfig,

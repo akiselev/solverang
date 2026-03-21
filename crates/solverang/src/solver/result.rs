@@ -23,6 +23,8 @@ pub enum SolveResult {
         iterations: usize,
         /// Final residual norm ||F(x)||.
         residual_norm: f64,
+        /// Per-equation residual values at the final iterate.
+        residuals: Vec<f64>,
     },
 
     /// Solver failed due to a fatal error.
@@ -49,6 +51,17 @@ impl SolveResult {
             SolveResult::Converged { solution, .. } => Some(solution),
             SolveResult::NotConverged { solution, .. } => Some(solution),
             SolveResult::Failed { .. } => None,
+        }
+    }
+
+    /// Get the per-equation residual values if the solve did not converge.
+    ///
+    /// Returns `None` for `Converged` and `Failed` variants. Use this to
+    /// identify which constraints are unsatisfied and by how much.
+    pub fn residuals(&self) -> Option<&[f64]> {
+        match self {
+            SolveResult::NotConverged { residuals, .. } => Some(residuals),
+            _ => None,
         }
     }
 
@@ -146,12 +159,42 @@ mod tests {
             solution: vec![1.0, 2.0],
             iterations: 100,
             residual_norm: 0.1,
+            residuals: vec![0.05, 0.05],
         };
 
         assert!(!result.is_converged());
         assert!(result.is_completed());
         assert_eq!(result.solution(), Some(&[1.0, 2.0][..]));
         assert_eq!(result.iterations(), Some(100));
+    }
+
+    #[test]
+    fn test_not_converged_residuals_accessor() {
+        let per_eq = vec![0.3, -0.1, 0.05];
+        let result = SolveResult::NotConverged {
+            solution: vec![1.0, 2.0, 3.0],
+            iterations: 50,
+            residual_norm: 0.32,
+            residuals: per_eq.clone(),
+        };
+
+        let got = result.residuals().expect("NotConverged should have residuals");
+        assert_eq!(got, per_eq.as_slice());
+    }
+
+    #[test]
+    fn test_residuals_accessor_returns_none_for_other_variants() {
+        let converged = SolveResult::Converged {
+            solution: vec![1.0],
+            iterations: 3,
+            residual_norm: 1e-10,
+        };
+        assert!(converged.residuals().is_none());
+
+        let failed = SolveResult::Failed {
+            error: SolveError::SingularJacobian,
+        };
+        assert!(failed.residuals().is_none());
     }
 
     #[test]

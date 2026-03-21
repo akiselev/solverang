@@ -50,10 +50,12 @@
 //! On unsupported platforms, the solver automatically falls back to interpreted
 //! evaluation.
 
+mod compiled_newton;
 mod cranelift;
 mod lower;
 mod opcodes;
 
+pub use compiled_newton::CompiledNewtonStep;
 pub use cranelift::{JITCompiler, JITError, JITFunction};
 pub use lower::OpcodeEmitter;
 pub use opcodes::{CompiledConstraints, ConstraintOp, JacobianEntry, Reg, ValidationError};

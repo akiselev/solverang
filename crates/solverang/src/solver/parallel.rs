@@ -437,6 +437,7 @@ impl ParallelSolver {
         let mut solution = x0.to_vec();
         let mut total_iterations = 0;
         let mut any_failed = false;
+        let mut any_not_converged = false;
         let mut last_error = None;
 
         for component_result in results {
@@ -456,6 +457,7 @@ impl ParallelSolver {
                     iterations,
                     ..
                 } => {
+                    any_not_converged = true;
                     // Still use the best solution found
                     component_result
                         .sub_problem
@@ -477,6 +479,16 @@ impl ParallelSolver {
 
         // Compute final residual norm
         let residual_norm = problem.residual_norm(&solution);
+
+        if any_not_converged {
+            let residuals = problem.residuals(&solution);
+            return SolveResult::NotConverged {
+                solution,
+                iterations: total_iterations,
+                residual_norm,
+                residuals,
+            };
+        }
 
         SolveResult::Converged {
             solution,

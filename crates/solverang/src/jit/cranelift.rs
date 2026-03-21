@@ -187,6 +187,235 @@ impl JITCompiler {
         })
     }
 
+    /// Compile a single Newton step into native code.
+    ///
+    /// For small square systems (N < 30), this compiles:
+    /// residual evaluation → dense Jacobian assembly → LU decompose → back-substitute → update x
+    ///
+    /// The compiled function signature:
+    /// `fn(vars_in: *const f64, vars_out: *mut f64, scratch: *mut f64) -> f64`
+    ///
+    /// scratch layout: `[residuals (m), dense_jacobian (m*n), delta (n)]`
+    pub fn compile_newton_step(
+        &mut self,
+        compiled: &CompiledConstraints,
+    ) -> Result<super::compiled_newton::CompiledNewtonStep, JITError> {
+        compiled
+            .validate()
+            .map_err(|e| JITError::ValidationError(e.to_string()))?;
+
+        let m = compiled.n_residuals;
+        let n = compiled.n_vars;
+
+        if m != n {
+            return Err(JITError::ValidationError(
+                "Compiled Newton step requires square systems (m == n)".to_string(),
+            ));
+        }
+
+        self.ctx.func.signature.params.clear();
+        self.ctx.func.signature.returns.clear();
+
+        let ptr_type = self.module.target_config().pointer_type();
+
+        // fn(vars_in: *const f64, vars_out: *mut f64, scratch: *mut f64) -> f64
+        self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
+        self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
+        self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
+        self.ctx.func.signature.returns.push(AbiParam::new(types::F64));
+
+        let func_id = self
+            .module
+            .declare_function(
+                "newton_step",
+                Linkage::Local,
+                &self.ctx.func.signature,
+            )
+            .map_err(|e| JITError::ModuleError(format!("failed to declare function: {}", e)))?;
+
+        {
+            let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_ctx);
+
+            let entry_block = builder.create_block();
+            builder.append_block_params_for_function_params(entry_block);
+            builder.switch_to_block(entry_block);
+            builder.seal_block(entry_block);
+
+            let vars_in = builder.block_params(entry_block)[0];
+            let vars_out = builder.block_params(entry_block)[1];
+            let scratch_ptr = builder.block_params(entry_block)[2];
+
+            // scratch layout: [residuals (m f64), jacobian (m*n f64), delta (n f64)]
+            let residuals_ptr = scratch_ptr;
+            let jac_offset = (m * 8) as i64;
+            let jac_ptr = builder.ins().iadd_imm(scratch_ptr, jac_offset);
+            let delta_offset = ((m + m * n) * 8) as i64;
+            let delta_ptr = builder.ins().iadd_imm(scratch_ptr, delta_offset);
+
+            let math_refs = MathFuncRefs {
+                sin: self.module.declare_func_in_func(self.math.sin, builder.func),
+                cos: self.module.declare_func_in_func(self.math.cos, builder.func),
+                tan: self.module.declare_func_in_func(self.math.tan, builder.func),
+                exp: self.module.declare_func_in_func(self.math.exp, builder.func),
+                ln: self.module.declare_func_in_func(self.math.ln, builder.func),
+                pow: self.module.declare_func_in_func(self.math.pow, builder.func),
+                atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
+            };
+
+            // Step 1: Zero the dense Jacobian buffer
+            let zero = builder.ins().f64const(0.0);
+            for i in 0..(m * n) {
+                let offset = (i * 8) as i32;
+                let addr = builder.ins().iadd_imm(jac_ptr, offset as i64);
+                builder.ins().store(MemFlags::trusted(), zero, addr, 0);
+            }
+
+            // Step 2: Evaluate residuals and dense Jacobian via fused ops
+            let (dense_fused_ops, _) = compiled.fuse_ops_dense(m);
+            translate_ops(
+                &mut builder,
+                &math_refs,
+                &dense_fused_ops,
+                vars_in,
+                residuals_ptr,
+                Some(jac_ptr),
+            )?;
+
+            // Step 3: Compute residual norm ||F(x)||
+            // sum = sum(residuals[i]^2)
+            let mut sum_val = builder.ins().f64const(0.0);
+            for i in 0..m {
+                let addr = builder.ins().iadd_imm(residuals_ptr, (i * 8) as i64);
+                let ri = builder.ins().load(types::F64, MemFlags::trusted(), addr, 0);
+                let ri_sq = builder.ins().fmul(ri, ri);
+                sum_val = builder.ins().fadd(sum_val, ri_sq);
+            }
+            let norm = builder.ins().sqrt(sum_val);
+
+            // Step 4: Unrolled LU decomposition (no pivoting) on dense column-major Jacobian
+            // J is m×n column-major at jac_ptr. Entry (r,c) at offset (c*m + r)*8.
+            // After LU: L stored below diagonal, U on/above diagonal (in-place).
+            for k in 0..n {
+                // Load pivot J[k,k]
+                let pivot_offset = ((k * m + k) * 8) as i64;
+                let pivot_addr = builder.ins().iadd_imm(jac_ptr, pivot_offset);
+                let pivot = builder.ins().load(types::F64, MemFlags::trusted(), pivot_addr, 0);
+
+                for i in (k + 1)..m {
+                    // L[i,k] = J[i,k] / J[k,k]
+                    let ik_offset = ((k * m + i) * 8) as i64;
+                    let ik_addr = builder.ins().iadd_imm(jac_ptr, ik_offset);
+                    let jik = builder.ins().load(types::F64, MemFlags::trusted(), ik_addr, 0);
+                    let lik = builder.ins().fdiv(jik, pivot);
+                    builder.ins().store(MemFlags::trusted(), lik, ik_addr, 0);
+
+                    for j in (k + 1)..n {
+                        // J[i,j] -= L[i,k] * J[k,j]
+                        let ij_offset = ((j * m + i) * 8) as i64;
+                        let ij_addr = builder.ins().iadd_imm(jac_ptr, ij_offset);
+                        let jij = builder.ins().load(types::F64, MemFlags::trusted(), ij_addr, 0);
+
+                        let kj_offset = ((j * m + k) * 8) as i64;
+                        let kj_addr = builder.ins().iadd_imm(jac_ptr, kj_offset);
+                        let jkj = builder.ins().load(types::F64, MemFlags::trusted(), kj_addr, 0);
+
+                        let prod = builder.ins().fmul(lik, jkj);
+                        let new_jij = builder.ins().fsub(jij, prod);
+                        builder.ins().store(MemFlags::trusted(), new_jij, ij_addr, 0);
+                    }
+                }
+            }
+
+            // Step 5: Forward substitution — solve L*y = -r
+            // Store y in delta buffer. L is lower triangular (below diagonal of LU),
+            // with implicit 1s on diagonal.
+            for i in 0..n {
+                // y[i] = -r[i]
+                let ri_addr = builder.ins().iadd_imm(residuals_ptr, (i * 8) as i64);
+                let ri = builder.ins().load(types::F64, MemFlags::trusted(), ri_addr, 0);
+                let mut yi = builder.ins().fneg(ri);
+
+                for j in 0..i {
+                    // y[i] -= L[i,j] * y[j]
+                    let lij_offset = ((j * m + i) * 8) as i64;
+                    let lij_addr = builder.ins().iadd_imm(jac_ptr, lij_offset);
+                    let lij = builder.ins().load(types::F64, MemFlags::trusted(), lij_addr, 0);
+
+                    let yj_addr = builder.ins().iadd_imm(delta_ptr, (j * 8) as i64);
+                    let yj = builder.ins().load(types::F64, MemFlags::trusted(), yj_addr, 0);
+
+                    let prod = builder.ins().fmul(lij, yj);
+                    yi = builder.ins().fsub(yi, prod);
+                }
+
+                let yi_addr = builder.ins().iadd_imm(delta_ptr, (i * 8) as i64);
+                builder.ins().store(MemFlags::trusted(), yi, yi_addr, 0);
+            }
+
+            // Step 6: Back substitution — solve U*delta = y
+            // U is upper triangular (on/above diagonal of LU). delta overwrites y.
+            for i in (0..n).rev() {
+                let yi_addr = builder.ins().iadd_imm(delta_ptr, (i * 8) as i64);
+                let mut di = builder.ins().load(types::F64, MemFlags::trusted(), yi_addr, 0);
+
+                for j in (i + 1)..n {
+                    // di -= U[i,j] * delta[j]
+                    let uij_offset = ((j * m + i) * 8) as i64;
+                    let uij_addr = builder.ins().iadd_imm(jac_ptr, uij_offset);
+                    let uij = builder.ins().load(types::F64, MemFlags::trusted(), uij_addr, 0);
+
+                    let dj_addr = builder.ins().iadd_imm(delta_ptr, (j * 8) as i64);
+                    let dj = builder.ins().load(types::F64, MemFlags::trusted(), dj_addr, 0);
+
+                    let prod = builder.ins().fmul(uij, dj);
+                    di = builder.ins().fsub(di, prod);
+                }
+
+                // di /= U[i,i]
+                let uii_offset = ((i * m + i) * 8) as i64;
+                let uii_addr = builder.ins().iadd_imm(jac_ptr, uii_offset);
+                let uii = builder.ins().load(types::F64, MemFlags::trusted(), uii_addr, 0);
+                di = builder.ins().fdiv(di, uii);
+
+                builder.ins().store(MemFlags::trusted(), di, yi_addr, 0);
+            }
+
+            // Step 7: Update vars_out = vars_in + delta
+            for i in 0..n {
+                let xi_addr = builder.ins().iadd_imm(vars_in, (i * 8) as i64);
+                let xi = builder.ins().load(types::F64, MemFlags::trusted(), xi_addr, 0);
+
+                let di_addr = builder.ins().iadd_imm(delta_ptr, (i * 8) as i64);
+                let di = builder.ins().load(types::F64, MemFlags::trusted(), di_addr, 0);
+
+                let xi_new = builder.ins().fadd(xi, di);
+                let xo_addr = builder.ins().iadd_imm(vars_out, (i * 8) as i64);
+                builder.ins().store(MemFlags::trusted(), xi_new, xo_addr, 0);
+            }
+
+            // Return residual norm
+            builder.ins().return_(&[norm]);
+            builder.finalize();
+        }
+
+        self.module
+            .define_function(func_id, &mut self.ctx)
+            .map_err(|e| JITError::CodegenError(format!("failed to define function: {}", e)))?;
+
+        self.module
+            .finalize_definitions()
+            .map_err(|e| JITError::ModuleError(format!("failed to finalize definitions: {}", e)))?;
+
+        let ptr = self.module.get_finalized_function(func_id);
+
+        type StepFnPtr = unsafe extern "C" fn(*const f64, *mut f64, *mut f64) -> f64;
+        let step_fn = unsafe { std::mem::transmute::<*const u8, StepFnPtr>(ptr) };
+
+        self.ctx.clear();
+
+        Ok(super::compiled_newton::CompiledNewtonStep::new(step_fn, n))
+    }
+
     /// Compile constraint opcodes to native functions.
     pub fn compile(&mut self, compiled: &CompiledConstraints) -> Result<JITFunction, JITError> {
         // Validate the compiled constraints
@@ -200,6 +429,12 @@ impl JITCompiler {
         // Compile Jacobian evaluation function
         let jacobian_fn_id = self.compile_jacobian(compiled)?;
 
+        // Compile fused residual+Jacobian evaluation function
+        let fused_fn_id = self.compile_fused(compiled)?;
+
+        // Compile fused dense residual+Jacobian evaluation function
+        let dense_fused_fn_id = self.compile_fused_dense(compiled)?;
+
         // Finalize all function definitions
         self.module
             .finalize_definitions()
@@ -208,13 +443,18 @@ impl JITCompiler {
         // Get function pointers
         let residual_ptr = self.module.get_finalized_function(residual_fn_id);
         let jacobian_ptr = self.module.get_finalized_function(jacobian_fn_id);
+        let fused_ptr = self.module.get_finalized_function(fused_fn_id);
+        let dense_fused_ptr = self.module.get_finalized_function(dense_fused_fn_id);
 
-        // Type alias for the JIT function signature
+        // Type aliases for JIT function signatures
         type JITFnPtr = unsafe extern "C" fn(*const f64, *mut f64);
+        type FusedFnPtr = unsafe extern "C" fn(*const f64, *mut f64, *mut f64);
 
         Ok(JITFunction {
             residual_fn: unsafe { std::mem::transmute::<*const u8, JITFnPtr>(residual_ptr) },
             jacobian_fn: unsafe { std::mem::transmute::<*const u8, JITFnPtr>(jacobian_ptr) },
+            fused_fn: unsafe { std::mem::transmute::<*const u8, FusedFnPtr>(fused_ptr) },
+            dense_fused_fn: unsafe { std::mem::transmute::<*const u8, FusedFnPtr>(dense_fused_ptr) },
             n_residuals: compiled.n_residuals,
             n_vars: compiled.n_vars,
             jacobian_nnz: compiled.jacobian_nnz,
@@ -272,7 +512,151 @@ impl JITCompiler {
                 vars_ptr,
                 residuals_ptr,
                 None,
-            );
+            )?;
+
+            builder.ins().return_(&[]);
+            builder.finalize();
+        }
+
+        self.module
+            .define_function(func_id, &mut self.ctx)
+            .map_err(|e| JITError::CodegenError(format!("failed to define function: {}", e)))?;
+
+        self.ctx.clear();
+
+        Ok(func_id)
+    }
+
+    /// Compile fused residual+Jacobian evaluation function.
+    ///
+    /// The fused function computes both residuals and Jacobian in a single pass,
+    /// sharing variable loads between the two computations.
+    fn compile_fused(&mut self, compiled: &CompiledConstraints) -> Result<FuncId, JITError> {
+        self.ctx.func.signature.params.clear();
+        self.ctx.func.signature.returns.clear();
+
+        let ptr_type = self.module.target_config().pointer_type();
+
+        // Function signature: fn(vars: *const f64, residuals: *mut f64, jacobian_values: *mut f64)
+        self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
+        self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
+        self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
+
+        let func_id = self
+            .module
+            .declare_function(
+                "evaluate_fused",
+                Linkage::Local,
+                &self.ctx.func.signature,
+            )
+            .map_err(|e| JITError::ModuleError(format!("failed to declare function: {}", e)))?;
+
+        {
+            let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_ctx);
+
+            let entry_block = builder.create_block();
+            builder.append_block_params_for_function_params(entry_block);
+            builder.switch_to_block(entry_block);
+            builder.seal_block(entry_block);
+
+            let vars_ptr = builder.block_params(entry_block)[0];
+            let residuals_ptr = builder.block_params(entry_block)[1];
+            let jacobian_ptr = builder.block_params(entry_block)[2];
+
+            let math_refs = MathFuncRefs {
+                sin: self.module.declare_func_in_func(self.math.sin, builder.func),
+                cos: self.module.declare_func_in_func(self.math.cos, builder.func),
+                tan: self.module.declare_func_in_func(self.math.tan, builder.func),
+                exp: self.module.declare_func_in_func(self.math.exp, builder.func),
+                ln: self.module.declare_func_in_func(self.math.ln, builder.func),
+                pow: self.module.declare_func_in_func(self.math.pow, builder.func),
+                atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
+            };
+
+            // Use fused opcode stream with deduplicated variable loads
+            let (fused_ops, _) = compiled.fuse_ops();
+
+            translate_ops(
+                &mut builder,
+                &math_refs,
+                &fused_ops,
+                vars_ptr,
+                residuals_ptr,
+                Some(jacobian_ptr),
+            )?;
+
+            builder.ins().return_(&[]);
+            builder.finalize();
+        }
+
+        self.module
+            .define_function(func_id, &mut self.ctx)
+            .map_err(|e| JITError::CodegenError(format!("failed to define function: {}", e)))?;
+
+        self.ctx.clear();
+
+        Ok(func_id)
+    }
+
+    /// Compile fused residual+Jacobian function that writes Jacobian directly
+    /// into dense column-major storage.
+    ///
+    /// Signature: fn(vars: *const f64, residuals: *mut f64, dense_jacobian: *mut f64)
+    fn compile_fused_dense(
+        &mut self,
+        compiled: &CompiledConstraints,
+    ) -> Result<FuncId, JITError> {
+        self.ctx.func.signature.params.clear();
+        self.ctx.func.signature.returns.clear();
+
+        let ptr_type = self.module.target_config().pointer_type();
+
+        self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
+        self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
+        self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
+
+        let func_id = self
+            .module
+            .declare_function(
+                "evaluate_fused_dense",
+                Linkage::Local,
+                &self.ctx.func.signature,
+            )
+            .map_err(|e| JITError::ModuleError(format!("failed to declare function: {}", e)))?;
+
+        {
+            let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_ctx);
+
+            let entry_block = builder.create_block();
+            builder.append_block_params_for_function_params(entry_block);
+            builder.switch_to_block(entry_block);
+            builder.seal_block(entry_block);
+
+            let vars_ptr = builder.block_params(entry_block)[0];
+            let residuals_ptr = builder.block_params(entry_block)[1];
+            let dense_jac_ptr = builder.block_params(entry_block)[2];
+
+            let math_refs = MathFuncRefs {
+                sin: self.module.declare_func_in_func(self.math.sin, builder.func),
+                cos: self.module.declare_func_in_func(self.math.cos, builder.func),
+                tan: self.module.declare_func_in_func(self.math.tan, builder.func),
+                exp: self.module.declare_func_in_func(self.math.exp, builder.func),
+                ln: self.module.declare_func_in_func(self.math.ln, builder.func),
+                pow: self.module.declare_func_in_func(self.math.pow, builder.func),
+                atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
+            };
+
+            // Use fused+densified opcode stream
+            let (dense_fused_ops, _) = compiled.fuse_ops_dense(compiled.n_residuals);
+
+            translate_ops(
+                &mut builder,
+                &math_refs,
+                &dense_fused_ops,
+                vars_ptr,
+                residuals_ptr,
+                Some(dense_jac_ptr),
+            )?;
 
             builder.ins().return_(&[]);
             builder.finalize();
@@ -336,7 +720,7 @@ impl JITCompiler {
                 vars_ptr,
                 jacobian_ptr,
                 Some(jacobian_ptr),
-            );
+            )?;
 
             builder.ins().return_(&[]);
             builder.finalize();
@@ -374,7 +758,7 @@ fn translate_ops(
     vars_ptr: Value,
     output_ptr: Value,
     jacobian_ptr: Option<Value>,
-) {
+) -> Result<(), JITError> {
     let mut registers: HashMap<Reg, Value> = HashMap::new();
 
     for op in ops {
@@ -392,41 +776,51 @@ fn translate_ops(
             }
 
             ConstraintOp::Add { dst, a, b } => {
-                let a_val = get_reg(&registers, *a);
-                let b_val = get_reg(&registers, *b);
+                let a_val = get_reg(&registers, *a)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", a)))?;
+                let b_val = get_reg(&registers, *b)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", b)))?;
                 let result = builder.ins().fadd(a_val, b_val);
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Sub { dst, a, b } => {
-                let a_val = get_reg(&registers, *a);
-                let b_val = get_reg(&registers, *b);
+                let a_val = get_reg(&registers, *a)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", a)))?;
+                let b_val = get_reg(&registers, *b)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", b)))?;
                 let result = builder.ins().fsub(a_val, b_val);
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Mul { dst, a, b } => {
-                let a_val = get_reg(&registers, *a);
-                let b_val = get_reg(&registers, *b);
+                let a_val = get_reg(&registers, *a)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", a)))?;
+                let b_val = get_reg(&registers, *b)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", b)))?;
                 let result = builder.ins().fmul(a_val, b_val);
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Div { dst, a, b } => {
-                let a_val = get_reg(&registers, *a);
-                let b_val = get_reg(&registers, *b);
+                let a_val = get_reg(&registers, *a)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", a)))?;
+                let b_val = get_reg(&registers, *b)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", b)))?;
                 let result = builder.ins().fdiv(a_val, b_val);
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Neg { dst, src } => {
-                let src_val = get_reg(&registers, *src);
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
                 let result = builder.ins().fneg(src_val);
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Sqrt { dst, src } => {
-                let src_val = get_reg(&registers, *src);
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
                 let result = builder.ins().sqrt(src_val);
                 registers.insert(*dst, result);
             }
@@ -434,51 +828,60 @@ fn translate_ops(
             // --- Math functions via libm calls ---
 
             ConstraintOp::Sin { dst, src } => {
-                let src_val = get_reg(&registers, *src);
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
                 let call = builder.ins().call(math_refs.sin, &[src_val]);
                 let result = builder.inst_results(call)[0];
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Cos { dst, src } => {
-                let src_val = get_reg(&registers, *src);
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
                 let call = builder.ins().call(math_refs.cos, &[src_val]);
                 let result = builder.inst_results(call)[0];
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Tan { dst, src } => {
-                let src_val = get_reg(&registers, *src);
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
                 let call = builder.ins().call(math_refs.tan, &[src_val]);
                 let result = builder.inst_results(call)[0];
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Exp { dst, src } => {
-                let src_val = get_reg(&registers, *src);
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
                 let call = builder.ins().call(math_refs.exp, &[src_val]);
                 let result = builder.inst_results(call)[0];
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Ln { dst, src } => {
-                let src_val = get_reg(&registers, *src);
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
                 let call = builder.ins().call(math_refs.ln, &[src_val]);
                 let result = builder.inst_results(call)[0];
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Pow { dst, base, exp } => {
-                let base_val = get_reg(&registers, *base);
-                let exp_val = get_reg(&registers, *exp);
+                let base_val = get_reg(&registers, *base)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", base)))?;
+                let exp_val = get_reg(&registers, *exp)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", exp)))?;
                 let call = builder.ins().call(math_refs.pow, &[base_val, exp_val]);
                 let result = builder.inst_results(call)[0];
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Atan2 { dst, y, x } => {
-                let y_val = get_reg(&registers, *y);
-                let x_val = get_reg(&registers, *x);
+                let y_val = get_reg(&registers, *y)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", y)))?;
+                let x_val = get_reg(&registers, *x)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", x)))?;
                 let call = builder.ins().call(math_refs.atan2, &[y_val, x_val]);
                 let result = builder.inst_results(call)[0];
                 registers.insert(*dst, result);
@@ -487,42 +890,41 @@ fn translate_ops(
             // --- Non-math ops ---
 
             ConstraintOp::Abs { dst, src } => {
-                let src_val = get_reg(&registers, *src);
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
                 let result = builder.ins().fabs(src_val);
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Max { dst, a, b } => {
-                let a_val = get_reg(&registers, *a);
-                let b_val = get_reg(&registers, *b);
+                let a_val = get_reg(&registers, *a)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", a)))?;
+                let b_val = get_reg(&registers, *b)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", b)))?;
                 let result = builder.ins().fmax(a_val, b_val);
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::Min { dst, a, b } => {
-                let a_val = get_reg(&registers, *a);
-                let b_val = get_reg(&registers, *b);
+                let a_val = get_reg(&registers, *a)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", a)))?;
+                let b_val = get_reg(&registers, *b)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", b)))?;
                 let result = builder.ins().fmin(a_val, b_val);
                 registers.insert(*dst, result);
             }
 
             ConstraintOp::StoreResidual { residual_idx, src } => {
-                let src_val = get_reg(&registers, *src);
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
                 let offset = (*residual_idx as i32) * 8;
                 let addr = builder.ins().iadd_imm(output_ptr, offset as i64);
                 builder.ins().store(MemFlags::trusted(), src_val, addr, 0);
             }
 
-            ConstraintOp::StoreJacobian {
-                row: _,
-                col: _,
-                src,
-            } => {
-                let _ = get_reg(&registers, *src);
-            }
-
             ConstraintOp::StoreJacobianIndexed { output_idx, src } => {
-                let src_val = get_reg(&registers, *src);
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
                 let jac_ptr = jacobian_ptr.unwrap_or(output_ptr);
                 let offset = (*output_idx as i32) * 8;
                 let addr = builder.ins().iadd_imm(jac_ptr, offset as i64);
@@ -530,12 +932,12 @@ fn translate_ops(
             }
         }
     }
+
+    Ok(())
 }
 
-fn get_reg(registers: &HashMap<Reg, Value>, reg: Reg) -> Value {
-    *registers
-        .get(&reg)
-        .unwrap_or_else(|| panic!("register {} not found", reg))
+fn get_reg(registers: &HashMap<Reg, Value>, reg: Reg) -> Option<Value> {
+    registers.get(&reg).copied()
 }
 
 /// JIT-compiled functions for constraint evaluation.
@@ -552,6 +954,17 @@ pub struct JITFunction {
     ///
     /// Signature: fn(vars: *const f64, jacobian_values: *mut f64)
     jacobian_fn: unsafe extern "C" fn(*const f64, *mut f64),
+
+    /// Function pointer for fused residual+Jacobian evaluation (sparse COO output).
+    ///
+    /// Signature: fn(vars: *const f64, residuals: *mut f64, jacobian_values: *mut f64)
+    fused_fn: unsafe extern "C" fn(*const f64, *mut f64, *mut f64),
+
+    /// Function pointer for fused evaluation writing Jacobian directly into
+    /// dense column-major storage.
+    ///
+    /// Signature: fn(vars: *const f64, residuals: *mut f64, dense_jacobian: *mut f64)
+    dense_fused_fn: unsafe extern "C" fn(*const f64, *mut f64, *mut f64),
 
     /// Number of residuals.
     n_residuals: usize,
@@ -643,6 +1056,95 @@ impl JITFunction {
 
         unsafe {
             (self.jacobian_fn)(vars.as_ptr(), values.as_mut_ptr());
+        }
+    }
+
+    /// Evaluate both residuals and Jacobian using a single fused JIT function.
+    ///
+    /// This is faster than calling `evaluate_residuals` and `evaluate_jacobian`
+    /// separately because variable loads are shared between the two computations.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure:
+    /// - `vars` has length >= `variable_count()`
+    /// - `residuals` has length >= `residual_count()`
+    /// - `jacobian_values` has length >= `jacobian_nnz()`
+    pub fn evaluate_both(
+        &self,
+        vars: &[f64],
+        residuals: &mut [f64],
+        jacobian_values: &mut [f64],
+    ) {
+        debug_assert!(
+            vars.len() >= self.n_vars,
+            "vars slice too short: {} < {}",
+            vars.len(),
+            self.n_vars
+        );
+        debug_assert!(
+            residuals.len() >= self.n_residuals,
+            "residuals slice too short: {} < {}",
+            residuals.len(),
+            self.n_residuals
+        );
+        debug_assert!(
+            jacobian_values.len() >= self.jacobian_nnz,
+            "jacobian values slice too short: {} < {}",
+            jacobian_values.len(),
+            self.jacobian_nnz
+        );
+
+        unsafe {
+            (self.fused_fn)(
+                vars.as_ptr(),
+                residuals.as_mut_ptr(),
+                jacobian_values.as_mut_ptr(),
+            );
+        }
+    }
+
+    /// Evaluate both residuals and Jacobian, writing the Jacobian directly
+    /// into dense column-major storage.
+    ///
+    /// The `dense_jacobian` buffer must have length >= `residual_count() * variable_count()`
+    /// and is zeroed before the JIT call (JIT only writes non-zero entries).
+    pub fn evaluate_both_dense(
+        &self,
+        vars: &[f64],
+        residuals: &mut [f64],
+        dense_jacobian: &mut [f64],
+    ) {
+        let m = self.n_residuals;
+        let n = self.n_vars;
+        debug_assert!(
+            vars.len() >= n,
+            "vars slice too short: {} < {}",
+            vars.len(),
+            n
+        );
+        debug_assert!(
+            residuals.len() >= m,
+            "residuals slice too short: {} < {}",
+            residuals.len(),
+            m
+        );
+        debug_assert!(
+            dense_jacobian.len() >= m * n,
+            "dense_jacobian slice too short: {} < {}",
+            dense_jacobian.len(),
+            m * n
+        );
+
+        // Zero the dense matrix (JIT only writes non-zero entries)
+        dense_jacobian[..m * n].iter_mut().for_each(|v| *v = 0.0);
+
+        unsafe {
+            (self.dense_fused_fn)(
+                vars.as_ptr(),
+                residuals.as_mut_ptr(),
+                dense_jacobian.as_mut_ptr(),
+            );
         }
     }
 

@@ -213,19 +213,6 @@ pub enum ConstraintOp {
         src: Reg,
     },
 
-    /// Store a Jacobian entry (sparse COO format).
-    ///
-    /// Stores the value in register `src` along with its row and column indices
-    /// in the sparse Jacobian output arrays.
-    StoreJacobian {
-        /// Row index (residual index).
-        row: u32,
-        /// Column index (variable index).
-        col: u32,
-        /// Source register containing the Jacobian value.
-        src: Reg,
-    },
-
     /// Store a Jacobian entry at a specific output index.
     ///
     /// This is used when the sparsity pattern is known at compile time,
@@ -260,7 +247,6 @@ impl ConstraintOp {
             | ConstraintOp::Ln { src, .. }
             | ConstraintOp::Tan { src, .. } => *src == reg,
             ConstraintOp::StoreResidual { src, .. }
-            | ConstraintOp::StoreJacobian { src, .. }
             | ConstraintOp::StoreJacobianIndexed { src, .. } => *src == reg,
         }
     }
@@ -287,7 +273,6 @@ impl ConstraintOp {
             | ConstraintOp::Pow { dst, .. }
             | ConstraintOp::Tan { dst, .. } => *dst == reg,
             ConstraintOp::StoreResidual { .. }
-            | ConstraintOp::StoreJacobian { .. }
             | ConstraintOp::StoreJacobianIndexed { .. } => false,
         }
     }
@@ -384,12 +369,300 @@ impl CompiledConstraints {
             });
         }
 
+        // Check that all Jacobian store indices are in bounds
+        for op in &self.jacobian_ops {
+            if let ConstraintOp::StoreJacobianIndexed { output_idx, .. } = op {
+                if *output_idx as usize >= self.jacobian_nnz {
+                    return Err(ValidationError::JacobianOutputIndexOutOfBounds {
+                        index: *output_idx as usize,
+                        nnz: self.jacobian_nnz,
+                    });
+                }
+            }
+        }
+
         Ok(())
     }
 
     /// Get the total number of opcodes.
     pub fn total_ops(&self) -> usize {
         self.residual_ops.len() + self.jacobian_ops.len()
+    }
+
+    /// Rewrite Jacobian ops for direct dense column-major storage.
+    ///
+    /// Transforms `StoreJacobianIndexed { output_idx }` so that `output_idx`
+    /// becomes the column-major dense offset `col * n_rows + row` instead of
+    /// the sequential COO index. The JIT function can then write directly into
+    /// a dense matrix buffer.
+    pub fn densify_jacobian_ops(&self, n_rows: usize) -> Vec<ConstraintOp> {
+        self.jacobian_ops
+            .iter()
+            .map(|op| match op {
+                ConstraintOp::StoreJacobianIndexed { output_idx, src } => {
+                    let entry = &self.jacobian_pattern[*output_idx as usize];
+                    let dense_idx = (entry.col as usize) * n_rows + (entry.row as usize);
+                    ConstraintOp::StoreJacobianIndexed {
+                        output_idx: dense_idx as u32,
+                        src: *src,
+                    }
+                }
+                other => other.clone(),
+            })
+            .collect()
+    }
+
+    /// Merge residual and Jacobian opcode streams into a fused stream with
+    /// dense column-major Jacobian storage.
+    ///
+    /// Combines `fuse_ops()` (LoadVar deduplication) with `densify_jacobian_ops()`
+    /// (column-major dense offsets) in a single pass.
+    ///
+    /// Returns `(fused_ops, fused_max_register)`.
+    pub fn fuse_ops_dense(&self, n_rows: usize) -> (Vec<ConstraintOp>, u16) {
+        let (fused, max_reg) = self.fuse_ops();
+
+        // Rewrite StoreJacobianIndexed in the fused stream to use dense offsets.
+        // The fused stream may have remapped output_idx values, so we need to
+        // map them back through the jacobian_pattern.
+        let dense_fused = fused
+            .into_iter()
+            .map(|op| match op {
+                ConstraintOp::StoreJacobianIndexed { output_idx, src } => {
+                    let entry = &self.jacobian_pattern[output_idx as usize];
+                    let dense_idx = (entry.col as usize) * n_rows + (entry.row as usize);
+                    ConstraintOp::StoreJacobianIndexed {
+                        output_idx: dense_idx as u32,
+                        src,
+                    }
+                }
+                other => other,
+            })
+            .collect();
+
+        (dense_fused, max_reg)
+    }
+
+    /// Merge residual and Jacobian opcode streams into a fused stream.
+    ///
+    /// The fused stream deduplicates `LoadVar` instructions, sharing variable
+    /// loads between residual and Jacobian computations. This allows a single
+    /// native function to compute both outputs in one pass.
+    ///
+    /// Returns `(fused_ops, fused_max_register)`.
+    pub fn fuse_ops(&self) -> (Vec<ConstraintOp>, u16) {
+        use std::collections::HashMap;
+
+        // Start with residual ops as-is
+        let mut fused = self.residual_ops.clone();
+
+        // Build map of var_idx -> register from residual LoadVar ops
+        let mut var_reg_map: HashMap<u32, Reg> = HashMap::new();
+        let mut residual_max_reg: u16 = 0;
+
+        for op in &self.residual_ops {
+            match op {
+                ConstraintOp::LoadVar { dst, var_idx } => {
+                    var_reg_map.insert(*var_idx, *dst);
+                    residual_max_reg = residual_max_reg.max(dst.0);
+                }
+                _ => {
+                    if let Some(dst) = op_dst(op) {
+                        residual_max_reg = residual_max_reg.max(dst.0);
+                    }
+                }
+            }
+        }
+
+        // Offset for Jacobian registers: residual_max_reg + 1, widened to u32
+        // to avoid overflow when residual_max_reg == u16::MAX.
+        let offset: u32 = (residual_max_reg as u32) + 1;
+
+        // Build register remapping for Jacobian ops
+        let mut jac_remap: HashMap<Reg, Reg> = HashMap::new();
+
+        // First pass: identify which LoadVar ops are redundant
+        for op in &self.jacobian_ops {
+            if let ConstraintOp::LoadVar { dst, var_idx } = op {
+                if let Some(&existing_reg) = var_reg_map.get(var_idx) {
+                    // This var was already loaded in residual ops — remap to existing register
+                    jac_remap.insert(*dst, existing_reg);
+                } else {
+                    // New variable — offset the register (saturate to u16::MAX on overflow)
+                    let new_idx = (dst.0 as u32 + offset).min(u16::MAX as u32) as u16;
+                    let new_reg = Reg::new(new_idx);
+                    jac_remap.insert(*dst, new_reg);
+                }
+            }
+        }
+
+        // Second pass: remap all non-LoadVar Jacobian registers
+        for op in &self.jacobian_ops {
+            if let ConstraintOp::LoadVar { dst, var_idx } = op {
+                if var_reg_map.contains_key(var_idx) {
+                    // Skip — already loaded in residual ops
+                    continue;
+                }
+                // Emit with remapped register
+                let new_dst = jac_remap.get(dst).copied().unwrap_or_else(|| {
+                    let new_idx = (dst.0 as u32 + offset).min(u16::MAX as u32) as u16;
+                    Reg::new(new_idx)
+                });
+                fused.push(ConstraintOp::LoadVar {
+                    dst: new_dst,
+                    var_idx: *var_idx,
+                });
+            } else {
+                fused.push(remap_op_u32(op, &jac_remap, offset));
+            }
+        }
+
+        // Compute max register
+        let mut max_reg = residual_max_reg;
+        for op in &fused {
+            if let Some(dst) = op_dst(op) {
+                max_reg = max_reg.max(dst.0);
+            }
+        }
+
+        (fused, max_reg)
+    }
+}
+
+/// Get the destination register of an op, if any.
+fn op_dst(op: &ConstraintOp) -> Option<Reg> {
+    match op {
+        ConstraintOp::LoadVar { dst, .. }
+        | ConstraintOp::LoadConst { dst, .. }
+        | ConstraintOp::Add { dst, .. }
+        | ConstraintOp::Sub { dst, .. }
+        | ConstraintOp::Mul { dst, .. }
+        | ConstraintOp::Div { dst, .. }
+        | ConstraintOp::Neg { dst, .. }
+        | ConstraintOp::Sqrt { dst, .. }
+        | ConstraintOp::Sin { dst, .. }
+        | ConstraintOp::Cos { dst, .. }
+        | ConstraintOp::Atan2 { dst, .. }
+        | ConstraintOp::Abs { dst, .. }
+        | ConstraintOp::Max { dst, .. }
+        | ConstraintOp::Min { dst, .. }
+        | ConstraintOp::Exp { dst, .. }
+        | ConstraintOp::Ln { dst, .. }
+        | ConstraintOp::Pow { dst, .. }
+        | ConstraintOp::Tan { dst, .. } => Some(*dst),
+        ConstraintOp::StoreResidual { .. }
+        | ConstraintOp::StoreJacobianIndexed { .. } => None,
+    }
+}
+
+/// Remap registers in an op. Registers found in `remap` are substituted;
+/// others are offset by `offset` (u32, saturating to u16::MAX on overflow).
+fn remap_op_u32(
+    op: &ConstraintOp,
+    remap: &std::collections::HashMap<Reg, Reg>,
+    offset: u32,
+) -> ConstraintOp {
+    remap_op_inner(op, |reg| {
+        remap.get(&reg).copied().unwrap_or_else(|| {
+            let new_idx = (reg.0 as u32 + offset).min(u16::MAX as u32) as u16;
+            Reg::new(new_idx)
+        })
+    })
+}
+
+/// Remap registers in an op using a caller-supplied mapping function.
+fn remap_op_inner<F: Fn(Reg) -> Reg>(op: &ConstraintOp, r: F) -> ConstraintOp {
+    match op {
+        ConstraintOp::LoadVar { dst, var_idx } => ConstraintOp::LoadVar {
+            dst: r(*dst),
+            var_idx: *var_idx,
+        },
+        ConstraintOp::LoadConst { dst, value } => ConstraintOp::LoadConst {
+            dst: r(*dst),
+            value: *value,
+        },
+        ConstraintOp::Add { dst, a, b } => ConstraintOp::Add {
+            dst: r(*dst),
+            a: r(*a),
+            b: r(*b),
+        },
+        ConstraintOp::Sub { dst, a, b } => ConstraintOp::Sub {
+            dst: r(*dst),
+            a: r(*a),
+            b: r(*b),
+        },
+        ConstraintOp::Mul { dst, a, b } => ConstraintOp::Mul {
+            dst: r(*dst),
+            a: r(*a),
+            b: r(*b),
+        },
+        ConstraintOp::Div { dst, a, b } => ConstraintOp::Div {
+            dst: r(*dst),
+            a: r(*a),
+            b: r(*b),
+        },
+        ConstraintOp::Neg { dst, src } => ConstraintOp::Neg {
+            dst: r(*dst),
+            src: r(*src),
+        },
+        ConstraintOp::Sqrt { dst, src } => ConstraintOp::Sqrt {
+            dst: r(*dst),
+            src: r(*src),
+        },
+        ConstraintOp::Sin { dst, src } => ConstraintOp::Sin {
+            dst: r(*dst),
+            src: r(*src),
+        },
+        ConstraintOp::Cos { dst, src } => ConstraintOp::Cos {
+            dst: r(*dst),
+            src: r(*src),
+        },
+        ConstraintOp::Tan { dst, src } => ConstraintOp::Tan {
+            dst: r(*dst),
+            src: r(*src),
+        },
+        ConstraintOp::Exp { dst, src } => ConstraintOp::Exp {
+            dst: r(*dst),
+            src: r(*src),
+        },
+        ConstraintOp::Ln { dst, src } => ConstraintOp::Ln {
+            dst: r(*dst),
+            src: r(*src),
+        },
+        ConstraintOp::Abs { dst, src } => ConstraintOp::Abs {
+            dst: r(*dst),
+            src: r(*src),
+        },
+        ConstraintOp::Pow { dst, base, exp } => ConstraintOp::Pow {
+            dst: r(*dst),
+            base: r(*base),
+            exp: r(*exp),
+        },
+        ConstraintOp::Atan2 { dst, y, x } => ConstraintOp::Atan2 {
+            dst: r(*dst),
+            y: r(*y),
+            x: r(*x),
+        },
+        ConstraintOp::Max { dst, a, b } => ConstraintOp::Max {
+            dst: r(*dst),
+            a: r(*a),
+            b: r(*b),
+        },
+        ConstraintOp::Min { dst, a, b } => ConstraintOp::Min {
+            dst: r(*dst),
+            a: r(*a),
+            b: r(*b),
+        },
+        ConstraintOp::StoreResidual { residual_idx, src } => ConstraintOp::StoreResidual {
+            residual_idx: *residual_idx,
+            src: r(*src),
+        },
+        ConstraintOp::StoreJacobianIndexed { output_idx, src } => {
+            ConstraintOp::StoreJacobianIndexed {
+                output_idx: *output_idx,
+                src: r(*src),
+            }
+        }
     }
 }
 
@@ -419,6 +692,14 @@ pub enum ValidationError {
         /// Actual pattern length.
         pattern_len: usize,
     },
+
+    /// A StoreJacobianIndexed op has an output_idx that exceeds jacobian_nnz.
+    JacobianOutputIndexOutOfBounds {
+        /// The invalid index.
+        index: usize,
+        /// The number of non-zeros.
+        nnz: usize,
+    },
 }
 
 impl std::fmt::Display for ValidationError {
@@ -443,6 +724,13 @@ impl std::fmt::Display for ValidationError {
                     f,
                     "Jacobian nnz ({}) doesn't match pattern length ({})",
                     nnz, pattern_len
+                )
+            }
+            ValidationError::JacobianOutputIndexOutOfBounds { index, nnz } => {
+                write!(
+                    f,
+                    "Jacobian output index {} out of bounds (nnz: {})",
+                    index, nnz
                 )
             }
         }

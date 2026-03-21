@@ -142,6 +142,7 @@ impl Solver {
                             solution: x.as_slice().to_vec(),
                             iterations: iteration,
                             residual_norm: norm,
+                            residuals: residuals.clone(),
                         };
                     }
                 }
@@ -161,6 +162,7 @@ impl Solver {
             solution: x.as_slice().to_vec(),
             iterations: self.config.max_iterations,
             residual_norm: norm,
+            residuals,
         }
     }
 

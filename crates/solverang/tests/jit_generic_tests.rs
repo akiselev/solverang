@@ -1690,3 +1690,702 @@ mod layer7_auto_lowerable {
         assert!((r2[0] - (-75.0)).abs() < 1e-10, "p2: expected -75, got {}", r2[0]);
     }
 }
+
+// ============================================================================
+// Layer 8: JITSolver auto-detection
+// ============================================================================
+
+mod layer8_auto_detection {
+    use solverang::{auto_jacobian, Problem};
+    use solverang::jit::{JITConfig, CompiledConstraints};
+    use solverang::solver::JITSolver;
+
+    /// A JIT-capable problem: uses #[auto_jacobian] and implements
+    /// Problem::lower_to_compiled_constraints returning Some(...).
+    struct JITCapableQuadratic {
+        target: f64,
+    }
+
+    #[auto_jacobian(array_param = "x")]
+    impl JITCapableQuadratic {
+        #[residual]
+        fn residual(&self, x: &[f64]) -> f64 {
+            x[0] * x[0] - self.target
+        }
+    }
+
+    impl Problem for JITCapableQuadratic {
+        fn name(&self) -> &str { "JITCapableQuadratic" }
+        fn residual_count(&self) -> usize { 1 }
+        fn variable_count(&self) -> usize { 1 }
+
+        fn residuals(&self, x: &[f64]) -> Vec<f64> {
+            vec![self.residual(x)]
+        }
+
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+            self.jacobian_entries(x)
+        }
+
+        fn initial_point(&self, factor: f64) -> Vec<f64> {
+            vec![factor]
+        }
+
+        fn lower_to_compiled_constraints(&self) -> Option<CompiledConstraints> {
+            Some(self.lower_to_compiled_constraints())
+        }
+    }
+
+    /// A plain Problem WITHOUT JIT capability — uses default None.
+    struct PlainQuadratic {
+        target: f64,
+    }
+
+    impl Problem for PlainQuadratic {
+        fn name(&self) -> &str { "PlainQuadratic" }
+        fn residual_count(&self) -> usize { 1 }
+        fn variable_count(&self) -> usize { 1 }
+
+        fn residuals(&self, x: &[f64]) -> Vec<f64> {
+            vec![x[0] * x[0] - self.target]
+        }
+
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+            vec![(0, 0, 2.0 * x[0])]
+        }
+
+        fn initial_point(&self, factor: f64) -> Vec<f64> {
+            vec![factor]
+        }
+    }
+
+    /// JITSolver::solve() auto-detects JIT-capable problem and converges.
+    #[test]
+    fn auto_detect_jit_capable_problem() {
+        let problem = JITCapableQuadratic { target: 4.0 };
+        let mut solver = JITSolver::new(JITConfig::always_jit());
+
+        let result = solver.solve(&problem, &[1.5]);
+        assert!(result.is_converged(), "JIT auto-detect should converge: {:?}", result);
+
+        let solution = result.solution().unwrap();
+        assert!(
+            (solution[0] - 2.0).abs() < 1e-6,
+            "solution should be 2.0, got {}",
+            solution[0]
+        );
+    }
+
+    /// JITSolver::solve() falls through to interpreted for plain Problems.
+    #[test]
+    fn auto_detect_falls_through_for_plain_problem() {
+        let problem = PlainQuadratic { target: 4.0 };
+        let mut solver = JITSolver::new(JITConfig::default());
+
+        let result = solver.solve(&problem, &[1.5]);
+        assert!(result.is_converged(), "interpreted fallback should converge: {:?}", result);
+
+        let solution = result.solution().unwrap();
+        assert!(
+            (solution[0] - 2.0).abs() < 1e-6,
+            "solution should be 2.0, got {}",
+            solution[0]
+        );
+    }
+
+    /// force_interpreted = true skips JIT even for capable problems.
+    #[test]
+    fn force_interpreted_skips_jit() {
+        let problem = JITCapableQuadratic { target: 4.0 };
+        let mut solver = JITSolver::new(JITConfig::always_interpreted());
+
+        let result = solver.solve(&problem, &[1.5]);
+        assert!(result.is_converged(), "forced interpreted should converge: {:?}", result);
+    }
+
+    /// Multi-residual JIT auto-detection: Rosenbrock with 2 residuals.
+    struct JITRosenbrock;
+
+    #[auto_jacobian(array_param = "x")]
+    impl JITRosenbrock {
+        #[residual]
+        fn residual_0(&self, x: &[f64]) -> f64 {
+            10.0 * (x[1] - x[0] * x[0])
+        }
+
+        #[residual]
+        fn residual_1(&self, x: &[f64]) -> f64 {
+            1.0 - x[0]
+        }
+    }
+
+    impl Problem for JITRosenbrock {
+        fn name(&self) -> &str { "JITRosenbrock" }
+        fn residual_count(&self) -> usize { 2 }
+        fn variable_count(&self) -> usize { 2 }
+
+        fn residuals(&self, x: &[f64]) -> Vec<f64> {
+            vec![self.residual_0(x), self.residual_1(x)]
+        }
+
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+            self.jacobian_entries(x)
+        }
+
+        fn initial_point(&self, factor: f64) -> Vec<f64> {
+            vec![-1.2 * factor, factor]
+        }
+
+        fn lower_to_compiled_constraints(&self) -> Option<CompiledConstraints> {
+            Some(self.lower_to_compiled_constraints())
+        }
+    }
+
+    /// Multi-residual Rosenbrock auto-detected and solved via JIT.
+    #[test]
+    fn auto_detect_multi_residual_rosenbrock() {
+        let problem = JITRosenbrock;
+        let mut solver = JITSolver::new(JITConfig::always_jit());
+
+        let result = solver.solve(&problem, &[-1.2, 1.0]);
+        assert!(result.is_converged(), "JIT Rosenbrock should converge: {:?}", result);
+
+        let solution = result.solution().unwrap();
+        assert!(
+            (solution[0] - 1.0).abs() < 1e-4 && (solution[1] - 1.0).abs() < 1e-4,
+            "Rosenbrock solution should be (1, 1), got ({}, {})",
+            solution[0], solution[1]
+        );
+    }
+}
+
+// ============================================================================
+// Layer 9: Fused residual + Jacobian evaluation
+// ============================================================================
+
+mod layer9_fused_evaluation {
+    use solverang::{auto_jacobian, Problem};
+    use solverang::jit::{JITCompiler, CompiledConstraints, ConstraintOp};
+
+    /// Distance constraint for fused evaluation tests.
+    struct FusedDistance {
+        target: f64,
+    }
+
+    #[auto_jacobian(array_param = "x")]
+    impl FusedDistance {
+        #[residual]
+        fn residual(&self, x: &[f64]) -> f64 {
+            let dx = x[2] - x[0];
+            let dy = x[3] - x[1];
+            (dx * dx + dy * dy).sqrt() - self.target
+        }
+    }
+
+    impl Problem for FusedDistance {
+        fn name(&self) -> &str { "FusedDistance" }
+        fn residual_count(&self) -> usize { 1 }
+        fn variable_count(&self) -> usize { 4 }
+
+        fn residuals(&self, x: &[f64]) -> Vec<f64> {
+            vec![self.residual(x)]
+        }
+
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+            self.jacobian_entries(x)
+        }
+
+        fn initial_point(&self, _: f64) -> Vec<f64> {
+            vec![0.0, 0.0, 1.0, 0.0]
+        }
+    }
+
+    /// evaluate_both() produces same results as separate evaluate_residuals() + evaluate_jacobian().
+    #[test]
+    fn fused_matches_separate_evaluation() {
+        let problem = FusedDistance { target: 5.0 };
+        let cc = problem.lower_to_compiled_constraints();
+
+        let mut compiler = JITCompiler::new().unwrap();
+        let jit_fn = compiler.compile(&cc).unwrap();
+
+        let test_points: &[&[f64]] = &[
+            &[0.0, 0.0, 3.0, 4.0],
+            &[1.0, 2.0, 4.0, 6.0],
+            &[0.0, 0.0, 6.0, 8.0],
+        ];
+
+        for vars in test_points {
+            // Separate evaluation
+            let mut sep_residuals = vec![0.0; jit_fn.residual_count()];
+            let mut sep_jacobian = vec![0.0; jit_fn.jacobian_nnz()];
+            jit_fn.evaluate_residuals(vars, &mut sep_residuals);
+            jit_fn.evaluate_jacobian(vars, &mut sep_jacobian);
+
+            // Fused evaluation
+            let mut fused_residuals = vec![0.0; jit_fn.residual_count()];
+            let mut fused_jacobian = vec![0.0; jit_fn.jacobian_nnz()];
+            jit_fn.evaluate_both(vars, &mut fused_residuals, &mut fused_jacobian);
+
+            // Compare
+            for (i, (s, f)) in sep_residuals.iter().zip(fused_residuals.iter()).enumerate() {
+                assert!(
+                    (s - f).abs() < 1e-10,
+                    "Residual {} mismatch at {:?}: separate={}, fused={}",
+                    i, vars, s, f
+                );
+            }
+
+            for (i, (s, f)) in sep_jacobian.iter().zip(fused_jacobian.iter()).enumerate() {
+                assert!(
+                    (s - f).abs() < 1e-10,
+                    "Jacobian {} mismatch at {:?}: separate={}, fused={}",
+                    i, vars, s, f
+                );
+            }
+        }
+    }
+
+    /// fuse_ops() produces fewer LoadVar instructions than the sum of individual streams.
+    #[test]
+    fn fuse_ops_deduplicates_load_var() {
+        let problem = FusedDistance { target: 5.0 };
+        let cc = problem.lower_to_compiled_constraints();
+
+        let residual_loads = cc.residual_ops.iter()
+            .filter(|op| matches!(op, ConstraintOp::LoadVar { .. }))
+            .count();
+        let jacobian_loads = cc.jacobian_ops.iter()
+            .filter(|op| matches!(op, ConstraintOp::LoadVar { .. }))
+            .count();
+        let separate_total = residual_loads + jacobian_loads;
+
+        let (fused_ops, _) = cc.fuse_ops();
+        let fused_loads = fused_ops.iter()
+            .filter(|op| matches!(op, ConstraintOp::LoadVar { .. }))
+            .count();
+
+        assert!(
+            fused_loads < separate_total,
+            "Fused should have fewer LoadVar ops: fused={} < separate={}",
+            fused_loads, separate_total
+        );
+
+        // Fused should have at most max(residual_loads, jacobian_loads) loads
+        assert!(
+            fused_loads <= residual_loads.max(jacobian_loads),
+            "Fused loads ({}) should be <= max of individual ({}, {})",
+            fused_loads, residual_loads, jacobian_loads
+        );
+    }
+
+    /// Multi-residual fused evaluation correctness.
+    struct FusedRosenbrock;
+
+    #[auto_jacobian(array_param = "x")]
+    impl FusedRosenbrock {
+        #[residual]
+        fn residual_0(&self, x: &[f64]) -> f64 {
+            10.0 * (x[1] - x[0] * x[0])
+        }
+
+        #[residual]
+        fn residual_1(&self, x: &[f64]) -> f64 {
+            1.0 - x[0]
+        }
+    }
+
+    impl Problem for FusedRosenbrock {
+        fn name(&self) -> &str { "FusedRosenbrock" }
+        fn residual_count(&self) -> usize { 2 }
+        fn variable_count(&self) -> usize { 2 }
+
+        fn residuals(&self, x: &[f64]) -> Vec<f64> {
+            vec![self.residual_0(x), self.residual_1(x)]
+        }
+
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+            self.jacobian_entries(x)
+        }
+
+        fn initial_point(&self, factor: f64) -> Vec<f64> {
+            vec![-1.2 * factor, factor]
+        }
+    }
+
+    #[test]
+    fn fused_multi_residual_correctness() {
+        let problem = FusedRosenbrock;
+        let cc = problem.lower_to_compiled_constraints();
+
+        let mut compiler = JITCompiler::new().unwrap();
+        let jit_fn = compiler.compile(&cc).unwrap();
+
+        let vars = &[-1.2, 1.0];
+
+        // Separate
+        let mut sep_residuals = vec![0.0; 2];
+        let mut sep_jacobian = vec![0.0; jit_fn.jacobian_nnz()];
+        jit_fn.evaluate_residuals(vars, &mut sep_residuals);
+        jit_fn.evaluate_jacobian(vars, &mut sep_jacobian);
+
+        // Fused
+        let mut fused_residuals = vec![0.0; 2];
+        let mut fused_jacobian = vec![0.0; jit_fn.jacobian_nnz()];
+        jit_fn.evaluate_both(vars, &mut fused_residuals, &mut fused_jacobian);
+
+        for i in 0..2 {
+            assert!(
+                (sep_residuals[i] - fused_residuals[i]).abs() < 1e-10,
+                "Residual {} mismatch",
+                i
+            );
+        }
+
+        for i in 0..jit_fn.jacobian_nnz() {
+            assert!(
+                (sep_jacobian[i] - fused_jacobian[i]).abs() < 1e-10,
+                "Jacobian {} mismatch",
+                i
+            );
+        }
+    }
+}
+
+// ============================================================================
+// Layer 10: Direct dense Jacobian assembly
+// ============================================================================
+
+mod layer10_dense_jacobian {
+    use solverang::{auto_jacobian, Problem};
+    use solverang::jit::{JITCompiler, CompiledConstraints, ConstraintOp};
+
+    /// Rosenbrock for dense Jacobian tests: 2 residuals, 2 variables.
+    struct DenseRosenbrock;
+
+    #[auto_jacobian(array_param = "x")]
+    impl DenseRosenbrock {
+        #[residual]
+        fn residual_0(&self, x: &[f64]) -> f64 {
+            10.0 * (x[1] - x[0] * x[0])
+        }
+
+        #[residual]
+        fn residual_1(&self, x: &[f64]) -> f64 {
+            1.0 - x[0]
+        }
+    }
+
+    impl Problem for DenseRosenbrock {
+        fn name(&self) -> &str { "DenseRosenbrock" }
+        fn residual_count(&self) -> usize { 2 }
+        fn variable_count(&self) -> usize { 2 }
+
+        fn residuals(&self, x: &[f64]) -> Vec<f64> {
+            vec![self.residual_0(x), self.residual_1(x)]
+        }
+
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+            self.jacobian_entries(x)
+        }
+
+        fn initial_point(&self, factor: f64) -> Vec<f64> {
+            vec![-1.2 * factor, factor]
+        }
+
+        fn lower_to_compiled_constraints(&self) -> Option<CompiledConstraints> {
+            Some(self.lower_to_compiled_constraints())
+        }
+    }
+
+    /// densify_jacobian_ops rewrites StoreJacobianIndexed with column-major dense offsets.
+    #[test]
+    fn densify_jacobian_ops_computes_correct_offsets() {
+        let problem = DenseRosenbrock;
+        let cc = problem.lower_to_compiled_constraints();
+
+        let m = cc.n_residuals; // 2
+
+        let dense_ops = cc.densify_jacobian_ops(m);
+
+        // Collect the StoreJacobianIndexed output_idx values from dense ops
+        let dense_indices: Vec<u32> = dense_ops.iter()
+            .filter_map(|op| {
+                if let ConstraintOp::StoreJacobianIndexed { output_idx, .. } = op {
+                    Some(*output_idx)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Collect expected indices from jacobian_pattern: col * m + row
+        let expected_indices: Vec<u32> = cc.jacobian_pattern.iter()
+            .map(|e| e.col * (m as u32) + e.row)
+            .collect();
+
+        assert_eq!(
+            dense_indices, expected_indices,
+            "Dense indices should be col*m+row. Got {:?}, expected {:?}",
+            dense_indices, expected_indices
+        );
+    }
+
+    /// evaluate_both_dense writes correct values into column-major dense buffer.
+    #[test]
+    fn dense_fused_matches_coo_path() {
+        let problem = DenseRosenbrock;
+        let cc = problem.lower_to_compiled_constraints();
+        let m = cc.n_residuals;
+        let n = cc.n_vars;
+
+        let mut compiler = JITCompiler::new().unwrap();
+        let jit_fn = compiler.compile(&cc).unwrap();
+
+        let vars = &[-1.2, 1.0];
+
+        // COO path: evaluate + manual dense assembly
+        let mut coo_residuals = vec![0.0; m];
+        let mut coo_values = vec![0.0; jit_fn.jacobian_nnz()];
+        jit_fn.evaluate_both(vars, &mut coo_residuals, &mut coo_values);
+
+        // Build dense from COO
+        let mut coo_dense = vec![0.0; m * n];
+        for (entry, &val) in jit_fn.jacobian_pattern().iter().zip(coo_values.iter()) {
+            let idx = (entry.col as usize) * m + (entry.row as usize);
+            coo_dense[idx] = val;
+        }
+
+        // Dense path: evaluate_both_dense writes directly
+        let mut dense_residuals = vec![0.0; m];
+        let mut dense_jacobian = vec![0.0; m * n];
+        jit_fn.evaluate_both_dense(vars, &mut dense_residuals, &mut dense_jacobian);
+
+        // Residuals should match
+        for i in 0..m {
+            assert!(
+                (coo_residuals[i] - dense_residuals[i]).abs() < 1e-10,
+                "Residual {} mismatch: coo={}, dense={}",
+                i, coo_residuals[i], dense_residuals[i]
+            );
+        }
+
+        // Dense Jacobian should match
+        for i in 0..(m * n) {
+            assert!(
+                (coo_dense[i] - dense_jacobian[i]).abs() < 1e-10,
+                "Dense Jacobian [{}] mismatch: coo={}, dense={}",
+                i, coo_dense[i], dense_jacobian[i]
+            );
+        }
+    }
+
+    /// Distance constraint: 1 residual, 4 variables — tests sparse dense matrix.
+    struct DenseDistance {
+        target: f64,
+    }
+
+    #[auto_jacobian(array_param = "x")]
+    impl DenseDistance {
+        #[residual]
+        fn residual(&self, x: &[f64]) -> f64 {
+            let dx = x[2] - x[0];
+            let dy = x[3] - x[1];
+            (dx * dx + dy * dy).sqrt() - self.target
+        }
+    }
+
+    impl Problem for DenseDistance {
+        fn name(&self) -> &str { "DenseDistance" }
+        fn residual_count(&self) -> usize { 1 }
+        fn variable_count(&self) -> usize { 4 }
+
+        fn residuals(&self, x: &[f64]) -> Vec<f64> {
+            vec![self.residual(x)]
+        }
+
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+            self.jacobian_entries(x)
+        }
+
+        fn initial_point(&self, _: f64) -> Vec<f64> {
+            vec![0.0, 0.0, 1.0, 0.0]
+        }
+    }
+
+    /// Dense Rosenbrock solved via JITSolver with dense path.
+    #[test]
+    fn dense_solver_rosenbrock_converges() {
+        use solverang::jit::{JITConfig, CompiledConstraints as _CC};
+        use solverang::solver::JITSolver;
+
+        let problem = DenseRosenbrock;
+        let mut solver = JITSolver::new(JITConfig::always_jit());
+
+        let result = solver.solve(&problem, &[-1.2, 1.0]);
+        assert!(result.is_converged(), "Dense Rosenbrock should converge: {:?}", result);
+
+        let solution = result.solution().unwrap();
+        assert!(
+            (solution[0] - 1.0).abs() < 1e-4 && (solution[1] - 1.0).abs() < 1e-4,
+            "Solution should be (1, 1), got ({}, {})",
+            solution[0], solution[1]
+        );
+    }
+
+    /// Dense path works for non-square Jacobians (m=1, n=4).
+    #[test]
+    fn dense_path_nonsquare_jacobian() {
+        let problem = DenseDistance { target: 5.0 };
+        let cc = problem.lower_to_compiled_constraints();
+        let m = cc.n_residuals; // 1
+        let n = cc.n_vars;      // 4
+
+        let mut compiler = JITCompiler::new().unwrap();
+        let jit_fn = compiler.compile(&cc).unwrap();
+
+        let vars = &[0.0, 0.0, 3.0, 4.0];
+
+        let mut residuals = vec![0.0; m];
+        let mut dense_jac = vec![0.0; m * n];
+        jit_fn.evaluate_both_dense(vars, &mut residuals, &mut dense_jac);
+
+        // Residual: sqrt(9+16) - 5 = 0
+        assert!(residuals[0].abs() < 1e-10);
+
+        // Dense Jacobian (column-major, 1 row):
+        // col 0: dF/dx0 = -3/5 = -0.6
+        // col 1: dF/dx1 = -4/5 = -0.8
+        // col 2: dF/dx2 = 3/5 = 0.6
+        // col 3: dF/dx3 = 4/5 = 0.8
+        assert!((dense_jac[0] - (-0.6_f64)).abs() < 1e-10, "dF/dx0");
+        assert!((dense_jac[1] - (-0.8_f64)).abs() < 1e-10, "dF/dx1");
+        assert!((dense_jac[2] - 0.6_f64).abs() < 1e-10, "dF/dx2");
+        assert!((dense_jac[3] - 0.8_f64).abs() < 1e-10, "dF/dx3");
+    }
+}
+
+// ============================================================================
+// Layer 11: Compiled Newton steps (N < 30)
+// ============================================================================
+
+mod layer11_compiled_newton {
+    use solverang::{auto_jacobian, Problem};
+    use solverang::jit::{JITCompiler, CompiledConstraints};
+
+    /// Simple quadratic for Newton step tests: x^2 - 4 = 0, solution x=2.
+    struct NewtonQuadratic;
+
+    #[auto_jacobian(array_param = "x")]
+    impl NewtonQuadratic {
+        #[residual]
+        fn residual(&self, x: &[f64]) -> f64 {
+            x[0] * x[0] - 4.0
+        }
+    }
+
+    impl Problem for NewtonQuadratic {
+        fn name(&self) -> &str { "NewtonQuadratic" }
+        fn residual_count(&self) -> usize { 1 }
+        fn variable_count(&self) -> usize { 1 }
+        fn residuals(&self, x: &[f64]) -> Vec<f64> { vec![self.residual(x)] }
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> { self.jacobian_entries(x) }
+        fn initial_point(&self, factor: f64) -> Vec<f64> { vec![factor] }
+    }
+
+    /// Rosenbrock for Newton step tests.
+    struct NewtonRosenbrock;
+
+    #[auto_jacobian(array_param = "x")]
+    impl NewtonRosenbrock {
+        #[residual]
+        fn residual_0(&self, x: &[f64]) -> f64 {
+            10.0 * (x[1] - x[0] * x[0])
+        }
+
+        #[residual]
+        fn residual_1(&self, x: &[f64]) -> f64 {
+            1.0 - x[0]
+        }
+    }
+
+    impl Problem for NewtonRosenbrock {
+        fn name(&self) -> &str { "NewtonRosenbrock" }
+        fn residual_count(&self) -> usize { 2 }
+        fn variable_count(&self) -> usize { 2 }
+        fn residuals(&self, x: &[f64]) -> Vec<f64> {
+            vec![self.residual_0(x), self.residual_1(x)]
+        }
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+            self.jacobian_entries(x)
+        }
+        fn initial_point(&self, factor: f64) -> Vec<f64> {
+            vec![-1.2 * factor, factor]
+        }
+    }
+
+    /// One compiled Newton step produces same x_new as one interpreted step.
+    #[test]
+    fn compiled_newton_step_matches_interpreted() {
+        let problem = NewtonQuadratic;
+        let cc = problem.lower_to_compiled_constraints();
+
+        let mut compiler = JITCompiler::new().unwrap();
+        let step_fn = compiler.compile_newton_step(&cc).unwrap();
+
+        let x = &[3.0_f64];
+        let mut x_new = vec![0.0; 1];
+        let mut scratch = vec![0.0; 1 + 1 * 1 + 1]; // m + m*n + n
+
+        let norm = step_fn.evaluate(x, &mut x_new, &mut scratch);
+
+        // One Newton step from x=3: f(3) = 5, f'(3) = 6
+        // delta = -f/f' = -5/6
+        // x_new = 3 - 5/6 = 13/6 ≈ 2.1667
+        assert!(
+            (x_new[0] - 13.0_f64 / 6.0).abs() < 1e-10,
+            "Newton step: expected 13/6, got {}",
+            x_new[0]
+        );
+        assert!(
+            (norm - 5.0).abs() < 1e-10,
+            "Residual norm at x=3: expected 5, got {}",
+            norm
+        );
+    }
+
+    /// Compiled Newton solver converges on Rosenbrock (N=2).
+    #[test]
+    fn compiled_newton_solves_rosenbrock() {
+        let problem = NewtonRosenbrock;
+        let cc = problem.lower_to_compiled_constraints();
+
+        let mut compiler = JITCompiler::new().unwrap();
+        let step_fn = compiler.compile_newton_step(&cc).unwrap();
+
+        let n = 2;
+        let m = 2;
+        let mut x = vec![-1.2, 1.0];
+        let mut x_new = vec![0.0; n];
+        let mut scratch = vec![0.0; m + m * n + n];
+
+        let mut converged = false;
+        for _ in 0..200 {
+            let norm = step_fn.evaluate(&x, &mut x_new, &mut scratch);
+            if norm < 1e-8 {
+                converged = true;
+                break;
+            }
+            std::mem::swap(&mut x, &mut x_new);
+        }
+
+        assert!(converged, "Compiled Newton should converge on Rosenbrock");
+        // Check either x or x_new has the solution
+        let sol = if converged { &x_new } else { &x };
+        assert!(
+            (sol[0] - 1.0_f64).abs() < 1e-4 && (sol[1] - 1.0_f64).abs() < 1e-4,
+            "Solution should be (1,1), got ({}, {})",
+            sol[0], sol[1]
+        );
+    }
+}

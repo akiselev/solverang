@@ -64,6 +64,23 @@ impl JITSolver {
         estimated_work > self.config.jit_threshold && crate::jit::jit_available()
     }
 
+    /// Check if JIT should be used for the given compiled constraints.
+    ///
+    /// Uses `total_ops()` from the compiled constraints for a more accurate
+    /// estimate of computation cost than `will_use_jit()`.
+    pub fn should_jit(&self, cc: &CompiledConstraints) -> bool {
+        if self.config.force_interpreted {
+            return false;
+        }
+
+        if self.config.force_jit {
+            return crate::jit::jit_available();
+        }
+
+        let estimated_work = cc.total_ops() * self.config.estimated_iterations;
+        estimated_work > self.config.jit_threshold && crate::jit::jit_available()
+    }
+
     /// Solve a problem using either JIT or interpreted evaluation.
     pub fn solve<P: Problem>(&mut self, problem: &P, x0: &[f64]) -> SolveResult {
         let n = problem.variable_count();
@@ -91,9 +108,18 @@ impl JITSolver {
             };
         }
 
-        // For now, we always use interpreted since we can't automatically lower
-        // arbitrary Problem implementations. JIT requires explicit lowering of
-        // constraint types.
+        // Try JIT path if the problem can produce CompiledConstraints
+        if !self.config.force_interpreted {
+            if let Some(compiled) = problem.lower_to_compiled_constraints() {
+                if self.should_jit(&compiled) {
+                    match self.compile(&compiled) {
+                        Ok(jit_fn) => return self.solve_with_jit(&jit_fn, x0),
+                        Err(_) => { /* fall through to interpreted */ }
+                    }
+                }
+            }
+        }
+
         self.solve_interpreted(problem, x0)
     }
 
@@ -115,11 +141,12 @@ impl JITSolver {
 
         let mut x = DVector::from_column_slice(x0);
         let mut residuals = vec![0.0; m];
-        let mut jac_values = vec![0.0; jit_fn.jacobian_nnz()];
+        let mut j = DMatrix::zeros(m, n);
 
         for iteration in 0..self.config.max_iterations {
-            // Evaluate residuals using JIT
-            jit_fn.evaluate_residuals(x.as_slice(), &mut residuals);
+            // Evaluate both residuals and dense Jacobian in a single fused pass.
+            // JIT writes directly into DMatrix column-major storage — no COO copy.
+            jit_fn.evaluate_both_dense(x.as_slice(), &mut residuals, j.as_mut_slice());
 
             // Check for non-finite residuals
             if residuals.iter().any(|r| !r.is_finite()) {
@@ -140,24 +167,11 @@ impl JITSolver {
                 };
             }
 
-            // Evaluate Jacobian using JIT
-            jit_fn.evaluate_jacobian(x.as_slice(), &mut jac_values);
-
             // Check for non-finite Jacobian entries
-            if jac_values.iter().any(|v| !v.is_finite()) {
+            if j.as_slice().iter().any(|v| !v.is_finite()) {
                 return SolveResult::Failed {
                     error: SolveError::NonFiniteJacobian,
                 };
-            }
-
-            // Build Jacobian matrix from COO format
-            let mut j = DMatrix::zeros(m, n);
-            for (entry, &val) in jit_fn.jacobian_pattern().iter().zip(jac_values.iter()) {
-                let row = entry.row as usize;
-                let col = entry.col as usize;
-                if row < m && col < n {
-                    j[(row, col)] = val;
-                }
             }
 
             // Solve J * delta = -r for the Newton step
@@ -181,6 +195,7 @@ impl JITSolver {
             solution: x.as_slice().to_vec(),
             iterations: self.config.max_iterations,
             residual_norm: norm,
+            residuals: residuals.clone(),
         }
     }
 
@@ -253,6 +268,7 @@ impl JITSolver {
             solution: x.as_slice().to_vec(),
             iterations: self.config.max_iterations,
             residual_norm: norm,
+            residuals,
         }
     }
 
@@ -413,5 +429,54 @@ mod tests {
             result.error(),
             Some(SolveError::DimensionMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn test_should_jit_uses_total_ops() {
+        let solver = JITSolver::new(JITConfig::default());
+
+        // Small problem: few ops → should not JIT
+        let mut small_cc = CompiledConstraints::new(2, 1);
+        small_cc.residual_ops = vec![
+            crate::jit::ConstraintOp::LoadVar {
+                dst: crate::jit::Reg::new(0),
+                var_idx: 0,
+            },
+            crate::jit::ConstraintOp::StoreResidual {
+                residual_idx: 0,
+                src: crate::jit::Reg::new(0),
+            },
+        ];
+        assert!(!solver.should_jit(&small_cc), "small problem should not use JIT");
+
+        // Large problem: many ops → should JIT
+        let mut large_cc = CompiledConstraints::new(100, 100);
+        // Add 200 ops to exceed threshold
+        for i in 0..200 {
+            large_cc.residual_ops.push(crate::jit::ConstraintOp::LoadVar {
+                dst: crate::jit::Reg::new(i as u16),
+                var_idx: i.min(99),
+            });
+        }
+        assert!(
+            solver.should_jit(&large_cc) == crate::jit::jit_available(),
+            "large problem should use JIT if available"
+        );
+    }
+
+    #[test]
+    fn test_should_jit_force_flags() {
+        let small_cc = CompiledConstraints::new(1, 1);
+
+        // Force JIT
+        let solver_jit = JITSolver::new(JITConfig::always_jit());
+        assert_eq!(
+            solver_jit.should_jit(&small_cc),
+            crate::jit::jit_available()
+        );
+
+        // Force interpreted
+        let solver_interp = JITSolver::new(JITConfig::always_interpreted());
+        assert!(!solver_interp.should_jit(&small_cc));
     }
 }

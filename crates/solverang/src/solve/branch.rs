@@ -211,6 +211,7 @@ mod tests {
                 solution: vec![1.0],
                 iterations: 100,
                 residual_norm: 0.5,
+                residuals: vec![],
             },
             SolveResult::Failed {
                 error: crate::solver::SolveError::SingularJacobian,
@@ -302,6 +303,7 @@ mod tests {
                 solution: vec![3.0, 3.0],
                 iterations: 100,
                 residual_norm: 0.1,
+                residuals: vec![],
             },
         ];
 

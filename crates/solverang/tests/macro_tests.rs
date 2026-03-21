@@ -410,3 +410,201 @@ fn test_power_jacobian_verification() {
         result.max_absolute_error
     );
 }
+
+// ============================================================================
+// Multi-residual tests
+// ============================================================================
+
+/// Rosenbrock function via macro: 2 residuals, 2 variables.
+///
+/// F_0(x) = 10(x[1] - x[0]^2)
+/// F_1(x) = 1 - x[0]
+struct RosenbrockMacro;
+
+#[auto_jacobian(array_param = "x")]
+impl RosenbrockMacro {
+    #[residual]
+    fn residual_0(&self, x: &[f64]) -> f64 {
+        10.0 * (x[1] - x[0] * x[0])
+    }
+
+    #[residual]
+    fn residual_1(&self, x: &[f64]) -> f64 {
+        1.0 - x[0]
+    }
+}
+
+impl Problem for RosenbrockMacro {
+    fn name(&self) -> &str {
+        "RosenbrockMacro"
+    }
+
+    fn residual_count(&self) -> usize {
+        2
+    }
+
+    fn variable_count(&self) -> usize {
+        2
+    }
+
+    fn residuals(&self, x: &[f64]) -> Vec<f64> {
+        vec![self.residual_0(x), self.residual_1(x)]
+    }
+
+    fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+        self.jacobian_entries(x)
+    }
+
+    fn initial_point(&self, factor: f64) -> Vec<f64> {
+        vec![-1.2 * factor, factor]
+    }
+}
+
+#[test]
+fn test_rosenbrock_macro_residuals() {
+    let problem = RosenbrockMacro;
+
+    // At solution (1, 1): both residuals should be 0
+    let r = problem.residuals(&[1.0, 1.0]);
+    assert!((r[0]).abs() < 1e-10, "F0 at solution should be 0, got {}", r[0]);
+    assert!((r[1]).abs() < 1e-10, "F1 at solution should be 0, got {}", r[1]);
+
+    // At (0, 0): F0 = 0, F1 = 1
+    let r = problem.residuals(&[0.0, 0.0]);
+    assert!((r[0]).abs() < 1e-10);
+    assert!((r[1] - 1.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_rosenbrock_macro_jacobian_entries() {
+    let problem = RosenbrockMacro;
+    let x = &[1.0, 1.0];
+    let jac = problem.jacobian(x);
+
+    // Expected Jacobian at (1,1):
+    //   dF0/dx0 = -20*x0 = -20    (row 0, col 0)
+    //   dF0/dx1 = 10               (row 0, col 1)
+    //   dF1/dx0 = -1               (row 1, col 0)
+    //   dF1/dx1 = 0                (row 1, col 1) — should be absent (zero)
+    //
+    // So we expect 3 entries total.
+    assert_eq!(
+        jac.len(),
+        3,
+        "Expected 3 non-zero Jacobian entries, got {}: {:?}",
+        jac.len(),
+        jac
+    );
+
+    // Build dense for easier checking
+    let mut dense = vec![vec![0.0; 2]; 2];
+    for (row, col, val) in &jac {
+        dense[*row][*col] = *val;
+    }
+
+    assert!((dense[0][0] - (-20.0)).abs() < 1e-10, "dF0/dx0 = -20");
+    assert!((dense[0][1] - 10.0).abs() < 1e-10, "dF0/dx1 = 10");
+    assert!((dense[1][0] - (-1.0)).abs() < 1e-10, "dF1/dx0 = -1");
+}
+
+#[test]
+fn test_rosenbrock_macro_jacobian_verification() {
+    let problem = RosenbrockMacro;
+    let x = vec![0.5, 0.5];
+
+    let result = verify_jacobian(&problem, &x, 1e-7, 1e-5);
+    assert!(
+        result.passed,
+        "Jacobian verification failed: max error = {}, location = {:?}",
+        result.max_absolute_error,
+        result.max_error_location
+    );
+}
+
+/// Multi-residual with disjoint variable sets.
+///
+/// F_0(x) = x[0] + x[1]     (uses x[0], x[1])
+/// F_1(x) = x[2] * x[2]     (uses x[2] only)
+struct DisjointVarsConstraint;
+
+#[auto_jacobian(array_param = "x")]
+impl DisjointVarsConstraint {
+    #[residual]
+    fn residual_sum(&self, x: &[f64]) -> f64 {
+        x[0] + x[1]
+    }
+
+    #[residual]
+    fn residual_square(&self, x: &[f64]) -> f64 {
+        x[2] * x[2]
+    }
+}
+
+impl Problem for DisjointVarsConstraint {
+    fn name(&self) -> &str {
+        "DisjointVars"
+    }
+
+    fn residual_count(&self) -> usize {
+        2
+    }
+
+    fn variable_count(&self) -> usize {
+        3
+    }
+
+    fn residuals(&self, x: &[f64]) -> Vec<f64> {
+        vec![self.residual_sum(x), self.residual_square(x)]
+    }
+
+    fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+        self.jacobian_entries(x)
+    }
+
+    fn initial_point(&self, _: f64) -> Vec<f64> {
+        vec![1.0, 1.0, 1.0]
+    }
+}
+
+#[test]
+fn test_disjoint_vars_jacobian() {
+    let problem = DisjointVarsConstraint;
+    let x = &[2.0, 3.0, 4.0];
+    let jac = problem.jacobian(x);
+
+    // Expected Jacobian:
+    //   dF0/dx0 = 1   (row 0, col 0)
+    //   dF0/dx1 = 1   (row 0, col 1)
+    //   dF0/dx2 = 0   — absent
+    //   dF1/dx0 = 0   — absent
+    //   dF1/dx1 = 0   — absent
+    //   dF1/dx2 = 2*x[2] = 8  (row 1, col 2)
+    //
+    // 3 non-zero entries, block-diagonal structure.
+    assert_eq!(jac.len(), 3, "Expected 3 entries, got {:?}", jac);
+
+    let mut dense = vec![vec![0.0; 3]; 2];
+    for (row, col, val) in &jac {
+        dense[*row][*col] = *val;
+    }
+
+    assert!((dense[0][0] - 1.0).abs() < 1e-10);
+    assert!((dense[0][1] - 1.0).abs() < 1e-10);
+    assert!((dense[0][2]).abs() < 1e-10); // should be 0 (absent)
+    assert!((dense[1][0]).abs() < 1e-10); // should be 0 (absent)
+    assert!((dense[1][1]).abs() < 1e-10); // should be 0 (absent)
+    assert!((dense[1][2] - 8.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_disjoint_vars_jacobian_verification() {
+    let problem = DisjointVarsConstraint;
+    let x = vec![2.0, 3.0, 4.0];
+
+    let result = verify_jacobian(&problem, &x, 1e-7, 1e-5);
+    assert!(
+        result.passed,
+        "Jacobian verification failed: max error = {}",
+        result.max_absolute_error
+    );
+}

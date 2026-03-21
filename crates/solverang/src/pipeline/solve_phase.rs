@@ -196,6 +196,7 @@ impl SolveCluster for DefaultSolve {
                         solution,
                         iterations: iters,
                         residual_norm: rn,
+                        ..
                     } => {
                         for (col, &pid) in sub_mapping.col_to_param.iter().enumerate() {
                             numerical_values.push((pid, solution[col]));
@@ -371,6 +372,7 @@ impl SolveCluster for NumericalOnlySolve {
                 solution,
                 iterations,
                 residual_norm,
+                ..
             } => {
                 let vals: Vec<(ParamId, f64)> = sub_mapping
                     .col_to_param

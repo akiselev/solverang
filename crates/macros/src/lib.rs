@@ -179,18 +179,20 @@ impl Parse for JacobianArgs {
     }
 }
 
-/// Find the residual method in an impl block.
-fn find_residual_method(impl_block: &ItemImpl) -> Option<(&ImplItem, &Signature, &Block)> {
+/// Find all residual methods in an impl block.
+fn find_residual_methods(impl_block: &ItemImpl) -> Vec<(&ImplItem, &Signature, &Block)> {
+    let mut methods = Vec::new();
     for item in &impl_block.items {
         if let ImplItem::Fn(method) = item {
             for attr in &method.attrs {
                 if attr.path().is_ident("residual") {
-                    return Some((item, &method.sig, &method.block));
+                    methods.push((item as &ImplItem, &method.sig, &method.block));
+                    break;
                 }
             }
         }
     }
-    None
+    methods
 }
 
 /// Extract the return expression from a function block.
@@ -359,56 +361,86 @@ fn generate_jacobian_impl(
     args: JacobianArgs,
     mut impl_block: ItemImpl,
 ) -> syn::Result<TokenStream2> {
-    // Find the residual method
-    let (_, sig, block) = find_residual_method(&impl_block).ok_or_else(|| {
-        syn::Error::new(
-            impl_block.self_ty.span(),
-            "No method marked with #[residual] found in impl block",
-        )
-    })?;
+    // Find all residual methods — extract data and drop borrows before mutating impl_block
+    struct ResidualInfo {
+        parsed: parse::ParsedResidual,
+        jac_info: codegen::JacobianInfo,
+        method_name: Ident,
+    }
 
-    // Validate the signature
-    validate_residual_signature(sig, &args.array_param)?;
+    let mut residual_infos = Vec::new();
+    let mut first_sig_span = None;
 
-    // Get let bindings and return expression
-    let bindings = collect_let_bindings(block);
-    let return_expr = extract_return_expr(block)?;
+    {
+        let residual_methods = find_residual_methods(&impl_block);
+        if residual_methods.is_empty() {
+            return Err(syn::Error::new(
+                impl_block.self_ty.span(),
+                "No method marked with #[residual] found in impl block",
+            ));
+        }
 
-    // Expand all let bindings into the return expression
-    let expanded_expr = expand_bindings(return_expr, &bindings);
+        for (row_index, (_, sig, block)) in residual_methods.iter().enumerate() {
+            // Validate the signature (all must share the same array_param)
+            validate_residual_signature(sig, &args.array_param)?;
+            if first_sig_span.is_none() {
+                first_sig_span = Some(sig.span());
+            }
 
-    // Parse the expression into our AST
-    let parsed = parse::parse_residual(&expanded_expr, &args.array_param)?;
+            let method_name = sig.ident.clone();
 
-    // Generate Jacobian entries
-    let entries = codegen::generate_jacobian_entries(&parsed.expr, &parsed.variables);
+            // Get let bindings and return expression
+            let bindings = collect_let_bindings(block);
+            let return_expr = extract_return_expr(block)?;
 
-    // Build the jacobian info
-    let jac_info = codegen::JacobianInfo {
-        residual_row: 0,
-        entries,
-    };
+            // Expand all let bindings into the return expression
+            let expanded_expr = expand_bindings(return_expr, &bindings);
 
-    // Generate the jacobian method body
-    let jacobian_body = codegen::generate_jacobian_method(&[jac_info]);
+            // Parse the expression into our AST
+            let parsed = parse::parse_residual(&expanded_expr, &args.array_param)?;
+
+            // Generate Jacobian entries for this residual
+            let entries = codegen::generate_jacobian_entries(&parsed.expr, &parsed.variables);
+
+            let jac_info = codegen::JacobianInfo {
+                residual_row: row_index,
+                entries,
+            };
+
+            residual_infos.push(ResidualInfo { parsed, jac_info, method_name });
+        }
+    } // residual_methods borrows dropped here
+
+    let num_residuals = residual_infos.len();
+
+    // Generate the jacobian method body from ALL residuals.
+    // We need to move the JacobianInfos out since generate_jacobian_method takes &[JacobianInfo].
+    let all_jac_infos: Vec<codegen::JacobianInfo> =
+        residual_infos.iter().map(|ri| {
+            codegen::JacobianInfo {
+                residual_row: ri.jac_info.residual_row,
+                entries: ri.jac_info.entries.clone(),
+            }
+        }).collect();
+    let jacobian_body = codegen::generate_jacobian_method(&all_jac_infos);
 
     // Get the array parameter name as an identifier
+    let sig_span = first_sig_span.unwrap();
     let array_param_ident: Ident = syn::parse_str(&args.array_param)
-        .map_err(|e| syn::Error::new(sig.span(), format!("Invalid array_param: {}", e)))?;
+        .map_err(|e| syn::Error::new(sig_span, format!("Invalid array_param: {}", e)))?;
 
     // Create the jacobian method
-    // Named `jacobian_entries` to avoid conflicts with trait methods
     let jacobian_method: ImplItem = syn::parse_quote! {
         /// Compute Jacobian entries as sparse triplets (row, column, value).
         ///
         /// This method was automatically generated by symbolic differentiation
-        /// of the residual expression. Use this in your `Problem::jacobian` implementation.
+        /// of the residual expressions. Use this in your `Problem::jacobian` implementation.
         fn jacobian_entries(&self, #array_param_ident: &[f64]) -> Vec<(usize, usize, f64)> {
             #jacobian_body
         }
     };
 
-    // Remove the #[residual] attribute from the residual method
+    // Remove the #[residual] attribute from all residual methods
     for item in &mut impl_block.items {
         if let ImplItem::Fn(method) = item {
             method
@@ -424,63 +456,83 @@ fn generate_jacobian_impl(
     // Generate JIT lowering methods (behind #[cfg(feature = "jit")])
     // ====================================================================
 
-    // Determine the number of variables (max index + 1).
-    let n_vars: usize = parsed
-        .variables
+    // Determine the number of variables (max index + 1) across ALL residuals.
+    let n_vars: usize = residual_infos
         .iter()
+        .flat_map(|ri| ri.parsed.variables.iter())
         .filter_map(|v| v.index_tokens.parse::<usize>().ok())
         .max()
         .map(|max_idx| max_idx + 1)
         .unwrap_or(0);
 
-    // Generate opcode-emitting code for the residual.
+    // Generate opcode-emitting code for ALL residuals.
     let emitter_ident: Ident = syn::parse_str("__emitter").unwrap();
-    let residual_idx_ident: Ident = syn::parse_str("__residual_idx").unwrap();
 
-    let residual_opcode_body = codegen_opcodes::generate_residual_opcode_method(
-        &parsed.expr,
-        &emitter_ident,
-        &residual_idx_ident,
-    );
+    // Build residual opcode body: emit opcodes for each residual with its row index
+    let mut residual_opcode_stmts = Vec::new();
+    let mut jacobian_opcode_stmts = Vec::new();
 
-    let jacobian_opcode_body = codegen_opcodes::generate_jacobian_opcode_method(
-        &parsed.expr,
-        &parsed.variables,
-        &emitter_ident,
-        &residual_idx_ident,
-    );
+    for (row_index, ri) in residual_infos.iter().enumerate() {
+        let row_idx = row_index as u32;
+        let row_idx_ident: Ident =
+            syn::parse_str(&format!("__residual_idx_{}", row_index)).unwrap();
+
+        let res_body = codegen_opcodes::generate_residual_opcode_method(
+            &ri.parsed.expr,
+            &emitter_ident,
+            &row_idx_ident,
+        );
+        residual_opcode_stmts.push(quote::quote! {
+            let #row_idx_ident: u32 = #row_idx;
+            #res_body
+        });
+
+        let jac_body = codegen_opcodes::generate_jacobian_opcode_method(
+            &ri.parsed.expr,
+            &ri.parsed.variables,
+            &emitter_ident,
+            &row_idx_ident,
+        );
+        jacobian_opcode_stmts.push(quote::quote! {
+            let #row_idx_ident: u32 = #row_idx;
+            #jac_body
+        });
+    }
 
     let n_vars_lit = n_vars;
+    let num_residuals_lit = num_residuals;
 
-    // Method 1: lower_residual_ops
+    // Method 1: lower_residual_ops — emits opcodes for ALL residuals
     let lower_residual_method: ImplItem = syn::parse_quote! {
-        /// Emit JIT opcodes for the residual computation.
+        /// Emit JIT opcodes for residual computation.
         ///
         /// Auto-generated by `#[auto_jacobian]`. Calls `OpcodeEmitter` methods
-        /// to build an opcode stream that computes the residual.
+        /// to build an opcode stream that computes all residuals.
         #[cfg(feature = "jit")]
+        #[allow(unused_variables)]
         fn lower_residual_ops(
             &self,
             __emitter: &mut ::solverang::__jit_reexports::OpcodeEmitter,
             __residual_idx: u32,
         ) {
-            #residual_opcode_body
+            #(#residual_opcode_stmts)*
         }
     };
 
-    // Method 2: lower_jacobian_ops
+    // Method 2: lower_jacobian_ops — emits Jacobian opcodes for ALL residuals
     let lower_jacobian_method: ImplItem = syn::parse_quote! {
-        /// Emit JIT opcodes for the Jacobian computation.
+        /// Emit JIT opcodes for Jacobian computation.
         ///
         /// Auto-generated by `#[auto_jacobian]`. Emits opcodes for each non-zero
-        /// partial derivative of the residual.
+        /// partial derivative of all residuals.
         #[cfg(feature = "jit")]
+        #[allow(unused_variables)]
         fn lower_jacobian_ops(
             &self,
             __emitter: &mut ::solverang::__jit_reexports::OpcodeEmitter,
             __residual_idx: u32,
         ) {
-            #jacobian_opcode_body
+            #(#jacobian_opcode_stmts)*
         }
     };
 
@@ -500,7 +552,7 @@ fn generate_jacobian_impl(
             self.lower_jacobian_ops(&mut __jac_emitter, 0);
             let __jac_max = __jac_emitter.max_register();
 
-            let mut __cc = ::solverang::__jit_reexports::CompiledConstraints::new(#n_vars_lit, 1);
+            let mut __cc = ::solverang::__jit_reexports::CompiledConstraints::new(#n_vars_lit, #num_residuals_lit);
             __cc.residual_ops = __res_emitter.into_ops();
             let __jac_ops = __jac_emitter.ops().to_vec();
             __cc.jacobian_ops = __jac_ops;
@@ -514,6 +566,25 @@ fn generate_jacobian_impl(
     impl_block.items.push(lower_residual_method);
     impl_block.items.push(lower_jacobian_method);
     impl_block.items.push(lower_compiled_method);
+
+    // Generate residuals_all helper if there are multiple residuals
+    if num_residuals > 1 {
+        let residual_method_names: Vec<&Ident> = residual_infos
+            .iter()
+            .map(|ri| &ri.method_name)
+            .collect();
+
+        let residuals_all_method: ImplItem = syn::parse_quote! {
+            /// Evaluate all residuals and return them as a Vec.
+            ///
+            /// Auto-generated by `#[auto_jacobian]`. Calls each `#[residual]` method
+            /// in order and collects the results.
+            fn residuals_all(&self, #array_param_ident: &[f64]) -> Vec<f64> {
+                vec![#(self.#residual_method_names(#array_param_ident)),*]
+            }
+        };
+        impl_block.items.push(residuals_all_method);
+    }
 
     Ok(impl_block.into_token_stream())
 }

@@ -246,6 +246,7 @@ impl SparseSolver {
                             solution: x,
                             iterations: iteration,
                             residual_norm: norm,
+                            residuals,
                         };
                     }
                 }
@@ -267,6 +268,7 @@ impl SparseSolver {
             solution: x,
             iterations: self.config.max_iterations,
             residual_norm: norm,
+            residuals,
         }
     }
 

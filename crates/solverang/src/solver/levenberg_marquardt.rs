@@ -134,6 +134,7 @@ impl LMSolver {
             solution,
             report.number_of_evaluations,
             residual_norm,
+            residuals,
         )
     }
 
@@ -150,6 +151,7 @@ impl LMSolver {
         solution: Vec<f64>,
         iterations: usize,
         residual_norm: f64,
+        residuals: Vec<f64>,
     ) -> SolveResult {
         match termination {
             // Successful termination
@@ -166,6 +168,7 @@ impl LMSolver {
                 solution,
                 iterations,
                 residual_norm,
+                residuals,
             },
 
             // User-triggered termination (residuals/jacobian returned None)
@@ -184,6 +187,7 @@ impl LMSolver {
                         solution,
                         iterations,
                         residual_norm,
+                        residuals,
                     }
                 }
             }
@@ -204,6 +208,7 @@ impl LMSolver {
                         solution,
                         iterations,
                         residual_norm,
+                        residuals,
                     }
                 }
             }
@@ -222,6 +227,7 @@ impl LMSolver {
                         solution,
                         iterations,
                         residual_norm,
+                        residuals,
                     }
                 }
             }
