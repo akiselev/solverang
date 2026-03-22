@@ -19,6 +19,7 @@
 //! Existing `Constraint` trait objects serve as equality constraints (`g(x) = 0`)
 //! in the optimization formulation with zero modifications.
 
+pub mod adapters;
 pub mod config;
 pub mod inequality;
 pub mod multiplier_store;
