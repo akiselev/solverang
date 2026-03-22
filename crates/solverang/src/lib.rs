@@ -404,7 +404,7 @@ pub use jacobian::{
 };
 
 #[cfg(feature = "macros")]
-pub use solverang_macros::{auto_jacobian, residual};
+pub use solverang_macros::{auto_diff, auto_jacobian, objective, residual};
 
 #[cfg(feature = "jit")]
 pub use jit::{

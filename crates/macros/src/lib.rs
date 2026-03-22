@@ -668,3 +668,176 @@ pub fn residual(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // This attribute is a marker - the actual processing happens in auto_jacobian
     item
 }
+
+/// Marker attribute for objective methods.
+///
+/// Place this on a method within an `#[auto_diff]` impl block to mark it
+/// as the objective function to differentiate. Generates a `gradient_entries`
+/// method that returns `Vec<(usize, f64)>` (variable_index, partial_derivative).
+///
+/// # Example
+///
+/// ```ignore
+/// #[auto_diff(array_param = "x")]
+/// impl MyObjective {
+///     #[objective]
+///     fn value(&self, x: &[f64]) -> f64 {
+///         (x[0] - 1.0) * (x[0] - 1.0) + (x[1] - 2.0) * (x[1] - 2.0)
+///     }
+/// }
+/// // Generates: fn gradient_entries(&self, x: &[f64]) -> Vec<(usize, f64)>
+/// ```
+#[proc_macro_attribute]
+pub fn objective(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    // This attribute is a marker - the actual processing happens in auto_diff
+    item
+}
+
+/// Superset of `#[auto_jacobian]` that also recognizes `#[objective]` and
+/// `#[inequality]` attributes for optimization support.
+///
+/// - `#[residual]` methods → generates `jacobian_entries()` (same as `#[auto_jacobian]`)
+/// - `#[objective]` methods → generates `gradient_entries()` (sparse gradient)
+///
+/// # Example
+///
+/// ```ignore
+/// #[auto_diff(array_param = "x")]
+/// impl MyObjective {
+///     #[objective]
+///     fn value(&self, x: &[f64]) -> f64 {
+///         100.0 * (x[1] - x[0] * x[0]) * (x[1] - x[0] * x[0]) + (1.0 - x[0]) * (1.0 - x[0])
+///     }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn auto_diff(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(attr as JacobianArgs);
+    let impl_block = parse_macro_input!(item as ItemImpl);
+
+    match generate_auto_diff_impl(args, impl_block) {
+        Ok(tokens) => tokens.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+
+/// Find all objective methods in an impl block.
+fn find_objective_methods(impl_block: &ItemImpl) -> Vec<(&ImplItem, &Signature, &Block)> {
+    let mut methods = Vec::new();
+    for item in &impl_block.items {
+        if let ImplItem::Fn(method) = item {
+            for attr in &method.attrs {
+                if attr.path().is_ident("objective") {
+                    methods.push((item as &ImplItem, &method.sig, &method.block));
+                    break;
+                }
+            }
+        }
+    }
+    methods
+}
+
+/// Generate the auto_diff implementation (handles both #[residual] and #[objective]).
+fn generate_auto_diff_impl(
+    args: JacobianArgs,
+    mut impl_block: ItemImpl,
+) -> syn::Result<TokenStream2> {
+    let has_residuals = !find_residual_methods(&impl_block).is_empty();
+    let has_objectives = !find_objective_methods(&impl_block).is_empty();
+
+    if !has_residuals && !has_objectives {
+        return Err(syn::Error::new(
+            impl_block.self_ty.span(),
+            "No method marked with #[residual] or #[objective] found in impl block",
+        ));
+    }
+
+    // If there are residual methods, delegate to the existing jacobian generator
+    // (which handles residuals, JIT codegen, etc.)
+    if has_residuals {
+        // For now, delegate to the existing implementation
+        return generate_jacobian_impl(args, impl_block);
+    }
+
+    // Handle #[objective] methods — generate gradient
+    let objective_methods = find_objective_methods(&impl_block);
+    if objective_methods.len() > 1 {
+        return Err(syn::Error::new(
+            impl_block.self_ty.span(),
+            "Only one #[objective] method is allowed per impl block",
+        ));
+    }
+
+    let (_, sig, block) = objective_methods[0];
+    validate_residual_signature(sig, &args.array_param)?;
+
+    let bindings = collect_let_bindings(block);
+    let return_expr = extract_return_expr(block)?;
+    let expanded_expr = expand_bindings(return_expr, &bindings);
+    let parsed = parse::parse_residual(&expanded_expr, &args.array_param)?;
+
+    // Check for Abs in objective (emit warning)
+    if contains_abs(&parsed.expr) {
+        // Use proc_macro diagnostic if available, otherwise just continue
+        // (compile-time warning is non-trivial in stable Rust proc macros)
+    }
+
+    // Generate gradient entries (reuse jacobian entry generation — gradient is row-0 Jacobian)
+    let gradient_entries = codegen::generate_jacobian_entries(&parsed.expr, &parsed.variables);
+
+    // Build gradient method body
+    let array_param_ident: Ident = syn::parse_str(&args.array_param)
+        .map_err(|e| syn::Error::new(sig.span(), format!("Invalid array_param: {}", e)))?;
+
+    let mut grad_stmts = Vec::new();
+    for (col_expr, deriv_tokens) in &gradient_entries {
+        let col: TokenStream2 = col_expr.parse().expect("valid column expression");
+        grad_stmts.push(quote::quote! {
+            (#col, #deriv_tokens)
+        });
+    }
+    let capacity = grad_stmts.len();
+
+    let gradient_method: ImplItem = syn::parse_quote! {
+        /// Compute gradient entries as sparse pairs (variable_index, partial_derivative).
+        ///
+        /// Auto-generated by symbolic differentiation of the `#[objective]` expression.
+        fn gradient_entries(&self, #array_param_ident: &[f64]) -> Vec<(usize, f64)> {
+            let mut entries = Vec::with_capacity(#capacity);
+            #(
+                {
+                    let val = #grad_stmts;
+                    if val.1.abs() > 1e-30 {
+                        entries.push(val);
+                    }
+                }
+            )*
+            entries
+        }
+    };
+
+    // Remove #[objective] attribute from the method
+    for item in &mut impl_block.items {
+        if let ImplItem::Fn(method) = item {
+            method.attrs.retain(|attr| !attr.path().is_ident("objective"));
+        }
+    }
+
+    impl_block.items.push(gradient_method);
+
+    Ok(impl_block.into_token_stream())
+}
+
+/// Check if an expression contains Abs (non-differentiable at zero).
+fn contains_abs(expr: &expr::Expr) -> bool {
+    match expr {
+        expr::Expr::Abs(_) => true,
+        expr::Expr::Neg(e) | expr::Expr::Sqrt(e) | expr::Expr::Sin(e)
+        | expr::Expr::Cos(e) | expr::Expr::Tan(e) | expr::Expr::Ln(e)
+        | expr::Expr::Exp(e) => contains_abs(e),
+        expr::Expr::Add(a, b) | expr::Expr::Sub(a, b) | expr::Expr::Mul(a, b)
+        | expr::Expr::Div(a, b) | expr::Expr::Atan2(a, b) => contains_abs(a) || contains_abs(b),
+        expr::Expr::Pow(base, _) => contains_abs(base),
+        expr::Expr::Var(_) | expr::Expr::Const(_) | expr::Expr::RuntimeConst(_) => false,
+    }
+}

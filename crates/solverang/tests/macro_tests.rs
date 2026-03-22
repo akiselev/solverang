@@ -608,3 +608,143 @@ fn test_disjoint_vars_jacobian_verification() {
         result.max_absolute_error
     );
 }
+
+// =========================================================================
+// #[auto_diff] + #[objective] tests (M6)
+// =========================================================================
+
+use solverang::auto_diff;
+
+/// Simple quadratic objective: f(x) = (x[0] - 1)^2 + (x[1] - 2)^2
+struct SimpleQuadObjective;
+
+#[auto_diff(array_param = "x")]
+impl SimpleQuadObjective {
+    #[objective]
+    fn value(&self, x: &[f64]) -> f64 {
+        (x[0] - 1.0) * (x[0] - 1.0) + (x[1] - 2.0) * (x[1] - 2.0)
+    }
+}
+
+#[test]
+fn test_objective_gradient_simple_quadratic() {
+    let obj = SimpleQuadObjective;
+    let x = vec![3.0, 5.0];
+    let grad = obj.gradient_entries(&x);
+
+    // ∂f/∂x[0] = 2*(x[0]-1) = 2*(3-1) = 4.0
+    // ∂f/∂x[1] = 2*(x[1]-2) = 2*(5-2) = 6.0
+    assert_eq!(grad.len(), 2);
+
+    let g0 = grad.iter().find(|(i, _)| *i == 0).map(|(_, v)| *v).unwrap();
+    let g1 = grad.iter().find(|(i, _)| *i == 1).map(|(_, v)| *v).unwrap();
+    assert!((g0 - 4.0).abs() < 1e-10, "∂f/∂x[0] = {} (expected 4.0)", g0);
+    assert!((g1 - 6.0).abs() < 1e-10, "∂f/∂x[1] = {} (expected 6.0)", g1);
+}
+
+#[test]
+fn test_objective_gradient_at_minimum() {
+    let obj = SimpleQuadObjective;
+    let x = vec![1.0, 2.0]; // at minimum
+    let grad = obj.gradient_entries(&x);
+
+    // At minimum, gradient should be (approximately) zero
+    // All entries should be filtered out by the 1e-30 threshold
+    for (i, v) in &grad {
+        assert!(
+            v.abs() < 1e-10,
+            "∂f/∂x[{}] = {} (expected ~0 at minimum)",
+            i,
+            v
+        );
+    }
+}
+
+/// Rosenbrock objective for gradient verification
+struct RosenbrockObjective;
+
+#[auto_diff(array_param = "x")]
+impl RosenbrockObjective {
+    #[objective]
+    fn value(&self, x: &[f64]) -> f64 {
+        let a = x[1] - x[0] * x[0];
+        let b = 1.0 - x[0];
+        100.0 * a * a + b * b
+    }
+}
+
+#[test]
+fn test_objective_gradient_rosenbrock_fd() {
+    let obj = RosenbrockObjective;
+
+    // Verify gradient via finite differences at several points
+    let test_points = vec![
+        vec![-1.2, 1.0],
+        vec![0.0, 0.0],
+        vec![0.5, 0.5],
+        vec![1.0, 1.0], // minimum
+        vec![2.0, 3.0],
+    ];
+
+    let eps = 1e-7;
+    for x in &test_points {
+        let grad = obj.gradient_entries(x);
+
+        for i in 0..2 {
+            let mut x_plus = x.clone();
+            let mut x_minus = x.clone();
+            x_plus[i] += eps;
+            x_minus[i] -= eps;
+            let fd = (obj.value(&x_plus) - obj.value(&x_minus)) / (2.0 * eps);
+
+            let analytical = grad.iter().find(|(j, _)| *j == i).map(|(_, v)| *v).unwrap_or(0.0);
+
+            assert!(
+                (analytical - fd).abs() < 1e-4,
+                "Gradient mismatch at x={:?}, var {}: analytical={}, fd={}",
+                x, i, analytical, fd
+            );
+        }
+    }
+}
+
+/// Objective with runtime constant (self.target)
+struct TargetedObjective {
+    target_x: f64,
+    target_y: f64,
+}
+
+#[auto_diff(array_param = "x")]
+impl TargetedObjective {
+    #[objective]
+    fn value(&self, x: &[f64]) -> f64 {
+        (x[0] - self.target_x) * (x[0] - self.target_x)
+            + (x[1] - self.target_y) * (x[1] - self.target_y)
+    }
+}
+
+#[test]
+fn test_objective_gradient_with_runtime_constants() {
+    let obj = TargetedObjective {
+        target_x: 3.0,
+        target_y: 7.0,
+    };
+    let x = vec![5.0, 10.0];
+    let grad = obj.gradient_entries(&x);
+
+    let g0 = grad.iter().find(|(i, _)| *i == 0).map(|(_, v)| *v).unwrap();
+    let g1 = grad.iter().find(|(i, _)| *i == 1).map(|(_, v)| *v).unwrap();
+    // ∂f/∂x[0] = 2*(5-3) = 4.0
+    // ∂f/∂x[1] = 2*(10-7) = 6.0
+    assert!((g0 - 4.0).abs() < 1e-10);
+    assert!((g1 - 6.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_auto_jacobian_still_works() {
+    // Regression: existing #[auto_jacobian] + #[residual] must still work
+    let problem = QuadraticConstraint { target: 4.0 };
+    let x = vec![2.0];
+    let result = verify_jacobian(&problem, &x, 1e-7, 1e-5);
+    assert!(result.passed, "Regression: auto_jacobian Jacobian verification failed");
+}
