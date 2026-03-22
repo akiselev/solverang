@@ -217,7 +217,7 @@ fn constraint_system_optimize_without_objective_returns_error() {
 }
 
 #[test]
-fn constraint_system_optimize_stub_returns_not_implemented() {
+fn constraint_system_optimize_unconstrained_converges() {
     let mut system = ConstraintSystem::new();
     let eid = system.alloc_entity_id();
     let px = system.alloc_param(5.0, eid);
@@ -229,8 +229,13 @@ fn constraint_system_optimize_stub_returns_not_implemented() {
     }));
 
     let result = system.optimize();
-    // Stub returns NotImplemented until M5 wires the pipeline
-    assert_eq!(result.status, OptimizationStatus::NotImplemented);
+    assert!(
+        result.status.is_converged(),
+        "Expected Converged, got {:?}",
+        result.status
+    );
+    let x = system.get_param(px);
+    assert!((x - 3.0).abs() < 1e-6, "x = {}, expected 3.0", x);
 }
 
 #[test]
@@ -256,6 +261,87 @@ fn constraint_system_opt_config() {
         system.opt_config().algorithm,
         solverang::OptimizationAlgorithm::Bfgs
     );
+}
+
+#[test]
+fn constraint_system_optimize_with_equality_constraint() {
+    // min (x-3)^2 + (y-4)^2 s.t. x + y = 5
+    // Analytical: x=2, y=3
+    use solverang::constraint::Constraint;
+
+    struct Quad2D {
+        id: ObjectiveId,
+        params: [ParamId; 2],
+        targets: [f64; 2],
+    }
+    impl Objective for Quad2D {
+        fn id(&self) -> ObjectiveId { self.id }
+        fn name(&self) -> &str { "quad2d" }
+        fn param_ids(&self) -> &[ParamId] { &self.params }
+        fn value(&self, store: &ParamStore) -> f64 {
+            let x = store.get(self.params[0]);
+            let y = store.get(self.params[1]);
+            (x - self.targets[0]).powi(2) + (y - self.targets[1]).powi(2)
+        }
+        fn gradient(&self, store: &ParamStore) -> Vec<(ParamId, f64)> {
+            let x = store.get(self.params[0]);
+            let y = store.get(self.params[1]);
+            vec![
+                (self.params[0], 2.0 * (x - self.targets[0])),
+                (self.params[1], 2.0 * (y - self.targets[1])),
+            ]
+        }
+    }
+
+    struct SumConstraint {
+        id: ConstraintId,
+        params: [ParamId; 2],
+        target: f64,
+    }
+    impl Constraint for SumConstraint {
+        fn id(&self) -> ConstraintId { self.id }
+        fn name(&self) -> &str { "sum" }
+        fn entity_ids(&self) -> &[solverang::EntityId] { &[] }
+        fn param_ids(&self) -> &[ParamId] { &self.params }
+        fn equation_count(&self) -> usize { 1 }
+        fn residuals(&self, store: &ParamStore) -> Vec<f64> {
+            vec![store.get(self.params[0]) + store.get(self.params[1]) - self.target]
+        }
+        fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
+            vec![(0, self.params[0], 1.0), (0, self.params[1], 1.0)]
+        }
+    }
+
+    let mut system = ConstraintSystem::new();
+    let eid = system.alloc_entity_id();
+    let px = system.alloc_param(0.0, eid);
+    let py = system.alloc_param(0.0, eid);
+
+    system.set_objective(Box::new(Quad2D {
+        id: ObjectiveId::new(0, 0),
+        params: [px, py],
+        targets: [3.0, 4.0],
+    }));
+
+    let cid = system.alloc_constraint_id();
+    system.add_constraint(Box::new(SumConstraint {
+        id: cid,
+        params: [px, py],
+        target: 5.0,
+    }));
+
+    let result = system.optimize();
+    assert!(result.status.is_converged(), "status: {:?}", result.status);
+
+    let x = system.get_param(px);
+    let y = system.get_param(py);
+    assert!((x - 2.0).abs() < 1e-2, "x = {} (expected 2.0)", x);
+    assert!((y - 3.0).abs() < 1e-2, "y = {} (expected 3.0)", y);
+    assert!((x + y - 5.0).abs() < 1e-3, "x+y = {} (expected 5.0)", x + y);
+
+    // Multipliers accessible via system API
+    let lambda = system.multiplier(cid);
+    assert!(lambda.is_some(), "multiplier should be present");
 }
 
 #[test]

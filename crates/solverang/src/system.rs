@@ -565,28 +565,73 @@ impl ConstraintSystem {
     /// Existing [`Constraint`] objects serve as equality constraints (`g(x) = 0`).
     /// [`InequalityFn`] objects serve as inequality constraints (`h(x) ≤ 0`).
     ///
-    /// Returns [`OptimizationResult`] with the solution, multipliers, and status.
+    /// # Algorithm Selection
+    ///
+    /// - No constraints → BFGS (unconstrained)
+    /// - Equality constraints only → ALM (with BFGS inner loop)
+    /// - Auto → selects based on problem structure
     pub fn optimize(&mut self) -> OptimizationResult {
-        if self.objective.is_none() {
-            return OptimizationResult {
-                objective_value: f64::NAN,
-                status: OptimizationStatus::Infeasible,
-                outer_iterations: 0,
-                inner_iterations: 0,
-                kkt_residual: crate::optimization::KktResidual {
-                    primal: f64::INFINITY,
-                    dual: f64::INFINITY,
-                    complementarity: f64::INFINITY,
-                },
-                multipliers: MultiplierStore::new(),
-                constraint_violations: Vec::new(),
-                duration: std::time::Duration::ZERO,
-            };
+        let objective = match &self.objective {
+            Some(obj) => obj.as_ref(),
+            None => {
+                return OptimizationResult {
+                    objective_value: f64::NAN,
+                    status: OptimizationStatus::Infeasible,
+                    outer_iterations: 0,
+                    inner_iterations: 0,
+                    kkt_residual: crate::optimization::KktResidual {
+                        primal: f64::INFINITY,
+                        dual: f64::INFINITY,
+                        complementarity: f64::INFINITY,
+                    },
+                    multipliers: MultiplierStore::new(),
+                    constraint_violations: Vec::new(),
+                    duration: std::time::Duration::ZERO,
+                };
+            }
+        };
+
+        // Classify: check if we have equality constraints
+        let eq_constraints: Vec<&dyn Constraint> = self
+            .constraints
+            .iter()
+            .filter_map(|c| c.as_deref())
+            .collect();
+
+        let has_equalities = !eq_constraints.is_empty();
+
+        // Algorithm selection
+        use crate::optimization::OptimizationAlgorithm;
+        let algorithm = match self.opt_config.algorithm {
+            OptimizationAlgorithm::Auto => {
+                if has_equalities {
+                    OptimizationAlgorithm::Alm
+                } else {
+                    OptimizationAlgorithm::Bfgs
+                }
+            }
+            other => other,
+        };
+
+        let result = match algorithm {
+            OptimizationAlgorithm::Bfgs | OptimizationAlgorithm::Auto => {
+                crate::solver::BfgsSolver::solve(objective, &mut self.params, &self.opt_config)
+            }
+            OptimizationAlgorithm::Alm => crate::solver::AlmSolver::solve(
+                objective,
+                &eq_constraints,
+                &mut self.params,
+                &self.opt_config,
+            ),
+        };
+
+        // Store multipliers for post-solve access
+        self.last_multipliers = MultiplierStore::new();
+        for (mid, val) in result.multipliers.iter() {
+            self.last_multipliers.set(mid, val);
         }
 
-        // TODO(M5): Wire to pipeline with Classify → BFGS/ALM dispatch.
-        // For now, return stub.
-        OptimizationResult::not_implemented()
+        result
     }
 
     /// Get the Lagrange multipliers from the last optimization solve for a
