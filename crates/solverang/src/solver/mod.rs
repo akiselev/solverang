@@ -49,6 +49,7 @@
 //! ```
 
 mod auto;
+pub mod bfgs;
 mod config;
 mod levenberg_marquardt;
 mod lm_adapter;
@@ -77,6 +78,9 @@ pub use parallel::{ParallelSolver, ParallelSolverConfig};
 
 // Sparse solver
 pub use sparse_solver::{should_use_sparse, SparseSolver, SparseSolverConfig};
+
+// Optimization solvers
+pub use bfgs::BfgsSolver;
 
 // Result types
 pub use result::{SolveError, SolveResult};
