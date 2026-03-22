@@ -362,6 +362,7 @@ pub(crate) mod dataflow;
 pub mod entity;
 pub(crate) mod graph;
 pub mod id;
+pub mod optimization;
 pub mod param;
 pub mod pipeline;
 pub(crate) mod reduce;
@@ -429,3 +430,10 @@ pub mod __jit_reexports {
 pub use id::{ClusterId, ConstraintId, EntityId, ParamId};
 pub use param::ParamStore;
 pub use system::ConstraintSystem;
+
+// --- Re-export optimization types ---
+pub use optimization::{
+    InequalityFn, KktResidual, MultiplierId, MultiplierInitStrategy, MultiplierStore, Objective,
+    ObjectiveHessian, ObjectiveId, OptimizationAlgorithm, OptimizationConfig, OptimizationResult,
+    OptimizationStatus,
+};

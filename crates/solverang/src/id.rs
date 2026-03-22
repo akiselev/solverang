@@ -74,7 +74,7 @@ impl fmt::Debug for ConstraintId {
 
 impl ParamId {
     /// Create a new ParamId. Only used internally by ParamStore.
-    pub(crate) fn new(index: u32, generation: Generation) -> Self {
+    pub fn new(index: u32, generation: Generation) -> Self {
         Self { index, generation }
     }
 
@@ -86,7 +86,7 @@ impl ParamId {
 
 impl EntityId {
     /// Create a new EntityId.
-    pub(crate) fn new(index: u32, generation: Generation) -> Self {
+    pub fn new(index: u32, generation: Generation) -> Self {
         Self { index, generation }
     }
 
@@ -98,7 +98,7 @@ impl EntityId {
 
 impl ConstraintId {
     /// Create a new ConstraintId.
-    pub(crate) fn new(index: u32, generation: Generation) -> Self {
+    pub fn new(index: u32, generation: Generation) -> Self {
         Self { index, generation }
     }
 
