@@ -1,10 +1,10 @@
-//! Tests for optimization foundation types (M1).
+//! Tests for optimization foundation types (M1) and ConstraintSystem extension (M2).
 
 use solverang::optimization::multiplier_store::{MultiplierId, MultiplierStore};
 use solverang::optimization::{
     ObjectiveId, OptimizationConfig, OptimizationResult, OptimizationStatus,
 };
-use solverang::ConstraintId;
+use solverang::{ConstraintId, ConstraintSystem, Objective, ParamId, ParamStore};
 
 #[test]
 fn objective_id_equality() {
@@ -155,4 +155,116 @@ fn kkt_residual_tolerance_check() {
     };
     assert!(kkt.is_within_tolerance(1e-6, 1e-6, 1e-6));
     assert!(!kkt.is_within_tolerance(1e-9, 1e-6, 1e-6)); // primal too tight
+}
+
+// =========================================================================
+// M2: ConstraintSystem Extension Tests
+// =========================================================================
+
+/// Simple quadratic objective: f(x) = (x - target)^2
+struct QuadraticObjective {
+    id: ObjectiveId,
+    param: ParamId,
+    target: f64,
+}
+
+impl Objective for QuadraticObjective {
+    fn id(&self) -> ObjectiveId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "quadratic"
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        std::slice::from_ref(&self.param)
+    }
+    fn value(&self, store: &ParamStore) -> f64 {
+        let x = store.get(self.param);
+        (x - self.target).powi(2)
+    }
+    fn gradient(&self, store: &ParamStore) -> Vec<(ParamId, f64)> {
+        let x = store.get(self.param);
+        vec![(self.param, 2.0 * (x - self.target))]
+    }
+}
+
+#[test]
+fn constraint_system_set_objective() {
+    let mut system = ConstraintSystem::new();
+    assert!(!system.has_objective());
+
+    let eid = system.alloc_entity_id();
+    let px = system.alloc_param(5.0, eid);
+
+    system.set_objective(Box::new(QuadraticObjective {
+        id: ObjectiveId::new(0, 0),
+        param: px,
+        target: 3.0,
+    }));
+    assert!(system.has_objective());
+
+    system.clear_objective();
+    assert!(!system.has_objective());
+}
+
+#[test]
+fn constraint_system_optimize_without_objective_returns_error() {
+    let mut system = ConstraintSystem::new();
+    let result = system.optimize();
+    // No objective set → infeasible/error status
+    assert!(!result.status.is_converged());
+    assert_eq!(result.status, OptimizationStatus::Infeasible);
+}
+
+#[test]
+fn constraint_system_optimize_stub_returns_not_implemented() {
+    let mut system = ConstraintSystem::new();
+    let eid = system.alloc_entity_id();
+    let px = system.alloc_param(5.0, eid);
+
+    system.set_objective(Box::new(QuadraticObjective {
+        id: ObjectiveId::new(0, 0),
+        param: px,
+        target: 3.0,
+    }));
+
+    let result = system.optimize();
+    // Stub returns NotImplemented until M5 wires the pipeline
+    assert_eq!(result.status, OptimizationStatus::NotImplemented);
+}
+
+#[test]
+fn constraint_system_multiplier_empty_before_optimize() {
+    let system = ConstraintSystem::new();
+    let cid = ConstraintId::new(0, 0);
+    assert!(system.multiplier(cid).is_none());
+    assert!(system.multipliers().is_empty());
+}
+
+#[test]
+fn constraint_system_opt_config() {
+    let mut system = ConstraintSystem::new();
+    assert_eq!(
+        system.opt_config().algorithm,
+        solverang::OptimizationAlgorithm::Auto
+    );
+
+    let mut config = OptimizationConfig::default();
+    config.algorithm = solverang::OptimizationAlgorithm::Bfgs;
+    system.set_opt_config(config);
+    assert_eq!(
+        system.opt_config().algorithm,
+        solverang::OptimizationAlgorithm::Bfgs
+    );
+}
+
+#[test]
+fn constraint_system_solve_unchanged_after_optimization_extension() {
+    // Regression: adding optimization fields must not break solve()
+    use solverang::system::SystemStatus;
+
+    let mut system = ConstraintSystem::new();
+    let result = system.solve();
+    // Empty system should still solve (trivially)
+    assert!(matches!(result.status, SystemStatus::Solved));
 }

@@ -25,6 +25,10 @@ use crate::constraint::Constraint;
 use crate::dataflow::{ChangeTracker, SolutionCache};
 use crate::entity::Entity;
 use crate::id::{ConstraintId, EntityId, ParamId};
+use crate::optimization::{
+    InequalityFn, MultiplierStore, Objective, OptimizationConfig, OptimizationResult,
+    OptimizationStatus,
+};
 use crate::param::ParamStore;
 use crate::pipeline::SolvePipeline;
 
@@ -142,6 +146,15 @@ pub struct ConstraintSystem {
     constraint_generations: Vec<u32>,
     /// Free list of reusable constraint slots.
     constraint_free_list: Vec<u32>,
+    // --- Optimization extension ---
+    /// Objective function to minimize (None = constraint-satisfaction only).
+    objective: Option<Box<dyn Objective>>,
+    /// Inequality constraints h(x) ≤ 0.
+    inequalities: Vec<Option<Box<dyn InequalityFn>>>,
+    /// Configuration for optimization solvers.
+    opt_config: OptimizationConfig,
+    /// Multipliers from the last optimization solve.
+    last_multipliers: MultiplierStore,
 }
 
 impl Default for ConstraintSystem {
@@ -165,15 +178,18 @@ impl ConstraintSystem {
             entity_free_list: Vec::new(),
             constraint_generations: Vec::new(),
             constraint_free_list: Vec::new(),
+            objective: None,
+            inequalities: Vec::new(),
+            opt_config: OptimizationConfig::default(),
+            last_multipliers: MultiplierStore::new(),
         }
     }
 
     /// Create a new constraint system with the given configuration.
     pub fn with_config(config: SystemConfig) -> Self {
-        Self {
-            config,
-            ..Self::new()
-        }
+        let mut s = Self::new();
+        s.config = config;
+        s
     }
 
     // -------------------------------------------------------------------
@@ -494,6 +510,102 @@ impl ConstraintSystem {
 
         issues
     }
+
+    // -------------------------------------------------------------------
+    // Optimization
+    // -------------------------------------------------------------------
+
+    /// Set the objective function to minimize.
+    ///
+    /// Only one objective is supported at a time. Setting a new objective
+    /// replaces the previous one.
+    pub fn set_objective(&mut self, objective: Box<dyn Objective>) {
+        self.objective = Some(objective);
+    }
+
+    /// Remove the objective function (revert to constraint-satisfaction only).
+    pub fn clear_objective(&mut self) {
+        self.objective = None;
+    }
+
+    /// Whether an objective function is set.
+    pub fn has_objective(&self) -> bool {
+        self.objective.is_some()
+    }
+
+    /// Add an inequality constraint h(x) ≤ 0.
+    ///
+    /// The inequality must already have its `ConstraintId` set (via
+    /// [`alloc_constraint_id`](Self::alloc_constraint_id) — shares ID space
+    /// with equality constraints).
+    pub fn add_inequality(&mut self, inequality: Box<dyn InequalityFn>) -> ConstraintId {
+        let id = inequality.id();
+        let idx = id.raw_index() as usize;
+
+        if idx >= self.inequalities.len() {
+            self.inequalities.resize_with(idx + 1, || None);
+        }
+        self.inequalities[idx] = Some(inequality);
+        id
+    }
+
+    /// Set optimization configuration.
+    pub fn set_opt_config(&mut self, config: OptimizationConfig) {
+        self.opt_config = config;
+    }
+
+    /// Get the current optimization configuration.
+    pub fn opt_config(&self) -> &OptimizationConfig {
+        &self.opt_config
+    }
+
+    /// Run constrained optimization: `min f(x) s.t. constraints`.
+    ///
+    /// Requires an objective to be set via [`set_objective`](Self::set_objective).
+    /// Existing [`Constraint`] objects serve as equality constraints (`g(x) = 0`).
+    /// [`InequalityFn`] objects serve as inequality constraints (`h(x) ≤ 0`).
+    ///
+    /// Returns [`OptimizationResult`] with the solution, multipliers, and status.
+    pub fn optimize(&mut self) -> OptimizationResult {
+        if self.objective.is_none() {
+            return OptimizationResult {
+                objective_value: f64::NAN,
+                status: OptimizationStatus::Infeasible,
+                outer_iterations: 0,
+                inner_iterations: 0,
+                kkt_residual: crate::optimization::KktResidual {
+                    primal: f64::INFINITY,
+                    dual: f64::INFINITY,
+                    complementarity: f64::INFINITY,
+                },
+                multipliers: MultiplierStore::new(),
+                constraint_violations: Vec::new(),
+                duration: std::time::Duration::ZERO,
+            };
+        }
+
+        // TODO(M5): Wire to pipeline with Classify → BFGS/ALM dispatch.
+        // For now, return stub.
+        OptimizationResult::not_implemented()
+    }
+
+    /// Get the Lagrange multipliers from the last optimization solve for a
+    /// specific constraint.
+    ///
+    /// Returns `None` if no optimization has been run or if the constraint
+    /// has no multipliers.
+    pub fn multiplier(&self, constraint_id: ConstraintId) -> Option<Vec<f64>> {
+        self.last_multipliers.lambda_for_constraint(constraint_id)
+    }
+
+    /// Get the full multiplier store from the last optimization solve.
+    pub fn multipliers(&self) -> &MultiplierStore {
+        &self.last_multipliers
+    }
+
+    // -------------------------------------------------------------------
+    // Pipeline
+    // -------------------------------------------------------------------
 
     /// Set a custom pipeline for this system.
     pub fn set_pipeline(&mut self, pipeline: SolvePipeline) {
