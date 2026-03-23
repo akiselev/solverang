@@ -1,7 +1,7 @@
 //! L-BFGS solver for unconstrained optimization.
 //!
 //! Minimizes a scalar objective `f(x)` using the Limited-memory BFGS
-//! quasi-Newton method with Armijo backtracking line search.
+//! quasi-Newton method with strong Wolfe line search (Armijo fallback).
 //!
 //! This solver requires only gradient information (no Hessian), making it
 //! suitable as the default optimization algorithm.
@@ -14,11 +14,12 @@ use crate::optimization::{
     OptimizationStatus,
 };
 use crate::param::ParamStore;
+use crate::solver::line_search;
 
 /// L-BFGS solver for unconstrained optimization.
 ///
 /// Uses the two-loop recursion algorithm to approximate the inverse Hessian
-/// from the last `m` gradient pairs, combined with Armijo backtracking line search.
+/// from the last `m` gradient pairs, combined with strong Wolfe line search.
 pub struct BfgsSolver;
 
 impl BfgsSolver {
@@ -70,7 +71,12 @@ impl BfgsSolver {
 
         for iter in 0..config.max_outer_iterations {
             // Check convergence
-            if grad_norm < config.dual_tolerance {
+            let dual_check = if config.relative_tolerance {
+                grad_norm / (1.0_f64).max(f.abs())
+            } else {
+                grad_norm
+            };
+            if dual_check < config.dual_tolerance {
                 return OptimizationResult {
                     objective_value: f,
                     status: OptimizationStatus::Converged,
@@ -90,40 +96,31 @@ impl BfgsSolver {
             // Compute search direction via L-BFGS two-loop recursion
             let direction = lbfgs_direction(&grad, &s_history, &y_history);
 
-            // Armijo backtracking line search
+            // Check descent direction; reset memory and fall back to steepest descent if not.
             let dg = dot(&grad, &direction);
             if dg >= 0.0 {
-                // Not a descent direction — reset L-BFGS memory and use steepest descent
                 s_history.clear();
                 y_history.clear();
                 let direction: Vec<f64> = grad.iter().map(|g| -g).collect();
-                let dg = dot(&grad, &direction);
-                let alpha = armijo_line_search(
+                let (alpha, f_new) = line_search::line_search(
                     objective,
                     store,
                     &param_ids,
                     &x,
                     &direction,
                     f,
-                    dg,
+                    &grad,
                     config,
                 );
-                let x_new: Vec<f64> = x.iter().zip(&direction).map(|(xi, di)| xi + alpha * di).collect();
+                let x_new: Vec<f64> =
+                    x.iter().zip(&direction).map(|(xi, di)| xi + alpha * di).collect();
                 write_x_to_store(store, &param_ids, &x_new);
-                let f_new = objective.value(store);
                 let grad_new = dense_gradient(objective, store, &param_ids, n);
 
                 let s: Vec<f64> = x_new.iter().zip(&x).map(|(a, b)| a - b).collect();
                 let y: Vec<f64> = grad_new.iter().zip(&grad).map(|(a, b)| a - b).collect();
 
-                if dot(&s, &y) > 1e-10 * vec_norm(&s) * vec_norm(&y) {
-                    if s_history.len() == m {
-                        s_history.pop_front();
-                        y_history.pop_front();
-                    }
-                    s_history.push_back(s);
-                    y_history.push_back(y);
-                }
+                update_lbfgs_history(&mut s_history, &mut y_history, s, y, m);
 
                 x = x_new;
                 f = f_new;
@@ -132,38 +129,30 @@ impl BfgsSolver {
                 continue;
             }
 
-            let alpha = armijo_line_search(
+            let (alpha, f_new) = line_search::line_search(
                 objective,
                 store,
                 &param_ids,
                 &x,
                 &direction,
                 f,
-                dg,
+                &grad,
                 config,
             );
 
             // Update x
-            let x_new: Vec<f64> = x.iter().zip(&direction).map(|(xi, di)| xi + alpha * di).collect();
+            let x_new: Vec<f64> =
+                x.iter().zip(&direction).map(|(xi, di)| xi + alpha * di).collect();
 
             // Compute new gradient
             write_x_to_store(store, &param_ids, &x_new);
-            let f_new = objective.value(store);
             let grad_new = dense_gradient(objective, store, &param_ids, n);
 
             // L-BFGS update: s = x_new - x, y = grad_new - grad
             let s: Vec<f64> = x_new.iter().zip(&x).map(|(a, b)| a - b).collect();
             let y: Vec<f64> = grad_new.iter().zip(&grad).map(|(a, b)| a - b).collect();
 
-            // Curvature condition: only update if s^T y > 0
-            if dot(&s, &y) > 1e-10 * vec_norm(&s) * vec_norm(&y) {
-                if s_history.len() == m {
-                    s_history.pop_front();
-                    y_history.pop_front();
-                }
-                s_history.push_back(s);
-                y_history.push_back(y);
-            }
+            update_lbfgs_history(&mut s_history, &mut y_history, s, y, m);
 
             x = x_new;
             f = f_new;
@@ -193,7 +182,7 @@ impl BfgsSolver {
 /// L-BFGS two-loop recursion: compute H_k * grad using stored (s, y) pairs.
 ///
 /// Returns the search direction d = -H_k * grad.
-fn lbfgs_direction(
+pub(crate) fn lbfgs_direction(
     grad: &[f64],
     s_history: &VecDeque<Vec<f64>>,
     y_history: &VecDeque<Vec<f64>>,
@@ -241,49 +230,30 @@ fn lbfgs_direction(
     r
 }
 
-/// Armijo backtracking line search.
+/// Update L-BFGS history with a new curvature pair (s, y).
 ///
-/// Finds α such that f(x + α*d) ≤ f(x) + c₁*α*(∇f·d).
-fn armijo_line_search(
-    objective: &dyn Objective,
-    store: &mut ParamStore,
-    param_ids: &[crate::id::ParamId],
-    x: &[f64],
-    direction: &[f64],
-    f_x: f64,
-    directional_derivative: f64,
-    config: &OptimizationConfig,
-) -> f64 {
-    let c1 = config.armijo_c1;
-    let backtrack = config.line_search_backtrack;
-    let min_step = config.line_search_min_step;
-    let mut alpha = 1.0;
-
-    loop {
-        // Trial point
-        let x_trial: Vec<f64> = x
-            .iter()
-            .zip(direction)
-            .map(|(xi, di)| xi + alpha * di)
-            .collect();
-        write_x_to_store(store, param_ids, &x_trial);
-        let f_trial = objective.value(store);
-
-        // Armijo condition
-        if f_trial <= f_x + c1 * alpha * directional_derivative {
-            return alpha;
+/// Skips the update if the curvature condition `sᵀy > ε‖s‖‖y‖` is not satisfied,
+/// and evicts the oldest pair when the history is at capacity.
+pub(crate) fn update_lbfgs_history(
+    s_history: &mut VecDeque<Vec<f64>>,
+    y_history: &mut VecDeque<Vec<f64>>,
+    s: Vec<f64>,
+    y: Vec<f64>,
+    m: usize,
+) {
+    if dot(&s, &y) > 1e-10 * vec_norm(&s) * vec_norm(&y) {
+        if s_history.len() == m {
+            s_history.pop_front();
+            y_history.pop_front();
         }
-
-        alpha *= backtrack;
-        if alpha < min_step {
-            return alpha;
-        }
+        s_history.push_back(s);
+        y_history.push_back(y);
     }
 }
 
 // --- Utility functions ---
 
-fn dense_gradient(
+pub(crate) fn dense_gradient(
     objective: &dyn Objective,
     store: &ParamStore,
     param_ids: &[crate::id::ParamId],
@@ -300,7 +270,7 @@ fn dense_gradient(
     grad
 }
 
-fn write_x_to_store(
+pub(crate) fn write_x_to_store(
     store: &mut ParamStore,
     param_ids: &[crate::id::ParamId],
     x: &[f64],
@@ -310,10 +280,10 @@ fn write_x_to_store(
     }
 }
 
-fn dot(a: &[f64], b: &[f64]) -> f64 {
+pub(crate) fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(ai, bi)| ai * bi).sum()
 }
 
-fn vec_norm(v: &[f64]) -> f64 {
+pub(crate) fn vec_norm(v: &[f64]) -> f64 {
     dot(v, v).sqrt()
 }

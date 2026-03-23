@@ -51,7 +51,9 @@
 mod auto;
 pub mod alm;
 pub mod bfgs;
+pub mod bfgs_b;
 mod config;
+pub mod line_search;
 mod levenberg_marquardt;
 mod lm_adapter;
 mod lm_config;
@@ -80,9 +82,13 @@ pub use parallel::{ParallelSolver, ParallelSolverConfig};
 // Sparse solver
 pub use sparse_solver::{should_use_sparse, SparseSolver, SparseSolverConfig};
 
+pub mod trust_region;
+
 // Optimization solvers
 pub use alm::AlmSolver;
 pub use bfgs::BfgsSolver;
+pub use bfgs_b::BfgsBSolver;
+pub use trust_region::TrustRegionSolver;
 
 // Result types
 pub use result::{SolveError, SolveResult};

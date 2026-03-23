@@ -17,3 +17,6 @@ syn = { version = "2.0", features = [
     "parsing",
     "visit",
 ] }
+
+[dev-dependencies]
+trybuild = "1"

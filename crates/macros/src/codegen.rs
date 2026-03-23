@@ -91,6 +91,67 @@ pub fn generate_jacobian_append(
     }
 }
 
+/// Generate Hessian entries for a scalar expression.
+/// Returns (var_i_index, var_j_index, second_derivative_tokens) for lower triangle (i >= j).
+pub fn generate_hessian_entries(
+    expr: &Expr,
+    variables: &[VarRef],
+) -> Vec<(String, String, TokenStream)> {
+    let mut entries = Vec::new();
+
+    for (j_idx, var_j) in variables.iter().enumerate() {
+        let first_deriv = expr.differentiate(var_j.id).simplify();
+
+        if first_deriv.is_zero() {
+            continue;
+        }
+
+        for (i_idx, var_i) in variables.iter().enumerate() {
+            if i_idx < j_idx {
+                continue;
+            }
+
+            let second_deriv = first_deriv.differentiate(var_i.id).simplify();
+
+            if second_deriv.is_zero() {
+                continue;
+            }
+
+            let deriv_tokens = second_deriv.to_tokens();
+            entries.push((var_i.index_tokens.clone(), var_j.index_tokens.clone(), deriv_tokens));
+        }
+    }
+
+    entries
+}
+
+/// Generate the hessian_entries method body.
+pub fn generate_hessian_method(entries: &[(String, String, TokenStream)]) -> TokenStream {
+    let capacity = entries.len();
+    let mut entry_stmts = Vec::new();
+
+    for (row_expr, col_expr, deriv_tokens) in entries {
+        let row: TokenStream = row_expr.parse().expect("valid row expression");
+        let col: TokenStream = col_expr.parse().expect("valid col expression");
+        entry_stmts.push(quote! {
+            (#row, #col, #deriv_tokens)
+        });
+    }
+
+    quote! {
+        let mut entries = Vec::with_capacity(#capacity);
+        #(
+            {
+                let val = #entry_stmts;
+                if val.2.abs() > 1e-30 {
+                    entries.push(val);
+                }
+            }
+        )*
+        entries
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -12,6 +12,8 @@ struct ParamEntry {
     fixed: bool,
     generation: Generation,
     alive: bool,
+    lower: f64,
+    upper: f64,
 }
 
 /// Central storage for all solvable parameter values.
@@ -46,6 +48,8 @@ impl ParamStore {
                 fixed: false,
                 generation,
                 alive: true,
+                lower: f64::NEG_INFINITY,
+                upper: f64::INFINITY,
             };
             ParamId::new(index, generation)
         } else {
@@ -56,6 +60,8 @@ impl ParamStore {
                 fixed: false,
                 generation: 0,
                 alive: true,
+                lower: f64::NEG_INFINITY,
+                upper: f64::INFINITY,
             });
             ParamId::new(index, 0)
         }
@@ -209,6 +215,38 @@ impl ParamStore {
             .enumerate()
             .filter(|(_, e)| e.alive && !e.fixed)
             .map(|(i, e)| ParamId::new(i as u32, e.generation))
+    }
+
+    /// Set lower and upper bounds for a parameter.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the id is invalid or if `lower > upper`.
+    pub fn set_bounds(&mut self, id: ParamId, lower: f64, upper: f64) {
+        let entry = self.entry_mut(id).expect("set_bounds: invalid ParamId");
+        assert!(lower <= upper, "lower bound must be <= upper bound");
+        entry.lower = lower;
+        entry.upper = upper;
+    }
+
+    /// Get the (lower, upper) bounds for a parameter.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the id is invalid.
+    pub fn bounds(&self, id: ParamId) -> (f64, f64) {
+        let entry = self.entry(id).expect("bounds: invalid ParamId");
+        (entry.lower, entry.upper)
+    }
+
+    /// Returns `true` if at least one bound is finite.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the id is invalid.
+    pub fn has_finite_bounds(&self, id: ParamId) -> bool {
+        let (l, u) = self.bounds(id);
+        l.is_finite() || u.is_finite()
     }
 
     // --- Internal helpers ---

@@ -1,0 +1,13 @@
+error: #[hessian] is only valid on #[objective] methods, not #[residual] methods
+ --> tests/trybuild/hessian_on_residual.rs:6:6
+  |
+6 | impl Bad {
+  |      ^^^
+
+warning: unused imports: `hessian` and `residual`
+ --> tests/trybuild/hessian_on_residual.rs:1:35
+  |
+1 | use solverang_macros::{auto_diff, hessian, residual};
+  |                                   ^^^^^^^  ^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

@@ -11,10 +11,13 @@ Existing path (unchanged):
 
 Optimization path:
   ConstraintSystem::optimize()
-    → Classify (unconstrained? equality-constrained?)
+    → Classify (unconstrained? bounded? constrained?)
     → Dispatch:
-        BFGS (unconstrained) | ALM outer loop:
-          [update λ, ρ] → BFGS inner solve on augmented Lagrangian → [check KKT]
+        BFGS (unconstrained, no bounds)
+        L-BFGS-B (unconstrained with bounds)
+        ALM (equality/inequality constrained):
+          [update λ/μ, ρ] → BFGS inner solve on augmented Lagrangian → [check KKT]
+        TrustRegion (explicit selection, dogleg/Steihaug-CG)
     → OptimizationResult { f(x*), multipliers, kkt_residual, status }
 ```
 
@@ -52,14 +55,18 @@ User defines:
 constraints are vector (Jacobian = matrix) — different derivative shapes.
 Multipliers are ephemeral (recomputed each solve), parameters are persistent.
 
-**BFGS default, no Hessians in Phase 1.** L-BFGS needs only gradients. Exact
-Hessians deferred to Phase 3 after compile-time impact is measured empirically.
+**BFGS default, opt-in Hessians via `#[hessian]`.** L-BFGS needs only gradients
+and is the default for unconstrained problems. `#[hessian]` on an `#[objective]`
+method generates `hessian_entries()` — opt-in avoids double compile-time cost
+for objectives that don't need second-order information.
 
 **MultiplierStore uses semantic addressing** `{constraint_id, equation_row}`,
 not generational indices. Multipliers are ephemeral — no allocation lifecycle.
 
-**Log-barrier for inequalities** (not slack variables). Slack variables create
-rank-deficient Jacobians when constraints become active.
+**Direct penalty for ALM inequalities** (Birgin & Martínez formulation) —
+`(ρ/2)[max(0, h + μ/ρ)² − (μ/ρ)²]` adds zero extra variables. Log-barrier
+requires a strictly feasible starting point (CAD problems often lack one).
+Slack variables double the variable count per inequality.
 
 ## Invariants
 
@@ -73,10 +80,15 @@ rank-deficient Jacobians when constraints become active.
 
 | Algorithm | File | Use Case |
 |-----------|------|----------|
-| L-BFGS | `solver/bfgs.rs` | Unconstrained (gradient-only, Armijo line search) |
-| ALM | `solver/alm.rs` | Equality-constrained (BFGS inner loop, multiplier updates) |
+| L-BFGS | `solver/bfgs.rs` | Unconstrained, no bounds (gradient-only, Wolfe line search) |
+| L-BFGS-B | `solver/bfgs_b.rs` | Box-constrained (projected gradient, bounds from ParamStore) |
+| ALM | `solver/alm.rs` | Equality + inequality constrained (BFGS inner loop, multiplier updates) |
+| Trust-Region | `solver/trust_region.rs` | Unconstrained with optional exact Hessian (dogleg / Steihaug-CG) |
+| Line Search | `solver/line_search.rs` | Shared Wolfe + Armijo fallback (used by BFGS, L-BFGS-B) |
 
 ## Macro Support
 
 `#[auto_diff]` with `#[objective]` generates `gradient_entries()` via symbolic
 differentiation — same `Expr::differentiate()` as `#[residual]` Jacobians.
+Adding `#[hessian]` alongside `#[objective]` generates `hessian_entries()`
+(lower-triangle sparse second derivatives) for trust-region / Newton methods.

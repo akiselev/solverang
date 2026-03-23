@@ -1,0 +1,13 @@
+error: Unsupported method: foobar
+ --> tests/trybuild/unsupported_method.rs:9:14
+  |
+9 |         x[0].foobar()
+  |              ^^^^^^
+
+warning: unused import: `objective`
+ --> tests/trybuild/unsupported_method.rs:1:35
+  |
+1 | use solverang_macros::{auto_diff, objective};
+  |                                   ^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

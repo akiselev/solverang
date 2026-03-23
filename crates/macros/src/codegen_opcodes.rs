@@ -178,6 +178,11 @@ impl Expr {
                     #emitter.abs(__e)
                 } }
             }
+            Expr::Asin(_) | Expr::Acos(_) | Expr::Sinh(_) | Expr::Cosh(_) | Expr::Tanh(_) => {
+                quote! { {
+                    unimplemented!("asin/acos/sinh/cosh/tanh are not supported in JIT opcode lowering")
+                } }
+            }
         }
     }
 }

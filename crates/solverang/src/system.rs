@@ -602,10 +602,27 @@ impl ConstraintSystem {
 
         // Algorithm selection
         use crate::optimization::OptimizationAlgorithm;
+
+        // Check if any free parameter has finite bounds.
+        let has_finite_bounds = self
+            .params
+            .free_param_ids()
+            .any(|pid| self.params.has_finite_bounds(pid));
+
+        let ineq_constraints: Vec<&dyn InequalityFn> = self
+            .inequalities
+            .iter()
+            .filter_map(|h| h.as_deref())
+            .collect();
+
+        let has_inequalities = !ineq_constraints.is_empty();
+
         let algorithm = match self.opt_config.algorithm {
             OptimizationAlgorithm::Auto => {
-                if has_equalities {
+                if has_equalities || has_inequalities {
                     OptimizationAlgorithm::Alm
+                } else if has_finite_bounds {
+                    OptimizationAlgorithm::BfgsB
                 } else {
                     OptimizationAlgorithm::Bfgs
                 }
@@ -614,15 +631,29 @@ impl ConstraintSystem {
         };
 
         let result = match algorithm {
-            OptimizationAlgorithm::Bfgs | OptimizationAlgorithm::Auto => {
+            OptimizationAlgorithm::Bfgs => {
                 crate::solver::BfgsSolver::solve(objective, &mut self.params, &self.opt_config)
+            }
+            OptimizationAlgorithm::BfgsB => {
+                crate::solver::BfgsBSolver::solve(objective, &mut self.params, &self.opt_config)
             }
             OptimizationAlgorithm::Alm => crate::solver::AlmSolver::solve(
                 objective,
                 &eq_constraints,
+                &ineq_constraints,
                 &mut self.params,
                 &self.opt_config,
             ),
+            OptimizationAlgorithm::TrustRegion => {
+                crate::solver::TrustRegionSolver::solve(
+                    objective,
+                    &mut self.params,
+                    &self.opt_config,
+                )
+            }
+            OptimizationAlgorithm::Auto => {
+                unreachable!("Auto is resolved to a concrete algorithm before this match")
+            }
         };
 
         // Store multipliers for post-solve access

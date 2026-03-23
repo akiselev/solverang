@@ -4,13 +4,17 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OptimizationAlgorithm {
     /// Automatically select based on problem structure.
-    /// Unconstrained → BFGS, equality-constrained → ALM.
+    /// Unconstrained with bounds → BfgsB, unconstrained → BFGS, equality-constrained → ALM.
     Auto,
     /// L-BFGS for unconstrained optimization (gradient-only).
     Bfgs,
+    /// L-BFGS-B for box-constrained optimization (projected gradient).
+    BfgsB,
     /// Augmented Lagrangian Method for constrained optimization.
     /// Uses existing NR/LM as inner solver.
     Alm,
+    /// Trust-region method with dogleg (n < threshold) or Steihaug-CG (n >= threshold).
+    TrustRegion,
 }
 
 /// Strategy for initializing Lagrange multipliers.
@@ -51,10 +55,25 @@ pub struct OptimizationConfig {
     pub lbfgs_memory: usize,
     /// Armijo line search sufficient decrease parameter c₁.
     pub armijo_c1: f64,
+    /// Wolfe curvature condition parameter c₂ (strong curvature): `|∇f(x+αd)·d| ≤ c₂|∇f(x)·d|`.
+    pub wolfe_c2: f64,
     /// Line search backtracking factor.
     pub line_search_backtrack: f64,
     /// Minimum line search step size before declaring failure.
     pub line_search_min_step: f64,
+    /// Use relative tolerances for convergence checks.
+    ///
+    /// When `true`, BFGS scales the gradient norm by `max(1.0, |f|)` and ALM
+    /// scales norms by the square root of the problem dimension, making
+    /// convergence criteria independent of problem size and objective magnitude.
+    /// When `false`, absolute tolerances are used (backward-compatible behavior).
+    pub relative_tolerance: bool,
+    /// Initial trust-region radius.
+    pub trust_region_init: f64,
+    /// Maximum trust-region radius.
+    pub trust_region_max: f64,
+    /// Dimension threshold: dogleg for n < threshold, Steihaug-CG for n >= threshold.
+    pub tr_subproblem_threshold: usize,
 }
 
 impl Default for OptimizationConfig {
@@ -73,8 +92,13 @@ impl Default for OptimizationConfig {
             multiplier_init: MultiplierInitStrategy::Zero,
             lbfgs_memory: 10,
             armijo_c1: 1e-4,
+            wolfe_c2: 0.9,
             line_search_backtrack: 0.5,
             line_search_min_step: 1e-12,
+            relative_tolerance: true,
+            trust_region_init: 1.0,
+            trust_region_max: 100.0,
+            tr_subproblem_threshold: 100,
         }
     }
 }

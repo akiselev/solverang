@@ -46,6 +46,16 @@ pub enum Expr {
     Ln(Box<Expr>),
     /// Exponential: exp(e).
     Exp(Box<Expr>),
+    /// Arc sine: asin(e).
+    Asin(Box<Expr>),
+    /// Arc cosine: acos(e).
+    Acos(Box<Expr>),
+    /// Hyperbolic sine: sinh(e).
+    Sinh(Box<Expr>),
+    /// Hyperbolic cosine: cosh(e).
+    Cosh(Box<Expr>),
+    /// Hyperbolic tangent: tanh(e).
+    Tanh(Box<Expr>),
 }
 
 /// A reference to a variable in the state vector.
@@ -198,6 +208,46 @@ impl Expr {
                 let de = e.differentiate(var_id);
                 Expr::Mul(Box::new(Expr::Exp(e.clone())), Box::new(de))
             }
+            Expr::Asin(e) => {
+                // d(asin(e)) = de / sqrt(1 - e^2)
+                let de = e.differentiate(var_id);
+                Expr::Div(
+                    Box::new(de),
+                    Box::new(Expr::Sqrt(Box::new(Expr::Sub(
+                        Box::new(Expr::Const(1.0)),
+                        Box::new(Expr::Pow(e.clone(), 2.0)),
+                    )))),
+                )
+            }
+            Expr::Acos(e) => {
+                // d(acos(e)) = -de / sqrt(1 - e^2)
+                let de = e.differentiate(var_id);
+                Expr::Neg(Box::new(Expr::Div(
+                    Box::new(de),
+                    Box::new(Expr::Sqrt(Box::new(Expr::Sub(
+                        Box::new(Expr::Const(1.0)),
+                        Box::new(Expr::Pow(e.clone(), 2.0)),
+                    )))),
+                )))
+            }
+            Expr::Sinh(e) => {
+                // d(sinh(e)) = cosh(e) * de
+                let de = e.differentiate(var_id);
+                Expr::Mul(Box::new(Expr::Cosh(e.clone())), Box::new(de))
+            }
+            Expr::Cosh(e) => {
+                // d(cosh(e)) = sinh(e) * de
+                let de = e.differentiate(var_id);
+                Expr::Mul(Box::new(Expr::Sinh(e.clone())), Box::new(de))
+            }
+            Expr::Tanh(e) => {
+                // d(tanh(e)) = de / cosh^2(e)
+                let de = e.differentiate(var_id);
+                Expr::Div(
+                    Box::new(de),
+                    Box::new(Expr::Pow(Box::new(Expr::Cosh(e.clone())), 2.0)),
+                )
+            }
         }
     }
 
@@ -276,6 +326,41 @@ impl Expr {
             Expr::Tan(e) => Expr::Tan(Box::new(e.simplify())),
             Expr::Atan2(y, x) => Expr::Atan2(Box::new(y.simplify()), Box::new(x.simplify())),
             Expr::Abs(e) => Expr::Abs(Box::new(e.simplify())),
+            Expr::Asin(e) => {
+                let e = e.simplify();
+                match &e {
+                    Expr::Const(v) => Expr::Const(v.asin()),
+                    _ => Expr::Asin(Box::new(e)),
+                }
+            }
+            Expr::Acos(e) => {
+                let e = e.simplify();
+                match &e {
+                    Expr::Const(v) => Expr::Const(v.acos()),
+                    _ => Expr::Acos(Box::new(e)),
+                }
+            }
+            Expr::Sinh(e) => {
+                let e = e.simplify();
+                match &e {
+                    Expr::Const(v) => Expr::Const(v.sinh()),
+                    _ => Expr::Sinh(Box::new(e)),
+                }
+            }
+            Expr::Cosh(e) => {
+                let e = e.simplify();
+                match &e {
+                    Expr::Const(v) => Expr::Const(v.cosh()),
+                    _ => Expr::Cosh(Box::new(e)),
+                }
+            }
+            Expr::Tanh(e) => {
+                let e = e.simplify();
+                match &e {
+                    Expr::Const(v) => Expr::Const(v.tanh()),
+                    _ => Expr::Tanh(Box::new(e)),
+                }
+            }
             Expr::Ln(e) => {
                 let e = e.simplify();
                 match &e {
@@ -318,7 +403,12 @@ impl Expr {
             | Expr::Tan(e)
             | Expr::Abs(e)
             | Expr::Ln(e)
-            | Expr::Exp(e) => {
+            | Expr::Exp(e)
+            | Expr::Asin(e)
+            | Expr::Acos(e)
+            | Expr::Sinh(e)
+            | Expr::Cosh(e)
+            | Expr::Tanh(e) => {
                 e.collect_variables_into(vars);
             }
             Expr::Pow(base, _) => {
@@ -431,6 +521,26 @@ impl Expr {
                 let e = e.to_tokens();
                 quote! { (#e).exp() }
             }
+            Expr::Asin(e) => {
+                let e = e.to_tokens();
+                quote! { (#e).asin() }
+            }
+            Expr::Acos(e) => {
+                let e = e.to_tokens();
+                quote! { (#e).acos() }
+            }
+            Expr::Sinh(e) => {
+                let e = e.to_tokens();
+                quote! { (#e).sinh() }
+            }
+            Expr::Cosh(e) => {
+                let e = e.to_tokens();
+                quote! { (#e).cosh() }
+            }
+            Expr::Tanh(e) => {
+                let e = e.to_tokens();
+                quote! { (#e).tanh() }
+            }
         }
     }
 }
@@ -516,5 +626,25 @@ mod tests {
         );
         let simplified = expr.simplify();
         assert!(matches!(simplified, Expr::Var(_)));
+    }
+
+    #[test]
+    fn test_differentiate_sinh() {
+        // d(sinh(x))/dx = cosh(x)
+        let x = Expr::var("0".to_string(), 0);
+        let expr = Expr::Sinh(Box::new(x));
+        let deriv = expr.differentiate(0).simplify();
+        // Result: Cosh(x) * 1 simplifies to Cosh(x)
+        assert!(matches!(deriv, Expr::Cosh(_)));
+    }
+
+    #[test]
+    fn test_differentiate_asin() {
+        // d(asin(x))/dx = 1 / sqrt(1 - x^2)
+        let x = Expr::var("0".to_string(), 0);
+        let expr = Expr::Asin(Box::new(x));
+        let deriv = expr.differentiate(0).simplify();
+        // Result: 1 / sqrt(1 - x^2)
+        assert!(matches!(deriv, Expr::Div(_, _)));
     }
 }

@@ -238,6 +238,36 @@ fn parse_method_call(
             }
             Ok(Expr::Exp(Box::new(receiver_expr)))
         }
+        "asin" => {
+            if !args.is_empty() {
+                return Err(syn::Error::new(method.span(), "asin() takes no arguments"));
+            }
+            Ok(Expr::Asin(Box::new(receiver_expr)))
+        }
+        "acos" => {
+            if !args.is_empty() {
+                return Err(syn::Error::new(method.span(), "acos() takes no arguments"));
+            }
+            Ok(Expr::Acos(Box::new(receiver_expr)))
+        }
+        "sinh" => {
+            if !args.is_empty() {
+                return Err(syn::Error::new(method.span(), "sinh() takes no arguments"));
+            }
+            Ok(Expr::Sinh(Box::new(receiver_expr)))
+        }
+        "cosh" => {
+            if !args.is_empty() {
+                return Err(syn::Error::new(method.span(), "cosh() takes no arguments"));
+            }
+            Ok(Expr::Cosh(Box::new(receiver_expr)))
+        }
+        "tanh" => {
+            if !args.is_empty() {
+                return Err(syn::Error::new(method.span(), "tanh() takes no arguments"));
+            }
+            Ok(Expr::Tanh(Box::new(receiver_expr)))
+        }
         "powi" => {
             if args.len() != 1 {
                 return Err(syn::Error::new(
@@ -320,6 +350,26 @@ fn parse_function_call(
                 Some("exp") if args.len() == 1 => {
                     let arg = parse_expr(&args[0], ctx)?;
                     return Ok(Expr::Exp(Box::new(arg)));
+                }
+                Some("asin") if args.len() == 1 => {
+                    let arg = parse_expr(&args[0], ctx)?;
+                    return Ok(Expr::Asin(Box::new(arg)));
+                }
+                Some("acos") if args.len() == 1 => {
+                    let arg = parse_expr(&args[0], ctx)?;
+                    return Ok(Expr::Acos(Box::new(arg)));
+                }
+                Some("sinh") if args.len() == 1 => {
+                    let arg = parse_expr(&args[0], ctx)?;
+                    return Ok(Expr::Sinh(Box::new(arg)));
+                }
+                Some("cosh") if args.len() == 1 => {
+                    let arg = parse_expr(&args[0], ctx)?;
+                    return Ok(Expr::Cosh(Box::new(arg)));
+                }
+                Some("tanh") if args.len() == 1 => {
+                    let arg = parse_expr(&args[0], ctx)?;
+                    return Ok(Expr::Tanh(Box::new(arg)));
                 }
                 _ => {}
             }
