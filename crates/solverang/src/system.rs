@@ -149,6 +149,8 @@ pub struct ConstraintSystem {
     // --- Optimization extension ---
     /// Objective function to minimize (None = constraint-satisfaction only).
     objective: Option<Box<dyn Objective>>,
+    /// Optional exact Hessian for the objective (enables exact trust-region steps).
+    objective_hessian: Option<Box<dyn crate::optimization::ObjectiveHessian>>,
     /// Inequality constraints h(x) ≤ 0.
     inequalities: Vec<Option<Box<dyn InequalityFn>>>,
     /// Configuration for optimization solvers.
@@ -179,6 +181,7 @@ impl ConstraintSystem {
             constraint_generations: Vec::new(),
             constraint_free_list: Vec::new(),
             objective: None,
+            objective_hessian: None,
             inequalities: Vec::new(),
             opt_config: OptimizationConfig::default(),
             last_multipliers: MultiplierStore::new(),
@@ -523,9 +526,22 @@ impl ConstraintSystem {
         self.objective = Some(objective);
     }
 
+    /// Set an objective that also provides an exact Hessian.
+    ///
+    /// When set, the trust-region solver uses exact Hessian-vector products
+    /// instead of the scaled-identity L-BFGS approximation, giving quadratic
+    /// convergence near the solution.
+    pub fn set_objective_with_hessian(
+        &mut self,
+        objective: Box<dyn crate::optimization::ObjectiveHessian>,
+    ) {
+        self.objective_hessian = Some(objective);
+    }
+
     /// Remove the objective function (revert to constraint-satisfaction only).
     pub fn clear_objective(&mut self) {
         self.objective = None;
+        self.objective_hessian = None;
     }
 
     /// Whether an objective function is set.
@@ -637,19 +653,36 @@ impl ConstraintSystem {
             OptimizationAlgorithm::BfgsB => {
                 crate::solver::BfgsBSolver::solve(objective, &mut self.params, &self.opt_config)
             }
-            OptimizationAlgorithm::Alm => crate::solver::AlmSolver::solve(
-                objective,
-                &eq_constraints,
-                &ineq_constraints,
-                &mut self.params,
-                &self.opt_config,
-            ),
-            OptimizationAlgorithm::TrustRegion => {
-                crate::solver::TrustRegionSolver::solve(
+            OptimizationAlgorithm::Alm => {
+                let warm = match self.opt_config.multiplier_init {
+                    crate::optimization::MultiplierInitStrategy::WarmStart => {
+                        Some(&self.last_multipliers)
+                    }
+                    _ => None,
+                };
+                crate::solver::AlmSolver::solve(
                     objective,
+                    &eq_constraints,
+                    &ineq_constraints,
                     &mut self.params,
                     &self.opt_config,
+                    warm,
                 )
+            }
+            OptimizationAlgorithm::TrustRegion => {
+                if let Some(ref hess_obj) = self.objective_hessian {
+                    crate::solver::TrustRegionSolver::solve_with_hessian(
+                        hess_obj.as_ref(),
+                        &mut self.params,
+                        &self.opt_config,
+                    )
+                } else {
+                    crate::solver::TrustRegionSolver::solve(
+                        objective,
+                        &mut self.params,
+                        &self.opt_config,
+                    )
+                }
             }
             OptimizationAlgorithm::Auto => {
                 unreachable!("Auto is resolved to a concrete algorithm before this match")

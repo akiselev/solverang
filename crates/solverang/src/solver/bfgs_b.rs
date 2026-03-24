@@ -105,39 +105,55 @@ impl BfgsBSolver {
                 };
             }
 
-            // Compute L-BFGS search direction.
-            let mut direction = lbfgs_direction(&grad, &s_history, &y_history);
+            // Compute search direction via Generalized Cauchy Point + subspace minimization.
+            let gamma = compute_gamma(&s_history, &y_history);
+            let (x_cauchy, active_set) =
+                generalized_cauchy_point(&x, &grad, &lower, &upper, gamma);
+            let correction =
+                subspace_minimization(&x_cauchy, &grad, &active_set, &lower, &upper,
+                                       &s_history, &y_history);
+            let mut direction: Vec<f64> = x_cauchy
+                .iter()
+                .zip(&correction)
+                .zip(&x)
+                .map(|((c, d), xi)| c + d - xi)
+                .collect();
 
-            // Project the direction: for each coordinate, if the step would
-            // violate a bound that is already active, zero it out.
-            for i in 0..n {
-                if x[i] <= lower[i] && direction[i] < 0.0 {
-                    direction[i] = 0.0;
+            // Fallback: if GCP produces a degenerate zero direction, use
+            // projected steepest descent.
+            if vec_norm(&direction) < 1e-15 {
+                direction = project_direction(&grad.iter().map(|g| -g).collect::<Vec<_>>(),
+                                              &x, &lower, &upper);
+                // If projected steepest descent is also zero, we are at a
+                // corner of the feasible box — converged.
+                if vec_norm(&direction) < 1e-15 {
+                    write_x_to_store(store, param_ids, &x);
+                    return OptimizationResult {
+                        objective_value: f,
+                        status: OptimizationStatus::Converged,
+                        outer_iterations: iter,
+                        inner_iterations: 0,
+                        kkt_residual: KktResidual {
+                            primal: 0.0,
+                            dual: pg_norm,
+                            complementarity: 0.0,
+                        },
+                        multipliers: MultiplierStore::new(),
+                        constraint_violations: Vec::new(),
+                        duration: start.elapsed(),
+                    };
                 }
-                if x[i] >= upper[i] && direction[i] > 0.0 {
-                    direction[i] = 0.0;
-                }
+                s_history.clear();
+                y_history.clear();
             }
 
-            // Check that we still have a descent direction after projection.
-            // If not (all components zeroed or positive dot product), fall back
-            // to projected steepest descent.
+            // Ensure descent direction.
             let dg = dot(&grad, &direction);
             if dg >= 0.0 {
                 s_history.clear();
                 y_history.clear();
-                direction = grad.iter().map(|g| -g).collect();
-                // Re-project the steepest descent direction.
-                for i in 0..n {
-                    if x[i] <= lower[i] && direction[i] < 0.0 {
-                        direction[i] = 0.0;
-                    }
-                    if x[i] >= upper[i] && direction[i] > 0.0 {
-                        direction[i] = 0.0;
-                    }
-                }
-                // If projected steepest descent is also zero, we are at a
-                // corner of the feasible box — converged.
+                direction = project_direction(&grad.iter().map(|g| -g).collect::<Vec<_>>(),
+                                              &x, &lower, &upper);
                 if vec_norm(&direction) < 1e-15 {
                     write_x_to_store(store, param_ids, &x);
                     return OptimizationResult {
@@ -246,4 +262,209 @@ fn projected_gradient_norm(x: &[f64], grad: &[f64], lower: &[f64], upper: &[f64]
         norm_sq += pg * pg;
     }
     norm_sq.sqrt()
+}
+
+/// Project a direction vector: zero out components that would push further into
+/// an already-active bound.
+fn project_direction(dir: &[f64], x: &[f64], lower: &[f64], upper: &[f64]) -> Vec<f64> {
+    let mut d = dir.to_vec();
+    for i in 0..d.len() {
+        if x[i] <= lower[i] && d[i] < 0.0 {
+            d[i] = 0.0;
+        }
+        if x[i] >= upper[i] && d[i] > 0.0 {
+            d[i] = 0.0;
+        }
+    }
+    d
+}
+
+/// Compute the scaled-identity Hessian parameter γ = yᵀy / sᵀy from L-BFGS history.
+fn compute_gamma(s_history: &VecDeque<Vec<f64>>, y_history: &VecDeque<Vec<f64>>) -> f64 {
+    let k = s_history.len();
+    if k == 0 {
+        return 1.0;
+    }
+    let last = k - 1;
+    let sy = dot(&s_history[last], &y_history[last]);
+    let yy = dot(&y_history[last], &y_history[last]);
+    if sy.abs() > 1e-30 {
+        yy / sy
+    } else {
+        1.0
+    }
+}
+
+/// Generalized Cauchy Point (Byrd-Lu-Nocedal-Zhu 1995).
+///
+/// Finds the minimizer of the quadratic model `q(t) = f + gᵀ(x(t)-x) + γ/2 ||x(t)-x||²`
+/// along the piecewise-linear path `x(t) = P[x - t·g]`.
+///
+/// Returns `(cauchy_point, active_set)` where `active_set[i] = true` means
+/// variable `i` is at a bound at the Cauchy point.
+fn generalized_cauchy_point(
+    x: &[f64],
+    grad: &[f64],
+    lower: &[f64],
+    upper: &[f64],
+    gamma: f64,
+) -> (Vec<f64>, Vec<bool>) {
+    let n = x.len();
+    let inf = f64::INFINITY;
+
+    // Compute breakpoints: t_i where x_i(t) hits a bound along x(t) = P[x - t*g].
+    // For variable i with g[i] < 0 (moves toward upper bound):  t_i = (x[i] - upper[i]) / g[i]
+    // For variable i with g[i] > 0 (moves toward lower bound):  t_i = (x[i] - lower[i]) / g[i]
+    let mut breakpoints: Vec<(f64, usize)> = Vec::with_capacity(n);
+    for i in 0..n {
+        let t_i = if grad[i] < 0.0 && upper[i] < inf {
+            (x[i] - upper[i]) / grad[i]
+        } else if grad[i] > 0.0 && lower[i] > f64::NEG_INFINITY {
+            (x[i] - lower[i]) / grad[i]
+        } else {
+            inf
+        };
+        if t_i > 1e-30 {
+            breakpoints.push((t_i, i));
+        }
+    }
+    breakpoints.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+    // Track which variables are active (at a bound and gradient pointing out of feasible set).
+    let mut active = vec![false; n];
+    for i in 0..n {
+        if grad[i] > 0.0 && x[i] <= lower[i] {
+            active[i] = true;
+        } else if grad[i] < 0.0 && x[i] >= upper[i] {
+            active[i] = true;
+        }
+    }
+
+    // Path derivative at t=0: fp = gᵀ d where d[i] = -g[i] for free vars.
+    // fp = -sum_{free} g[i]^2
+    // fpp = gamma * sum_{free} g[i]^2 = -gamma * fp
+    let mut fp: f64 = -(0..n).filter(|&i| !active[i]).map(|i| grad[i] * grad[i]).sum::<f64>();
+    let mut fpp: f64 = -gamma * fp; // = gamma * sum g_i^2
+
+    if fpp < 1e-30 || fp >= 0.0 {
+        // Degenerate or already optimal: return x clamped.
+        let mut x_c = x.to_vec();
+        project(&mut x_c, lower, upper);
+        return (x_c, active);
+    }
+
+    let mut t_prev = 0.0_f64;
+
+    for &(t_i, coord) in &breakpoints {
+        // Already active?  Skip.
+        if active[coord] {
+            continue;
+        }
+
+        // Minimum of 1D quadratic in current segment [t_prev, t_i]:
+        // t* relative to segment start = -fp / fpp  (absolute: t_prev + dt_opt)
+        let dt_opt = -fp / fpp;
+        if dt_opt <= 1e-30 {
+            break;
+        }
+        let t_star = t_prev + dt_opt;
+
+        if t_star <= t_i {
+            // Minimum is inside this segment.
+            let mut x_c = x.to_vec();
+            for i in 0..n {
+                if !active[i] {
+                    x_c[i] = (x[i] - t_star * grad[i]).clamp(lower[i], upper[i]);
+                }
+            }
+            return (x_c, active);
+        }
+
+        // Advance to breakpoint: update fp and fpp for the now-active variable.
+        let dt = t_i - t_prev;
+        // fp advances along the segment: fp += fpp * dt (path derivative at t_i)
+        fp += fpp * dt;
+        // Remove coord's contribution from future derivative (it's now fixed at bound).
+        let g_j = grad[coord];
+        fp -= gamma * g_j * g_j; // d[coord] = -g_j, so gamma * d_j^2 = gamma * g_j^2
+        fpp -= gamma * g_j * g_j;
+        if fpp < 1e-30 {
+            fpp = 1e-30;
+        }
+
+        active[coord] = true;
+        t_prev = t_i;
+    }
+
+    // Minimum is beyond all breakpoints (or no breakpoints).
+    // Use t* from remaining free variables.
+    let mut x_c = x.to_vec();
+    if fpp > 1e-30 && fp < 0.0 {
+        let dt_opt = -fp / fpp;
+        let t_abs = t_prev + dt_opt;
+        for i in 0..n {
+            if !active[i] {
+                x_c[i] = (x[i] - t_abs * grad[i]).clamp(lower[i], upper[i]);
+            }
+        }
+    } else {
+        // No further improvement; use last breakpoint position.
+        for i in 0..n {
+            if !active[i] {
+                x_c[i] = (x[i] - t_prev * grad[i]).clamp(lower[i], upper[i]);
+            }
+        }
+    }
+
+    project(&mut x_c, lower, upper);
+    (x_c, active)
+}
+
+/// Subspace minimization: refine the Cauchy point using L-BFGS restricted to
+/// the free variables (those not at bounds at the Cauchy point).
+///
+/// Returns a correction vector (same size as x); active-set components are zero.
+fn subspace_minimization(
+    x_cauchy: &[f64],
+    grad: &[f64],
+    active_set: &[bool],
+    lower: &[f64],
+    upper: &[f64],
+    s_history: &VecDeque<Vec<f64>>,
+    y_history: &VecDeque<Vec<f64>>,
+) -> Vec<f64> {
+    let n = x_cauchy.len();
+    let free_indices: Vec<usize> = (0..n).filter(|&i| !active_set[i]).collect();
+    let nf = free_indices.len();
+
+    if nf == 0 || s_history.is_empty() {
+        return vec![0.0; n];
+    }
+
+    // Gradient at x_cauchy restricted to free variables.
+    let grad_free: Vec<f64> = free_indices.iter().map(|&i| grad[i]).collect();
+
+    // Run L-BFGS two-loop recursion on the free subspace.
+    // Build reduced s/y histories.
+    let s_reduced: VecDeque<Vec<f64>> = s_history
+        .iter()
+        .map(|s| free_indices.iter().map(|&i| s[i]).collect())
+        .collect();
+    let y_reduced: VecDeque<Vec<f64>> = y_history
+        .iter()
+        .map(|y| free_indices.iter().map(|&i| y[i]).collect())
+        .collect();
+
+    let dir_free = lbfgs_direction(&grad_free, &s_reduced, &y_reduced);
+
+    // Embed free-variable result back to full space.
+    let mut correction = vec![0.0; n];
+    for (k, &i) in free_indices.iter().enumerate() {
+        // correction[i] = x_cauchy[i] + dir_free[k] - x_cauchy[i] = dir_free[k]
+        // Clamp to stay inside bounds.
+        let x_new = (x_cauchy[i] + dir_free[k]).clamp(lower[i], upper[i]);
+        correction[i] = x_new - x_cauchy[i];
+    }
+
+    correction
 }

@@ -249,6 +249,11 @@ impl ParamStore {
         l.is_finite() || u.is_finite()
     }
 
+    /// Returns `true` if any alive, free parameter has at least one finite bound.
+    pub fn any_free_finite_bounds(&self) -> bool {
+        self.free_param_ids().any(|pid| self.has_finite_bounds(pid))
+    }
+
     // --- Internal helpers ---
 
     fn entry(&self, id: ParamId) -> Option<&ParamEntry> {

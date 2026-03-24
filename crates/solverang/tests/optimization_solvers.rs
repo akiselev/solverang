@@ -2,8 +2,8 @@
 
 use solverang::id::{ConstraintId, EntityId, ParamId};
 use solverang::optimization::{
-    InequalityFn, Objective, ObjectiveId, OptimizationAlgorithm, OptimizationConfig,
-    OptimizationStatus,
+    InequalityFn, MultiplierInitStrategy, MultiplierStore, Objective, ObjectiveHessian,
+    ObjectiveId, OptimizationAlgorithm, OptimizationConfig, OptimizationStatus,
 };
 use solverang::param::ParamStore;
 use solverang::solver::{AlmSolver, BfgsBSolver, BfgsSolver, TrustRegionSolver};
@@ -372,7 +372,7 @@ fn alm_rosenbrock_with_linear_constraint() {
     config.outer_tolerance = 1e-5;
     config.dual_tolerance = 1e-4;
 
-    let result = AlmSolver::solve(&obj, &constraints, &[], &mut store, &config);
+    let result = AlmSolver::solve(&obj, &constraints, &[], &mut store, &config, None);
 
     assert!(
         result.status.is_converged(),
@@ -448,7 +448,7 @@ fn alm_quadratic_with_constraint() {
     let constraints: Vec<&dyn Constraint> = vec![&constraint];
 
     let config = OptimizationConfig::default();
-    let result = AlmSolver::solve(&obj, &constraints, &[], &mut store, &config);
+    let result = AlmSolver::solve(&obj, &constraints, &[], &mut store, &config, None);
 
     assert!(
         result.status.is_converged(),
@@ -524,7 +524,7 @@ fn alm_already_feasible() {
     let constraints: Vec<&dyn Constraint> = vec![&constraint];
 
     let config = OptimizationConfig::default();
-    let result = AlmSolver::solve(&obj, &constraints, &[], &mut store, &config);
+    let result = AlmSolver::solve(&obj, &constraints, &[], &mut store, &config, None);
 
     // Should converge quickly — already at the optimum
     assert!(result.status.is_converged());
@@ -761,7 +761,7 @@ fn alm_inequality_inactive() {
     config.max_outer_iterations = 50;
     config.max_inner_iterations = 500;
 
-    let result = AlmSolver::solve(&obj, &[], &inequalities, &mut store, &config);
+    let result = AlmSolver::solve(&obj, &[], &inequalities, &mut store, &config, None);
 
     assert!(
         result.status.is_converged(),
@@ -811,7 +811,7 @@ fn alm_inequality_active() {
     config.outer_tolerance = 1e-4;
     config.dual_tolerance = 1e-3;
 
-    let result = AlmSolver::solve(&obj, &[], &inequalities, &mut store, &config);
+    let result = AlmSolver::solve(&obj, &[], &inequalities, &mut store, &config, None);
 
     assert!(
         result.status.is_converged(),
@@ -903,7 +903,7 @@ fn alm_mixed_equality_inequality() {
     config.outer_tolerance = 1e-4;
     config.dual_tolerance = 1e-4;
 
-    let result = AlmSolver::solve(&obj, &constraints, &inequalities, &mut store, &config);
+    let result = AlmSolver::solve(&obj, &constraints, &inequalities, &mut store, &config, None);
 
     assert!(
         result.status.is_converged(),
@@ -1131,4 +1131,487 @@ fn trust_region_already_at_minimum() {
     assert_eq!(result.outer_iterations, 0, "should detect convergence immediately");
     let x = store.get(px);
     assert!((x - 3.0).abs() < 1e-10, "x = {}, expected 3.0", x);
+}
+
+// =========================================================================
+// Phase 1: ALM + Bounds tests
+// =========================================================================
+
+#[test]
+fn alm_bounded_quadratic_with_equality() {
+    // min (x-5)^2 + (y-5)^2 s.t. x+y=6, 0<=x<=3, 0<=y<=10.
+    // Unconstrained optimum on x+y=6 is (3,3) — x bound active.
+    let owner = EntityId::new(0, 0);
+    let mut store = ParamStore::new();
+    let px = store.alloc(1.0, owner);
+    let py = store.alloc(1.0, owner);
+    store.set_bounds(px, 0.0, 3.0);
+    store.set_bounds(py, 0.0, 10.0);
+
+    let obj = Quad2DTarget { params: [px, py], target: [5.0, 5.0] };
+
+    let cid = ConstraintId::new(0, 0);
+    let eq = LinearEqualityConstraint::new(cid, px, py, 6.0);
+    let constraints: Vec<&dyn Constraint> = vec![&eq];
+
+    let mut config = OptimizationConfig::default();
+    config.max_outer_iterations = 100;
+    config.max_inner_iterations = 500;
+    config.outer_tolerance = 1e-4;
+    config.dual_tolerance = 1e-4;
+
+    let result = AlmSolver::solve(&obj, &constraints, &[], &mut store, &config, None);
+
+    assert!(
+        result.status.is_converged(),
+        "ALM bounded+equality did not converge: {:?}, kkt={:?}",
+        result.status,
+        result.kkt_residual
+    );
+
+    let x = store.get(px);
+    let y = store.get(py);
+    assert!((x + y - 6.0).abs() < 1e-3, "constraint violated: x+y = {}", x + y);
+    assert!(x <= 3.0 + 1e-4, "x = {} exceeds upper bound 3.0", x);
+    assert!(y >= 0.0 - 1e-4, "y = {} below lower bound", y);
+    assert!((x - 3.0).abs() < 0.05, "x = {} (expected ~3.0)", x);
+    assert!((y - 3.0).abs() < 0.05, "y = {} (expected ~3.0)", y);
+}
+
+#[test]
+fn alm_bounded_inequality_active() {
+    // min (x-5)^2 + (y-5)^2 s.t. x+y<=2, 0<=x,y<=10.
+    // Unconstrained minimum violates x+y<=2; constrained solution: (1,1).
+    let owner = EntityId::new(0, 0);
+    let mut store = ParamStore::new();
+    let px = store.alloc(0.5, owner);
+    let py = store.alloc(0.5, owner);
+    store.set_bounds(px, 0.0, 10.0);
+    store.set_bounds(py, 0.0, 10.0);
+
+    let obj = Quad2DTarget { params: [px, py], target: [5.0, 5.0] };
+
+    let hid = ConstraintId::new(1, 0);
+    let ineq = LinearInequalityConstraint::new(hid, px, py, 1.0, 1.0, 2.0);
+    let inequalities: Vec<&dyn InequalityFn> = vec![&ineq];
+
+    let mut config = OptimizationConfig::default();
+    config.max_outer_iterations = 100;
+    config.max_inner_iterations = 500;
+    config.outer_tolerance = 1e-4;
+    config.dual_tolerance = 1e-3;
+
+    let result = AlmSolver::solve(&obj, &[], &inequalities, &mut store, &config, None);
+
+    assert!(
+        result.status.is_converged(),
+        "ALM bounded ineq did not converge: {:?}, kkt={:?}",
+        result.status,
+        result.kkt_residual
+    );
+
+    let x = store.get(px);
+    let y = store.get(py);
+    assert!(x + y <= 2.0 + 1e-3, "inequality violated: x+y = {}", x + y);
+    assert!((x - 1.0).abs() < 0.05, "x = {} (expected ~1.0)", x);
+    assert!((y - 1.0).abs() < 0.05, "y = {} (expected ~1.0)", y);
+}
+
+#[test]
+fn alm_bounded_equality_and_inequality() {
+    // min (x-5)^2 + (y-1)^2 s.t. x+y=6, x<=2.5, 0<=x,y<=10.
+    // On x+y=6: unconstrained optimum is x=5 (but x<=2.5 blocks it).
+    // At x=2.5 (bound active): y=3.5, objective = (2.5-5)^2 + (3.5-1)^2 = 6.25+6.25 = 12.5.
+    let owner = EntityId::new(0, 0);
+    let mut store = ParamStore::new();
+    let px = store.alloc(1.0, owner);
+    let py = store.alloc(1.0, owner);
+    store.set_bounds(px, 0.0, 10.0);
+    store.set_bounds(py, 0.0, 10.0);
+
+    let obj = Quad2DTarget { params: [px, py], target: [5.0, 1.0] };
+
+    let cid = ConstraintId::new(0, 0);
+    let eq = LinearEqualityConstraint::new(cid, px, py, 6.0);
+    let constraints: Vec<&dyn Constraint> = vec![&eq];
+
+    // x <= 2.5  ↔  h(x,y) = x - 2.5 <= 0
+    struct UpperBoundConstraint { id: ConstraintId, param: ParamId, bound: f64 }
+    impl InequalityFn for UpperBoundConstraint {
+        fn id(&self) -> ConstraintId { self.id }
+        fn name(&self) -> &str { "upper_bound" }
+        fn entity_ids(&self) -> &[EntityId] { &[] }
+        fn param_ids(&self) -> &[ParamId] { std::slice::from_ref(&self.param) }
+        fn inequality_count(&self) -> usize { 1 }
+        fn values(&self, store: &ParamStore) -> Vec<f64> {
+            vec![store.get(self.param) - self.bound]
+        }
+        fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
+            vec![(0, self.param, 1.0)]
+        }
+    }
+
+    let hid = ConstraintId::new(1, 0);
+    let ineq = UpperBoundConstraint { id: hid, param: px, bound: 2.5 };
+    let inequalities: Vec<&dyn InequalityFn> = vec![&ineq];
+
+    let mut config = OptimizationConfig::default();
+    config.max_outer_iterations = 100;
+    config.max_inner_iterations = 500;
+    config.outer_tolerance = 1e-4;
+    config.dual_tolerance = 1e-3;
+
+    let result = AlmSolver::solve(&obj, &constraints, &inequalities, &mut store, &config, None);
+
+    assert!(
+        result.status.is_converged(),
+        "ALM bounded eq+ineq did not converge: {:?}",
+        result.status
+    );
+
+    let x = store.get(px);
+    let y = store.get(py);
+    assert!((x + y - 6.0).abs() < 1e-3, "equality violated: x+y = {}", x + y);
+    assert!(x <= 2.5 + 1e-3, "inequality violated: x = {}", x);
+    assert!((x - 2.5).abs() < 0.1, "x = {} (expected ~2.5)", x);
+    assert!((y - 3.5).abs() < 0.1, "y = {} (expected ~3.5)", y);
+}
+
+// =========================================================================
+// Phase 2: Warm-start ALM tests
+// =========================================================================
+
+#[test]
+fn alm_warm_start_reduces_iterations() {
+    // Solve the same quadratic + linear equality twice.
+    // Second solve with WarmStart should use fewer or equal outer iterations.
+    let owner = EntityId::new(0, 0);
+
+    let mk_store = |owner: EntityId| {
+        let mut store = ParamStore::new();
+        let px = store.alloc(0.0, owner);
+        let py = store.alloc(0.0, owner);
+        (store, px, py)
+    };
+
+    let cid = ConstraintId::new(0, 0);
+
+    let mut config = OptimizationConfig::default();
+    config.max_outer_iterations = 100;
+    config.max_inner_iterations = 500;
+    config.outer_tolerance = 1e-5;
+    config.dual_tolerance = 1e-4;
+
+    // First solve — cold start.
+    let (mut store1, px1, py1) = mk_store(owner);
+    let obj1 = Quad2DTarget { params: [px1, py1], target: [3.0, 4.0] };
+    let eq1 = LinearEqualityConstraint::new(cid, px1, py1, 5.0);
+    let c1: Vec<&dyn Constraint> = vec![&eq1];
+    let result1 = AlmSolver::solve(&obj1, &c1, &[], &mut store1, &config, None);
+    assert!(result1.status.is_converged(), "first solve did not converge");
+
+    // Second solve — warm start from first solve's multipliers.
+    let (mut store2, px2, py2) = mk_store(owner);
+    let obj2 = Quad2DTarget { params: [px2, py2], target: [3.0, 4.0] };
+    let eq2 = LinearEqualityConstraint::new(cid, px2, py2, 5.0);
+    let c2: Vec<&dyn Constraint> = vec![&eq2];
+    let mut warm_config = config.clone();
+    warm_config.multiplier_init = MultiplierInitStrategy::WarmStart;
+    let result2 = AlmSolver::solve(&obj2, &c2, &[], &mut store2, &warm_config,
+                                   Some(&result1.multipliers));
+    assert!(result2.status.is_converged(), "warm-start solve did not converge");
+
+    // Warm-start should converge in at most as many outer iterations as cold start.
+    assert!(
+        result2.outer_iterations <= result1.outer_iterations + 2,
+        "warm start ({} iters) should not be worse than cold start ({} iters)",
+        result2.outer_iterations,
+        result1.outer_iterations
+    );
+}
+
+#[test]
+fn alm_warm_start_empty_store_falls_back() {
+    // WarmStart with an empty MultiplierStore should fall back to zeros and converge.
+    let owner = EntityId::new(0, 0);
+    let mut store = ParamStore::new();
+    let px = store.alloc(0.0, owner);
+    let py = store.alloc(0.0, owner);
+
+    let obj = Quad2DTarget { params: [px, py], target: [3.0, 4.0] };
+
+    let cid = ConstraintId::new(0, 0);
+    let eq = LinearEqualityConstraint::new(cid, px, py, 5.0);
+    let constraints: Vec<&dyn Constraint> = vec![&eq];
+
+    let mut config = OptimizationConfig::default();
+    config.multiplier_init = MultiplierInitStrategy::WarmStart;
+
+    let empty_store = MultiplierStore::new();
+    let result = AlmSolver::solve(&obj, &constraints, &[], &mut store, &config, Some(&empty_store));
+
+    assert!(
+        result.status.is_converged(),
+        "WarmStart with empty store failed: {:?}",
+        result.status
+    );
+
+    let x = store.get(px);
+    let y = store.get(py);
+    assert!((x + y - 5.0).abs() < 1e-3, "constraint violated: x+y = {}", x + y);
+}
+
+// =========================================================================
+// Phase 3: GCP for BFGS-B tests
+// =========================================================================
+
+#[test]
+fn bfgs_b_gcp_rosenbrock_bounded() {
+    // Rosenbrock with 0<=x<=0.5, 0<=y<=10.
+    // Unconstrained minimum (1,1); x bound forces solution to ~(0.5, 0.25).
+    let owner = EntityId::new(0, 0);
+    let mut store = ParamStore::new();
+    let px = store.alloc(0.2, owner);
+    let py = store.alloc(0.2, owner);
+    store.set_bounds(px, 0.0, 0.5);
+    store.set_bounds(py, 0.0, 10.0);
+
+    let obj = Rosenbrock::new(px, py);
+    let mut config = OptimizationConfig::default();
+    config.max_outer_iterations = 2000;
+    config.dual_tolerance = 1e-5;
+
+    let result = BfgsBSolver::solve(&obj, &mut store, &config);
+
+    assert_eq!(
+        result.status,
+        OptimizationStatus::Converged,
+        "GCP Rosenbrock did not converge: {:?}, pg_norm={}",
+        result.status,
+        result.kkt_residual.dual
+    );
+    let x = store.get(px);
+    let y = store.get(py);
+    assert!(x <= 0.5 + 1e-6, "x = {} violates upper bound", x);
+    assert!(x >= 0.0 - 1e-6, "x = {} violates lower bound", x);
+    assert!((x - 0.5).abs() < 0.05, "x = {} (expected ~0.5, bound active)", x);
+    assert!((y - 0.25).abs() < 0.05, "y = {} (expected ~0.25)", y);
+}
+
+#[test]
+fn bfgs_b_gcp_tight_bounds_corner() {
+    // Tight bounds forcing a corner solution: min (x-5)^2 + (y-5)^2
+    // with 0<=x<=1, 0<=y<=1. Solution at corner (1,1).
+    let owner = EntityId::new(0, 0);
+    let mut store = ParamStore::new();
+    let px = store.alloc(0.5, owner);
+    let py = store.alloc(0.5, owner);
+    store.set_bounds(px, 0.0, 1.0);
+    store.set_bounds(py, 0.0, 1.0);
+
+    let obj = Quad2DTarget { params: [px, py], target: [5.0, 5.0] };
+    let config = OptimizationConfig::default();
+
+    let result = BfgsBSolver::solve(&obj, &mut store, &config);
+
+    assert_eq!(result.status, OptimizationStatus::Converged);
+    let x = store.get(px);
+    let y = store.get(py);
+    assert!((x - 1.0).abs() < 1e-5, "x = {} (expected 1.0)", x);
+    assert!((y - 1.0).abs() < 1e-5, "y = {} (expected 1.0)", y);
+}
+
+#[test]
+fn bfgs_b_gcp_interior_solution() {
+    // Loose bounds — solution is interior, should match unconstrained BFGS.
+    let owner = EntityId::new(0, 0);
+    let mut store = ParamStore::new();
+    let px = store.alloc(0.0, owner);
+    let py = store.alloc(0.0, owner);
+    store.set_bounds(px, -10.0, 10.0);
+    store.set_bounds(py, -10.0, 10.0);
+
+    let obj = Quad2DTarget { params: [px, py], target: [2.0, 3.0] };
+    let config = OptimizationConfig::default();
+
+    let result = BfgsBSolver::solve(&obj, &mut store, &config);
+
+    assert_eq!(result.status, OptimizationStatus::Converged);
+    let x = store.get(px);
+    let y = store.get(py);
+    assert!((x - 2.0).abs() < 1e-5, "x = {} (expected 2.0)", x);
+    assert!((y - 3.0).abs() < 1e-5, "y = {} (expected 3.0)", y);
+}
+
+#[test]
+fn bfgs_b_gcp_one_sided_lower_bounds() {
+    // Only lower bounds (upper = +inf). min (x-3)^2 with x >= 5.
+    // Solution: x = 5 (lower bound active since minimum x=3 < 5).
+    let owner = EntityId::new(0, 0);
+    let mut store = ParamStore::new();
+    let px = store.alloc(6.0, owner);
+    store.set_bounds(px, 5.0, f64::INFINITY);
+
+    struct QuadAt3 { param: ParamId }
+    impl Objective for QuadAt3 {
+        fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
+        fn name(&self) -> &str { "quad_at3" }
+        fn param_ids(&self) -> &[ParamId] { std::slice::from_ref(&self.param) }
+        fn value(&self, store: &ParamStore) -> f64 {
+            let x = store.get(self.param);
+            (x - 3.0).powi(2)
+        }
+        fn gradient(&self, store: &ParamStore) -> Vec<(ParamId, f64)> {
+            let x = store.get(self.param);
+            vec![(self.param, 2.0 * (x - 3.0))]
+        }
+    }
+
+    let obj = QuadAt3 { param: px };
+    let config = OptimizationConfig::default();
+
+    let result = BfgsBSolver::solve(&obj, &mut store, &config);
+
+    assert_eq!(result.status, OptimizationStatus::Converged);
+    let x = store.get(px);
+    assert!(x >= 5.0 - 1e-6, "x = {} violates lower bound", x);
+    assert!((x - 5.0).abs() < 1e-5, "x = {} (expected 5.0, lower bound active)", x);
+}
+
+// =========================================================================
+// Phase 4A: Trust-region exact Hessian tests
+// =========================================================================
+
+/// Rosenbrock with exact Hessian.
+struct RosenbrockWithHessian {
+    params: [ParamId; 2],
+}
+
+impl RosenbrockWithHessian {
+    fn new(px: ParamId, py: ParamId) -> Self {
+        Self { params: [px, py] }
+    }
+    fn px(&self) -> ParamId { self.params[0] }
+    fn py(&self) -> ParamId { self.params[1] }
+}
+
+impl Objective for RosenbrockWithHessian {
+    fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
+    fn name(&self) -> &str { "rosenbrock_hessian" }
+    fn param_ids(&self) -> &[ParamId] { &self.params }
+    fn value(&self, store: &ParamStore) -> f64 {
+        let x = store.get(self.px());
+        let y = store.get(self.py());
+        100.0 * (y - x * x).powi(2) + (1.0 - x).powi(2)
+    }
+    fn gradient(&self, store: &ParamStore) -> Vec<(ParamId, f64)> {
+        let x = store.get(self.px());
+        let y = store.get(self.py());
+        vec![
+            (self.px(), -400.0 * x * (y - x * x) - 2.0 * (1.0 - x)),
+            (self.py(), 200.0 * (y - x * x)),
+        ]
+    }
+}
+
+impl ObjectiveHessian for RosenbrockWithHessian {
+    fn hessian_entries(&self, store: &ParamStore) -> Vec<(ParamId, ParamId, f64)> {
+        let x = store.get(self.px());
+        let y = store.get(self.py());
+        // H_xx = -400(y - x^2) + 800x^2 + 2 = 1200x^2 - 400y + 2
+        let hxx = 1200.0 * x * x - 400.0 * y + 2.0;
+        // H_xy = H_yx = -400x
+        let hxy = -400.0 * x;
+        // H_yy = 200
+        let hyy = 200.0;
+        vec![
+            (self.px(), self.px(), hxx),
+            (self.py(), self.px(), hxy), // lower triangle: row >= col
+            (self.py(), self.py(), hyy),
+        ]
+    }
+}
+
+#[test]
+fn trust_region_exact_hessian_rosenbrock() {
+    let owner = EntityId::new(0, 0);
+    let mut store = ParamStore::new();
+    let px = store.alloc(-1.2, owner);
+    let py = store.alloc(1.0, owner);
+
+    let obj = RosenbrockWithHessian::new(px, py);
+    let mut config = OptimizationConfig::default();
+    config.max_outer_iterations = 2000;
+    config.dual_tolerance = 1e-6;
+
+    let result = TrustRegionSolver::solve_with_hessian(&obj, &mut store, &config);
+
+    assert_eq!(
+        result.status,
+        OptimizationStatus::Converged,
+        "TrustRegion exact Hessian did not converge on Rosenbrock after {} iterations",
+        result.outer_iterations
+    );
+    let x = store.get(px);
+    let y = store.get(py);
+    assert!((x - 1.0).abs() < 1e-4, "x = {} (expected 1.0)", x);
+    assert!((y - 1.0).abs() < 1e-4, "y = {} (expected 1.0)", y);
+}
+
+#[test]
+fn trust_region_exact_hessian_quadratic_1step() {
+    // Pure quadratic: f(x,y) = (x-2)^2 + (y-3)^2.
+    // Exact Hessian is 2I; Newton step gives the solution in 1 step.
+    struct QuadWithHessian {
+        params: [ParamId; 2],
+        target: [f64; 2],
+    }
+    impl Objective for QuadWithHessian {
+        fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
+        fn name(&self) -> &str { "quad_hessian" }
+        fn param_ids(&self) -> &[ParamId] { &self.params }
+        fn value(&self, store: &ParamStore) -> f64 {
+            let x = store.get(self.params[0]);
+            let y = store.get(self.params[1]);
+            (x - self.target[0]).powi(2) + (y - self.target[1]).powi(2)
+        }
+        fn gradient(&self, store: &ParamStore) -> Vec<(ParamId, f64)> {
+            let x = store.get(self.params[0]);
+            let y = store.get(self.params[1]);
+            vec![
+                (self.params[0], 2.0 * (x - self.target[0])),
+                (self.params[1], 2.0 * (y - self.target[1])),
+            ]
+        }
+    }
+    impl ObjectiveHessian for QuadWithHessian {
+        fn hessian_entries(&self, _store: &ParamStore) -> Vec<(ParamId, ParamId, f64)> {
+            vec![
+                (self.params[0], self.params[0], 2.0),
+                (self.params[1], self.params[1], 2.0),
+            ]
+        }
+    }
+
+    let owner = EntityId::new(0, 0);
+    let mut store = ParamStore::new();
+    let px = store.alloc(0.0, owner);
+    let py = store.alloc(0.0, owner);
+
+    let obj = QuadWithHessian { params: [px, py], target: [2.0, 3.0] };
+    let mut config = OptimizationConfig::default();
+    config.trust_region_init = 100.0; // large enough to accept Newton step
+
+    let result = TrustRegionSolver::solve_with_hessian(&obj, &mut store, &config);
+
+    assert_eq!(result.status, OptimizationStatus::Converged);
+    let x = store.get(px);
+    let y = store.get(py);
+    assert!((x - 2.0).abs() < 1e-8, "x = {} (expected 2.0)", x);
+    assert!((y - 3.0).abs() < 1e-8, "y = {} (expected 3.0)", y);
+    assert!(
+        result.outer_iterations <= 3,
+        "quadratic with exact Hessian should converge in 1-2 steps, took {}",
+        result.outer_iterations
+    );
 }

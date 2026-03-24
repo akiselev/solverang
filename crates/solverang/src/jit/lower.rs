@@ -3,7 +3,7 @@
 //! This module provides the [`OpcodeEmitter`] — a fluent API for building
 //! opcode streams that can be compiled to native code via Cranelift.
 
-use super::opcodes::{ConstraintOp, JacobianEntry, Reg};
+use super::opcodes::{ConstraintOp, HessianEntry, JacobianEntry, Reg};
 
 /// Opcode emitter for building opcode streams.
 ///
@@ -21,6 +21,9 @@ pub struct OpcodeEmitter {
     /// Jacobian entries for sparsity pattern.
     jacobian_entries: Vec<JacobianEntry>,
 
+    /// Hessian entries for sparsity pattern.
+    hessian_entries: Vec<HessianEntry>,
+
     /// Current residual index for Jacobian entries.
     current_residual: u32,
 }
@@ -32,6 +35,7 @@ impl OpcodeEmitter {
             ops: Vec::new(),
             next_reg: 0,
             jacobian_entries: Vec::new(),
+            hessian_entries: Vec::new(),
             current_residual: 0,
         }
     }
@@ -75,6 +79,11 @@ impl OpcodeEmitter {
     /// Take the Jacobian entries.
     pub fn take_jacobian_entries(&mut self) -> Vec<JacobianEntry> {
         std::mem::take(&mut self.jacobian_entries)
+    }
+
+    /// Take the Hessian entries.
+    pub fn take_hessian_entries(&mut self) -> Vec<HessianEntry> {
+        std::mem::take(&mut self.hessian_entries)
     }
 
     // ========================================================================
@@ -225,6 +234,41 @@ impl OpcodeEmitter {
         dst
     }
 
+    /// Arcsine: dst = asin(src)
+    pub fn asin(&mut self, src: Reg) -> Reg {
+        let dst = self.alloc_reg();
+        self.ops.push(ConstraintOp::Asin { dst, src });
+        dst
+    }
+
+    /// Arccosine: dst = acos(src)
+    pub fn acos(&mut self, src: Reg) -> Reg {
+        let dst = self.alloc_reg();
+        self.ops.push(ConstraintOp::Acos { dst, src });
+        dst
+    }
+
+    /// Hyperbolic sine: dst = sinh(src)
+    pub fn sinh(&mut self, src: Reg) -> Reg {
+        let dst = self.alloc_reg();
+        self.ops.push(ConstraintOp::Sinh { dst, src });
+        dst
+    }
+
+    /// Hyperbolic cosine: dst = cosh(src)
+    pub fn cosh(&mut self, src: Reg) -> Reg {
+        let dst = self.alloc_reg();
+        self.ops.push(ConstraintOp::Cosh { dst, src });
+        dst
+    }
+
+    /// Hyperbolic tangent: dst = tanh(src)
+    pub fn tanh(&mut self, src: Reg) -> Reg {
+        let dst = self.alloc_reg();
+        self.ops.push(ConstraintOp::Tanh { dst, src });
+        dst
+    }
+
     // ========================================================================
     // Compound operations
     // ========================================================================
@@ -264,6 +308,14 @@ impl OpcodeEmitter {
     /// Store a Jacobian entry using the current residual index.
     pub fn store_jacobian_current(&mut self, col: u32, src: Reg) {
         self.store_jacobian(self.current_residual, col, src);
+    }
+
+    /// Store a Hessian entry.
+    pub fn store_hessian(&mut self, row: u32, col: u32, src: Reg) {
+        let output_idx = self.hessian_entries.len() as u32;
+        self.hessian_entries.push(HessianEntry { row, col });
+        self.ops
+            .push(ConstraintOp::StoreHessianIndexed { output_idx, src });
     }
 }
 

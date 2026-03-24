@@ -74,6 +74,21 @@ extern "C" fn jit_pow(base: f64, exp: f64) -> f64 {
 extern "C" fn jit_atan2(y: f64, x: f64) -> f64 {
     y.atan2(x)
 }
+extern "C" fn jit_asin(x: f64) -> f64 {
+    x.asin()
+}
+extern "C" fn jit_acos(x: f64) -> f64 {
+    x.acos()
+}
+extern "C" fn jit_sinh(x: f64) -> f64 {
+    x.sinh()
+}
+extern "C" fn jit_cosh(x: f64) -> f64 {
+    x.cosh()
+}
+extern "C" fn jit_tanh(x: f64) -> f64 {
+    x.tanh()
+}
 
 /// Cached FuncIds for math functions declared in the JIT module.
 struct MathFunctions {
@@ -84,6 +99,11 @@ struct MathFunctions {
     ln: FuncId,
     pow: FuncId,
     atan2: FuncId,
+    asin: FuncId,
+    acos: FuncId,
+    sinh: FuncId,
+    cosh: FuncId,
+    tanh: FuncId,
 }
 
 /// JIT compiler using Cranelift.
@@ -127,6 +147,11 @@ impl JITCompiler {
         builder.symbol("jit_ln", jit_ln as *const u8);
         builder.symbol("jit_pow", jit_pow as *const u8);
         builder.symbol("jit_atan2", jit_atan2 as *const u8);
+        builder.symbol("jit_asin", jit_asin as *const u8);
+        builder.symbol("jit_acos", jit_acos as *const u8);
+        builder.symbol("jit_sinh", jit_sinh as *const u8);
+        builder.symbol("jit_cosh", jit_cosh as *const u8);
+        builder.symbol("jit_tanh", jit_tanh as *const u8);
 
         let mut module = JITModule::new(builder);
 
@@ -164,6 +189,21 @@ impl JITCompiler {
             let atan2 = module
                 .declare_function("jit_atan2", Linkage::Import, &sig2)
                 .map_err(|e| JITError::ModuleError(format!("declare jit_atan2: {}", e)))?;
+            let asin = module
+                .declare_function("jit_asin", Linkage::Import, &sig1)
+                .map_err(|e| JITError::ModuleError(format!("declare jit_asin: {}", e)))?;
+            let acos = module
+                .declare_function("jit_acos", Linkage::Import, &sig1)
+                .map_err(|e| JITError::ModuleError(format!("declare jit_acos: {}", e)))?;
+            let sinh = module
+                .declare_function("jit_sinh", Linkage::Import, &sig1)
+                .map_err(|e| JITError::ModuleError(format!("declare jit_sinh: {}", e)))?;
+            let cosh = module
+                .declare_function("jit_cosh", Linkage::Import, &sig1)
+                .map_err(|e| JITError::ModuleError(format!("declare jit_cosh: {}", e)))?;
+            let tanh = module
+                .declare_function("jit_tanh", Linkage::Import, &sig1)
+                .map_err(|e| JITError::ModuleError(format!("declare jit_tanh: {}", e)))?;
 
             MathFunctions {
                 sin,
@@ -173,6 +213,11 @@ impl JITCompiler {
                 ln,
                 pow,
                 atan2,
+                asin,
+                acos,
+                sinh,
+                cosh,
+                tanh,
             }
         };
 
@@ -260,6 +305,11 @@ impl JITCompiler {
                 ln: self.module.declare_func_in_func(self.math.ln, builder.func),
                 pow: self.module.declare_func_in_func(self.math.pow, builder.func),
                 atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
+                asin: self.module.declare_func_in_func(self.math.asin, builder.func),
+                acos: self.module.declare_func_in_func(self.math.acos, builder.func),
+                sinh: self.module.declare_func_in_func(self.math.sinh, builder.func),
+                cosh: self.module.declare_func_in_func(self.math.cosh, builder.func),
+                tanh: self.module.declare_func_in_func(self.math.tanh, builder.func),
             };
 
             // Step 1: Zero the dense Jacobian buffer
@@ -502,6 +552,11 @@ impl JITCompiler {
                 ln: self.module.declare_func_in_func(self.math.ln, builder.func),
                 pow: self.module.declare_func_in_func(self.math.pow, builder.func),
                 atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
+                asin: self.module.declare_func_in_func(self.math.asin, builder.func),
+                acos: self.module.declare_func_in_func(self.math.acos, builder.func),
+                sinh: self.module.declare_func_in_func(self.math.sinh, builder.func),
+                cosh: self.module.declare_func_in_func(self.math.cosh, builder.func),
+                tanh: self.module.declare_func_in_func(self.math.tanh, builder.func),
             };
 
             // Translate opcodes
@@ -571,6 +626,11 @@ impl JITCompiler {
                 ln: self.module.declare_func_in_func(self.math.ln, builder.func),
                 pow: self.module.declare_func_in_func(self.math.pow, builder.func),
                 atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
+                asin: self.module.declare_func_in_func(self.math.asin, builder.func),
+                acos: self.module.declare_func_in_func(self.math.acos, builder.func),
+                sinh: self.module.declare_func_in_func(self.math.sinh, builder.func),
+                cosh: self.module.declare_func_in_func(self.math.cosh, builder.func),
+                tanh: self.module.declare_func_in_func(self.math.tanh, builder.func),
             };
 
             // Use fused opcode stream with deduplicated variable loads
@@ -644,6 +704,11 @@ impl JITCompiler {
                 ln: self.module.declare_func_in_func(self.math.ln, builder.func),
                 pow: self.module.declare_func_in_func(self.math.pow, builder.func),
                 atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
+                asin: self.module.declare_func_in_func(self.math.asin, builder.func),
+                acos: self.module.declare_func_in_func(self.math.acos, builder.func),
+                sinh: self.module.declare_func_in_func(self.math.sinh, builder.func),
+                cosh: self.module.declare_func_in_func(self.math.cosh, builder.func),
+                tanh: self.module.declare_func_in_func(self.math.tanh, builder.func),
             };
 
             // Use fused+densified opcode stream
@@ -710,6 +775,11 @@ impl JITCompiler {
                 ln: self.module.declare_func_in_func(self.math.ln, builder.func),
                 pow: self.module.declare_func_in_func(self.math.pow, builder.func),
                 atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
+                asin: self.module.declare_func_in_func(self.math.asin, builder.func),
+                acos: self.module.declare_func_in_func(self.math.acos, builder.func),
+                sinh: self.module.declare_func_in_func(self.math.sinh, builder.func),
+                cosh: self.module.declare_func_in_func(self.math.cosh, builder.func),
+                tanh: self.module.declare_func_in_func(self.math.tanh, builder.func),
             };
 
             // Translate opcodes
@@ -745,6 +815,11 @@ struct MathFuncRefs {
     ln: FuncRef,
     pow: FuncRef,
     atan2: FuncRef,
+    asin: FuncRef,
+    acos: FuncRef,
+    sinh: FuncRef,
+    cosh: FuncRef,
+    tanh: FuncRef,
 }
 
 /// Translate opcodes to Cranelift IR.
@@ -887,6 +962,46 @@ fn translate_ops(
                 registers.insert(*dst, result);
             }
 
+            ConstraintOp::Asin { dst, src } => {
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
+                let call = builder.ins().call(math_refs.asin, &[src_val]);
+                let result = builder.inst_results(call)[0];
+                registers.insert(*dst, result);
+            }
+
+            ConstraintOp::Acos { dst, src } => {
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
+                let call = builder.ins().call(math_refs.acos, &[src_val]);
+                let result = builder.inst_results(call)[0];
+                registers.insert(*dst, result);
+            }
+
+            ConstraintOp::Sinh { dst, src } => {
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
+                let call = builder.ins().call(math_refs.sinh, &[src_val]);
+                let result = builder.inst_results(call)[0];
+                registers.insert(*dst, result);
+            }
+
+            ConstraintOp::Cosh { dst, src } => {
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
+                let call = builder.ins().call(math_refs.cosh, &[src_val]);
+                let result = builder.inst_results(call)[0];
+                registers.insert(*dst, result);
+            }
+
+            ConstraintOp::Tanh { dst, src } => {
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
+                let call = builder.ins().call(math_refs.tanh, &[src_val]);
+                let result = builder.inst_results(call)[0];
+                registers.insert(*dst, result);
+            }
+
             // --- Non-math ops ---
 
             ConstraintOp::Abs { dst, src } => {
@@ -928,6 +1043,15 @@ fn translate_ops(
                 let jac_ptr = jacobian_ptr.unwrap_or(output_ptr);
                 let offset = (*output_idx as i32) * 8;
                 let addr = builder.ins().iadd_imm(jac_ptr, offset as i64);
+                builder.ins().store(MemFlags::trusted(), src_val, addr, 0);
+            }
+
+            ConstraintOp::StoreHessianIndexed { output_idx, src } => {
+                let src_val = get_reg(&registers, *src)
+                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
+                let hess_ptr = jacobian_ptr.unwrap_or(output_ptr);
+                let offset = (*output_idx as i32) * 8;
+                let addr = builder.ins().iadd_imm(hess_ptr, offset as i64);
                 builder.ins().store(MemFlags::trusted(), src_val, addr, 0);
             }
         }

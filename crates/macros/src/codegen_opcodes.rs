@@ -178,9 +178,39 @@ impl Expr {
                     #emitter.abs(__e)
                 } }
             }
-            Expr::Asin(_) | Expr::Acos(_) | Expr::Sinh(_) | Expr::Cosh(_) | Expr::Tanh(_) => {
+            Expr::Asin(e) => {
+                let e_code = e.to_opcode_tokens(emitter);
                 quote! { {
-                    unimplemented!("asin/acos/sinh/cosh/tanh are not supported in JIT opcode lowering")
+                    let __e = #e_code;
+                    #emitter.asin(__e)
+                } }
+            }
+            Expr::Acos(e) => {
+                let e_code = e.to_opcode_tokens(emitter);
+                quote! { {
+                    let __e = #e_code;
+                    #emitter.acos(__e)
+                } }
+            }
+            Expr::Sinh(e) => {
+                let e_code = e.to_opcode_tokens(emitter);
+                quote! { {
+                    let __e = #e_code;
+                    #emitter.sinh(__e)
+                } }
+            }
+            Expr::Cosh(e) => {
+                let e_code = e.to_opcode_tokens(emitter);
+                quote! { {
+                    let __e = #e_code;
+                    #emitter.cosh(__e)
+                } }
+            }
+            Expr::Tanh(e) => {
+                let e_code = e.to_opcode_tokens(emitter);
+                quote! { {
+                    let __e = #e_code;
+                    #emitter.tanh(__e)
                 } }
             }
         }
@@ -234,6 +264,58 @@ pub fn generate_jacobian_opcode_method(
                 #emitter_ident.store_jacobian(#residual_idx_ident, #col as u32, __deriv);
             }
         });
+    }
+
+    quote! {
+        #(#stmts)*
+    }
+}
+
+/// Generate the `lower_hessian_ops` method body.
+///
+/// For each (i,j) pair where i >= j (lower triangle) with a non-zero second
+/// derivative, emits opcodes for the second derivative expression and stores
+/// the Hessian entry.
+pub fn generate_hessian_opcode_method(
+    objective_expr: &Expr,
+    variables: &[VarRef],
+    emitter_ident: &proc_macro2::Ident,
+) -> TokenStream {
+    let mut stmts = Vec::new();
+
+    for (j_idx, var_j) in variables.iter().enumerate() {
+        let first_deriv = objective_expr.differentiate(var_j.id).simplify();
+        if first_deriv.is_zero() {
+            continue;
+        }
+
+        for (i_idx, var_i) in variables.iter().enumerate() {
+            if i_idx < j_idx {
+                continue; // lower triangle only: i >= j
+            }
+
+            let second_deriv = first_deriv.differentiate(var_i.id).simplify();
+            if second_deriv.is_zero() {
+                continue;
+            }
+
+            let deriv_tokens = second_deriv.to_opcode_tokens(emitter_ident);
+            let row: TokenStream = var_i
+                .index_tokens
+                .parse()
+                .expect("valid variable index tokens");
+            let col: TokenStream = var_j
+                .index_tokens
+                .parse()
+                .expect("valid variable index tokens");
+
+            stmts.push(quote! {
+                {
+                    let __deriv = #deriv_tokens;
+                    #emitter_ident.store_hessian(#row as u32, #col as u32, __deriv);
+                }
+            });
+        }
     }
 
     quote! {
@@ -323,6 +405,48 @@ mod tests {
         assert!(
             code.contains("pow") && code.contains("const_f64"),
             "Pow should generate const_f64 for exponent then .pow(), got: {}",
+            code
+        );
+    }
+
+    #[test]
+    fn test_asin_opcode_tokens() {
+        let x = Expr::var("0".to_string(), 0);
+        let expr = Expr::Asin(Box::new(x));
+        let emitter = quote::format_ident!("e");
+        let tokens = expr.to_opcode_tokens(&emitter);
+        let code = tokens.to_string();
+        assert!(
+            code.contains("asin"),
+            "Asin should generate .asin(), got: {}",
+            code
+        );
+    }
+
+    #[test]
+    fn test_hessian_opcode_method_quadratic() {
+        // f(x0, x1) = x0^2 + 3*x1^2
+        // H = [[2, 0], [0, 6]]
+        // Lower triangle: (0,0)=2, (1,1)=6
+        let x0 = Expr::var("0".to_string(), 0);
+        let x1 = Expr::var("1".to_string(), 1);
+        let expr = Expr::Add(
+            Box::new(Expr::Pow(Box::new(x0), 2.0)),
+            Box::new(Expr::Mul(
+                Box::new(Expr::Const(3.0)),
+                Box::new(Expr::Pow(Box::new(x1), 2.0)),
+            )),
+        );
+        let vars = vec![
+            VarRef { id: 0, index_tokens: "0".to_string() },
+            VarRef { id: 1, index_tokens: "1".to_string() },
+        ];
+        let emitter = quote::format_ident!("e");
+        let tokens = generate_hessian_opcode_method(&expr, &vars, &emitter);
+        let code = tokens.to_string();
+        assert!(
+            code.contains("store_hessian"),
+            "Hessian method should contain store_hessian calls, got: {}",
             code
         );
     }

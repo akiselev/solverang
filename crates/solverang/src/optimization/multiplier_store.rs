@@ -4,9 +4,12 @@
 //! ownership, fixed/free semantics, and change-tracking. They are recomputed
 //! on each `optimize()` call.
 
+use crate::constraint::Constraint;
 use crate::id::ConstraintId;
 use std::collections::HashMap;
 use std::fmt;
+
+use super::InequalityFn;
 
 /// Identifies a specific Lagrange multiplier by its constraint and equation row.
 ///
@@ -109,5 +112,48 @@ impl MultiplierStore {
     /// Iterate over all stored multipliers.
     pub fn iter(&self) -> impl Iterator<Item = (MultiplierId, f64)> + '_ {
         self.multipliers.iter().map(|(&id, &val)| (id, val))
+    }
+
+    /// Extract equality multipliers as a flat vec in constraint iteration order.
+    ///
+    /// Returns 0.0 for any constraint not found in this store.
+    pub fn extract_equality_vec(&self, constraints: &[&dyn Constraint]) -> Vec<f64> {
+        let mut result = Vec::new();
+        for c in constraints {
+            let n = c.equation_count();
+            match self.lambda_for_constraint(c.id()) {
+                Some(vals) => {
+                    for i in 0..n {
+                        result.push(vals.get(i).copied().unwrap_or(0.0));
+                    }
+                }
+                None => {
+                    result.extend(std::iter::repeat(0.0).take(n));
+                }
+            }
+        }
+        result
+    }
+
+    /// Extract inequality multipliers as a flat vec in inequality iteration order.
+    ///
+    /// Values are clamped to >= 0 for dual feasibility. Returns 0.0 for any
+    /// inequality not found in this store.
+    pub fn extract_inequality_vec(&self, inequalities: &[&dyn InequalityFn]) -> Vec<f64> {
+        let mut result = Vec::new();
+        for h in inequalities {
+            let n = h.inequality_count();
+            match self.lambda_for_constraint(h.id()) {
+                Some(vals) => {
+                    for i in 0..n {
+                        result.push(vals.get(i).copied().unwrap_or(0.0).max(0.0));
+                    }
+                }
+                None => {
+                    result.extend(std::iter::repeat(0.0).take(n));
+                }
+            }
+        }
+        result
     }
 }

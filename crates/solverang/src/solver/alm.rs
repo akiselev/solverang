@@ -13,8 +13,8 @@ use std::time::Instant;
 
 use crate::constraint::Constraint;
 use crate::optimization::{
-    InequalityFn, KktResidual, MultiplierId, MultiplierStore, Objective, OptimizationConfig,
-    OptimizationResult, OptimizationStatus,
+    InequalityFn, KktResidual, MultiplierInitStrategy, MultiplierId, MultiplierStore, Objective,
+    OptimizationConfig, OptimizationResult, OptimizationStatus,
 };
 use crate::param::ParamStore;
 
@@ -57,6 +57,7 @@ impl AlmSolver {
         inequalities: &[&dyn InequalityFn],
         store: &mut ParamStore,
         config: &OptimizationConfig,
+        warm_start: Option<&MultiplierStore>,
     ) -> OptimizationResult {
         let start = Instant::now();
         let mapping = store.build_solver_mapping();
@@ -88,10 +89,21 @@ impl AlmSolver {
         // Count inequality equations
         let total_ineq: usize = inequalities.iter().map(|h| h.inequality_count()).sum();
 
-        // Initialize multipliers
-        let mut lambda = vec![0.0; total_eq];
+        // Dispatch inner loop to BFGS-B if any free parameter has finite bounds.
+        let use_bfgs_b = store.any_free_finite_bounds();
+
+        // Initialize multipliers (warm-start if requested and available).
+        let mut lambda = match (&config.multiplier_init, &warm_start) {
+            (MultiplierInitStrategy::WarmStart, Some(ms)) => ms.extract_equality_vec(constraints),
+            _ => vec![0.0; total_eq],
+        };
         // Inequality multipliers must be >= 0
-        let mut mu = vec![0.0; total_ineq];
+        let mut mu = match (&config.multiplier_init, &warm_start) {
+            (MultiplierInitStrategy::WarmStart, Some(ms)) => {
+                ms.extract_inequality_vec(inequalities)
+            }
+            _ => vec![0.0; total_ineq],
+        };
         let mut rho = config.rho_init;
         let mut prev_violation = f64::INFINITY;
         let mut total_inner_iters = 0;
@@ -110,14 +122,17 @@ impl AlmSolver {
                 rho,
             };
 
-            // Solve inner subproblem with BFGS
+            // Solve inner subproblem with BFGS or BFGS-B depending on bounds.
             let inner_config = OptimizationConfig {
                 max_outer_iterations: config.max_inner_iterations,
                 dual_tolerance: config.inner_tolerance,
                 ..config.clone()
             };
-            let inner_result =
-                super::bfgs::BfgsSolver::solve(&alm_objective, store, &inner_config);
+            let inner_result = if use_bfgs_b {
+                super::bfgs_b::BfgsBSolver::solve(&alm_objective, store, &inner_config)
+            } else {
+                super::bfgs::BfgsSolver::solve(&alm_objective, store, &inner_config)
+            };
 
             total_inner_iters += inner_result.outer_iterations;
 

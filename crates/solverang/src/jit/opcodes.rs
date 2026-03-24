@@ -203,6 +203,46 @@ pub enum ConstraintOp {
         src: Reg,
     },
 
+    /// Arcsine: dst = asin(src)
+    Asin {
+        /// Destination register.
+        dst: Reg,
+        /// Source register.
+        src: Reg,
+    },
+
+    /// Arccosine: dst = acos(src)
+    Acos {
+        /// Destination register.
+        dst: Reg,
+        /// Source register.
+        src: Reg,
+    },
+
+    /// Hyperbolic sine: dst = sinh(src)
+    Sinh {
+        /// Destination register.
+        dst: Reg,
+        /// Source register.
+        src: Reg,
+    },
+
+    /// Hyperbolic cosine: dst = cosh(src)
+    Cosh {
+        /// Destination register.
+        dst: Reg,
+        /// Source register.
+        src: Reg,
+    },
+
+    /// Hyperbolic tangent: dst = tanh(src)
+    Tanh {
+        /// Destination register.
+        dst: Reg,
+        /// Source register.
+        src: Reg,
+    },
+
     /// Store a residual value.
     ///
     /// Stores the value in register `src` to the residual array at index `residual_idx`.
@@ -221,6 +261,14 @@ pub enum ConstraintOp {
         /// Index in the Jacobian values array.
         output_idx: u32,
         /// Source register containing the Jacobian value.
+        src: Reg,
+    },
+
+    /// Store a Hessian entry at a specific output index.
+    StoreHessianIndexed {
+        /// Index in the Hessian values array.
+        output_idx: u32,
+        /// Source register containing the Hessian value.
         src: Reg,
     },
 }
@@ -245,9 +293,15 @@ impl ConstraintOp {
             | ConstraintOp::Abs { src, .. }
             | ConstraintOp::Exp { src, .. }
             | ConstraintOp::Ln { src, .. }
-            | ConstraintOp::Tan { src, .. } => *src == reg,
+            | ConstraintOp::Tan { src, .. }
+            | ConstraintOp::Asin { src, .. }
+            | ConstraintOp::Acos { src, .. }
+            | ConstraintOp::Sinh { src, .. }
+            | ConstraintOp::Cosh { src, .. }
+            | ConstraintOp::Tanh { src, .. } => *src == reg,
             ConstraintOp::StoreResidual { src, .. }
-            | ConstraintOp::StoreJacobianIndexed { src, .. } => *src == reg,
+            | ConstraintOp::StoreJacobianIndexed { src, .. }
+            | ConstraintOp::StoreHessianIndexed { src, .. } => *src == reg,
         }
     }
 
@@ -271,9 +325,15 @@ impl ConstraintOp {
             | ConstraintOp::Exp { dst, .. }
             | ConstraintOp::Ln { dst, .. }
             | ConstraintOp::Pow { dst, .. }
-            | ConstraintOp::Tan { dst, .. } => *dst == reg,
+            | ConstraintOp::Tan { dst, .. }
+            | ConstraintOp::Asin { dst, .. }
+            | ConstraintOp::Acos { dst, .. }
+            | ConstraintOp::Sinh { dst, .. }
+            | ConstraintOp::Cosh { dst, .. }
+            | ConstraintOp::Tanh { dst, .. } => *dst == reg,
             ConstraintOp::StoreResidual { .. }
-            | ConstraintOp::StoreJacobianIndexed { .. } => false,
+            | ConstraintOp::StoreJacobianIndexed { .. }
+            | ConstraintOp::StoreHessianIndexed { .. } => false,
         }
     }
 }
@@ -284,6 +344,15 @@ pub struct JacobianEntry {
     /// Row index (residual index).
     pub row: u32,
     /// Column index (variable index).
+    pub col: u32,
+}
+
+/// Hessian entry in COO (coordinate) format.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HessianEntry {
+    /// Row index.
+    pub row: u32,
+    /// Column index.
     pub col: u32,
 }
 
@@ -300,6 +369,9 @@ pub struct CompiledConstraints {
     /// Opcode stream for Jacobian evaluation.
     pub jacobian_ops: Vec<ConstraintOp>,
 
+    /// Opcode stream for Hessian evaluation.
+    pub hessian_ops: Vec<ConstraintOp>,
+
     /// Number of residuals produced.
     pub n_residuals: usize,
 
@@ -315,6 +387,14 @@ pub struct CompiledConstraints {
     /// The i-th entry corresponds to the i-th StoreJacobianIndexed operation.
     pub jacobian_pattern: Vec<JacobianEntry>,
 
+    /// Number of non-zero entries in the Hessian.
+    pub hessian_nnz: usize,
+
+    /// Sparsity pattern for the Hessian (row, col) pairs.
+    ///
+    /// The i-th entry corresponds to the i-th StoreHessianIndexed operation.
+    pub hessian_pattern: Vec<HessianEntry>,
+
     /// Maximum register index used.
     ///
     /// This is used to allocate the register file during compilation.
@@ -327,10 +407,13 @@ impl CompiledConstraints {
         Self {
             residual_ops: Vec::new(),
             jacobian_ops: Vec::new(),
+            hessian_ops: Vec::new(),
             n_residuals,
             n_vars,
             jacobian_nnz: 0,
             jacobian_pattern: Vec::new(),
+            hessian_nnz: 0,
+            hessian_pattern: Vec::new(),
             max_register: 0,
         }
     }
@@ -350,7 +433,12 @@ impl CompiledConstraints {
         }
 
         // Check that all variable load indices are in bounds
-        for op in self.residual_ops.iter().chain(self.jacobian_ops.iter()) {
+        for op in self
+            .residual_ops
+            .iter()
+            .chain(self.jacobian_ops.iter())
+            .chain(self.hessian_ops.iter())
+        {
             if let ConstraintOp::LoadVar { var_idx, .. } = op {
                 if *var_idx as usize >= self.n_vars {
                     return Err(ValidationError::VariableIndexOutOfBounds {
@@ -381,12 +469,32 @@ impl CompiledConstraints {
             }
         }
 
+        // Check Hessian pattern
+        if self.hessian_nnz != self.hessian_pattern.len() {
+            return Err(ValidationError::HessianPatternMismatch {
+                nnz: self.hessian_nnz,
+                pattern_len: self.hessian_pattern.len(),
+            });
+        }
+
+        // Check that all Hessian store indices are in bounds
+        for op in &self.hessian_ops {
+            if let ConstraintOp::StoreHessianIndexed { output_idx, .. } = op {
+                if *output_idx as usize >= self.hessian_nnz {
+                    return Err(ValidationError::HessianOutputIndexOutOfBounds {
+                        index: *output_idx as usize,
+                        nnz: self.hessian_nnz,
+                    });
+                }
+            }
+        }
+
         Ok(())
     }
 
     /// Get the total number of opcodes.
     pub fn total_ops(&self) -> usize {
-        self.residual_ops.len() + self.jacobian_ops.len()
+        self.residual_ops.len() + self.jacobian_ops.len() + self.hessian_ops.len()
     }
 
     /// Rewrite Jacobian ops for direct dense column-major storage.
@@ -549,9 +657,15 @@ fn op_dst(op: &ConstraintOp) -> Option<Reg> {
         | ConstraintOp::Exp { dst, .. }
         | ConstraintOp::Ln { dst, .. }
         | ConstraintOp::Pow { dst, .. }
-        | ConstraintOp::Tan { dst, .. } => Some(*dst),
+        | ConstraintOp::Tan { dst, .. }
+        | ConstraintOp::Asin { dst, .. }
+        | ConstraintOp::Acos { dst, .. }
+        | ConstraintOp::Sinh { dst, .. }
+        | ConstraintOp::Cosh { dst, .. }
+        | ConstraintOp::Tanh { dst, .. } => Some(*dst),
         ConstraintOp::StoreResidual { .. }
-        | ConstraintOp::StoreJacobianIndexed { .. } => None,
+        | ConstraintOp::StoreJacobianIndexed { .. }
+        | ConstraintOp::StoreHessianIndexed { .. } => None,
     }
 }
 
@@ -653,12 +767,38 @@ fn remap_op_inner<F: Fn(Reg) -> Reg>(op: &ConstraintOp, r: F) -> ConstraintOp {
             a: r(*a),
             b: r(*b),
         },
+        ConstraintOp::Asin { dst, src } => ConstraintOp::Asin {
+            dst: r(*dst),
+            src: r(*src),
+        },
+        ConstraintOp::Acos { dst, src } => ConstraintOp::Acos {
+            dst: r(*dst),
+            src: r(*src),
+        },
+        ConstraintOp::Sinh { dst, src } => ConstraintOp::Sinh {
+            dst: r(*dst),
+            src: r(*src),
+        },
+        ConstraintOp::Cosh { dst, src } => ConstraintOp::Cosh {
+            dst: r(*dst),
+            src: r(*src),
+        },
+        ConstraintOp::Tanh { dst, src } => ConstraintOp::Tanh {
+            dst: r(*dst),
+            src: r(*src),
+        },
         ConstraintOp::StoreResidual { residual_idx, src } => ConstraintOp::StoreResidual {
             residual_idx: *residual_idx,
             src: r(*src),
         },
         ConstraintOp::StoreJacobianIndexed { output_idx, src } => {
             ConstraintOp::StoreJacobianIndexed {
+                output_idx: *output_idx,
+                src: r(*src),
+            }
+        }
+        ConstraintOp::StoreHessianIndexed { output_idx, src } => {
+            ConstraintOp::StoreHessianIndexed {
                 output_idx: *output_idx,
                 src: r(*src),
             }
@@ -700,6 +840,22 @@ pub enum ValidationError {
         /// The number of non-zeros.
         nnz: usize,
     },
+
+    /// Hessian non-zero count doesn't match pattern length.
+    HessianPatternMismatch {
+        /// Declared number of non-zeros.
+        nnz: usize,
+        /// Actual pattern length.
+        pattern_len: usize,
+    },
+
+    /// A StoreHessianIndexed op has an output_idx that exceeds hessian_nnz.
+    HessianOutputIndexOutOfBounds {
+        /// The invalid index.
+        index: usize,
+        /// The number of non-zeros.
+        nnz: usize,
+    },
 }
 
 impl std::fmt::Display for ValidationError {
@@ -730,6 +886,20 @@ impl std::fmt::Display for ValidationError {
                 write!(
                     f,
                     "Jacobian output index {} out of bounds (nnz: {})",
+                    index, nnz
+                )
+            }
+            ValidationError::HessianPatternMismatch { nnz, pattern_len } => {
+                write!(
+                    f,
+                    "Hessian nnz ({}) doesn't match pattern length ({})",
+                    nnz, pattern_len
+                )
+            }
+            ValidationError::HessianOutputIndexOutOfBounds { index, nnz } => {
+                write!(
+                    f,
+                    "Hessian output index {} out of bounds (nnz: {})",
                     index, nnz
                 )
             }
