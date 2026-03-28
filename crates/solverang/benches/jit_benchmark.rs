@@ -32,12 +32,24 @@ impl MicrostripImpedance {
 }
 
 impl Problem for MicrostripImpedance {
-    fn name(&self) -> &str { "MicrostripImpedance" }
-    fn residual_count(&self) -> usize { 1 }
-    fn variable_count(&self) -> usize { 1 }
-    fn residuals(&self, x: &[f64]) -> Vec<f64> { vec![self.residual(x)] }
-    fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> { self.jacobian_entries(x) }
-    fn initial_point(&self, _: f64) -> Vec<f64> { vec![8.0] }
+    fn name(&self) -> &str {
+        "MicrostripImpedance"
+    }
+    fn residual_count(&self) -> usize {
+        1
+    }
+    fn variable_count(&self) -> usize {
+        1
+    }
+    fn residuals(&self, x: &[f64]) -> Vec<f64> {
+        vec![self.residual(x)]
+    }
+    fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+        self.jacobian_entries(x)
+    }
+    fn initial_point(&self, _: f64) -> Vec<f64> {
+        vec![8.0]
+    }
 }
 
 struct DiffImpedance {
@@ -53,20 +65,32 @@ impl DiffImpedance {
     fn residual(&self, x: &[f64]) -> f64 {
         let w = x[0];
         let s = x[1];
-        let z0 = 87.0 / (self.er + 1.41).sqrt()
-            * (5.98 * self.height / (0.8 * w + self.thickness)).ln();
+        let z0 =
+            87.0 / (self.er + 1.41).sqrt() * (5.98 * self.height / (0.8 * w + self.thickness)).ln();
         let zdiff = 2.0 * z0 * (1.0 - 0.48 * (-0.96 * s / self.height).exp());
         zdiff - self.target_zdiff
     }
 }
 
 impl Problem for DiffImpedance {
-    fn name(&self) -> &str { "DiffImpedance" }
-    fn residual_count(&self) -> usize { 1 }
-    fn variable_count(&self) -> usize { 2 }
-    fn residuals(&self, x: &[f64]) -> Vec<f64> { vec![self.residual(x)] }
-    fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> { self.jacobian_entries(x) }
-    fn initial_point(&self, _: f64) -> Vec<f64> { vec![5.0, 5.0] }
+    fn name(&self) -> &str {
+        "DiffImpedance"
+    }
+    fn residual_count(&self) -> usize {
+        1
+    }
+    fn variable_count(&self) -> usize {
+        2
+    }
+    fn residuals(&self, x: &[f64]) -> Vec<f64> {
+        vec![self.residual(x)]
+    }
+    fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+        self.jacobian_entries(x)
+    }
+    fn initial_point(&self, _: f64) -> Vec<f64> {
+        vec![5.0, 5.0]
+    }
 }
 
 struct SkinDepth {
@@ -85,12 +109,24 @@ impl SkinDepth {
 }
 
 impl Problem for SkinDepth {
-    fn name(&self) -> &str { "SkinDepth" }
-    fn residual_count(&self) -> usize { 1 }
-    fn variable_count(&self) -> usize { 1 }
-    fn residuals(&self, x: &[f64]) -> Vec<f64> { vec![self.residual(x)] }
-    fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> { self.jacobian_entries(x) }
-    fn initial_point(&self, _: f64) -> Vec<f64> { vec![1e9] }
+    fn name(&self) -> &str {
+        "SkinDepth"
+    }
+    fn residual_count(&self) -> usize {
+        1
+    }
+    fn variable_count(&self) -> usize {
+        1
+    }
+    fn residuals(&self, x: &[f64]) -> Vec<f64> {
+        vec![self.residual(x)]
+    }
+    fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+        self.jacobian_entries(x)
+    }
+    fn initial_point(&self, _: f64) -> Vec<f64> {
+        vec![1e9]
+    }
 }
 
 // ============================================================================
@@ -266,13 +302,9 @@ fn bench_scalable_minpack(c: &mut Criterion) {
         let variably = VariablyDimensioned::new(n);
         let x0v = variably.initial_point(1.0);
 
-        group.bench_with_input(
-            BenchmarkId::new("variably_dim/residuals", n),
-            &n,
-            |b, _| {
-                b.iter(|| black_box(variably.residuals(black_box(&x0v))));
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("variably_dim/residuals", n), &n, |b, _| {
+            b.iter(|| black_box(variably.residuals(black_box(&x0v))));
+        });
 
         let trig = Trigonometric::new(n);
         let x0t = trig.initial_point(1.0);

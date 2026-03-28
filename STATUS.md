@@ -1,6 +1,6 @@
 # Solverang -- Repository Status
 
-*Last updated: 2026-03-02*
+*Last updated: 2026-03-26*
 
 ## Overview
 
@@ -50,7 +50,7 @@ Solverang is a domain-agnostic numerical solver for nonlinear systems and least-
 
 | Module | What it does |
 |--------|-------------|
-| `sketch2d` | 2D sketch: Point2D, LineSegment2D, Circle2D, Arc2D + 15 constraint types + Sketch2DBuilder |
+| `sketch2d` | 2D sketch: Point2D, LineSegment2D, Circle2D, Arc2D + 16 constraint types (incl. SymmetricAboutLine) + Sketch2DBuilder (concentric, tangent_circle_circle, collinear, equal_radius, symmetric_about_line builder methods added) |
 | `sketch3d` | 3D sketch: Point3D, LineSegment3D, Plane, Axis3D + 8 constraint types |
 | `assembly` | Rigid-body assembly: RigidBody (quaternion orientation) + Mate, Coaxial, Insert, Gear |
 

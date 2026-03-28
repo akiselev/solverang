@@ -90,18 +90,12 @@ mod layer1_opcodes {
         let r1 = Reg::new(1);
         let r2 = Reg::new(2);
 
-        let exp_op = ConstraintOp::Exp {
-            dst: r1,
-            src: r0,
-        };
+        let exp_op = ConstraintOp::Exp { dst: r1, src: r0 };
         assert!(exp_op.uses_register(r0));
         assert!(!exp_op.uses_register(r1));
         assert!(exp_op.defines_register(r1));
 
-        let ln_op = ConstraintOp::Ln {
-            dst: r1,
-            src: r0,
-        };
+        let ln_op = ConstraintOp::Ln { dst: r1, src: r0 };
         assert!(ln_op.uses_register(r0));
         assert!(ln_op.defines_register(r1));
 
@@ -114,10 +108,7 @@ mod layer1_opcodes {
         assert!(pow_op.uses_register(r1));
         assert!(pow_op.defines_register(r2));
 
-        let tan_op = ConstraintOp::Tan {
-            dst: r1,
-            src: r0,
-        };
+        let tan_op = ConstraintOp::Tan { dst: r1, src: r0 };
         assert!(tan_op.uses_register(r0));
         assert!(tan_op.defines_register(r1));
     }
@@ -1214,8 +1205,8 @@ mod layer6_pcb_equations {
     /// Variables: x[0] = f (frequency)
     /// Tests: Div, Mul, Sqrt with physics constants
     struct SkinDepth {
-        resistivity: f64,      // Ohm·m (copper: 1.68e-8)
-        target_depth: f64,     // meters
+        resistivity: f64,  // Ohm·m (copper: 1.68e-8)
+        target_depth: f64, // meters
     }
 
     #[auto_jacobian(array_param = "x")]
@@ -1281,8 +1272,8 @@ mod layer6_pcb_equations {
         fn residual(&self, x: &[f64]) -> f64 {
             // x[0] = antipad_diameter (the variable we're solving for)
             let l_nh = 5.08 * self.height * ((4.0 * self.height / self.hole_diameter).ln() + 1.0);
-            let c_pf = 1.41 * self.er * self.height * self.pad_diameter
-                / (x[0] - self.pad_diameter);
+            let c_pf =
+                1.41 * self.er * self.height * self.pad_diameter / (x[0] - self.pad_diameter);
             // Z = sqrt(L_nH / C_pF) * sqrt(1000) to convert nH/pF to Ohms
             let z = (l_nh / c_pf).sqrt() * 1000.0_f64.sqrt();
             z - self.target_z
@@ -1415,12 +1406,24 @@ mod layer7_auto_lowerable {
     }
 
     impl Problem for AutoQuadratic {
-        fn name(&self) -> &str { "AutoQuadratic" }
-        fn residual_count(&self) -> usize { 1 }
-        fn variable_count(&self) -> usize { 1 }
-        fn residuals(&self, x: &[f64]) -> Vec<f64> { vec![self.residual(x)] }
-        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> { self.jacobian_entries(x) }
-        fn initial_point(&self, f: f64) -> Vec<f64> { vec![f] }
+        fn name(&self) -> &str {
+            "AutoQuadratic"
+        }
+        fn residual_count(&self) -> usize {
+            1
+        }
+        fn variable_count(&self) -> usize {
+            1
+        }
+        fn residuals(&self, x: &[f64]) -> Vec<f64> {
+            vec![self.residual(x)]
+        }
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+            self.jacobian_entries(x)
+        }
+        fn initial_point(&self, f: f64) -> Vec<f64> {
+            vec![f]
+        }
     }
 
     #[test]
@@ -1438,7 +1441,9 @@ mod layer7_auto_lowerable {
             assert!(
                 (jit_result[0] - interpreted[0]).abs() < 1e-10,
                 "Auto quadratic mismatch at x={}: interpreted={}, jit={}",
-                val, interpreted[0], jit_result[0]
+                val,
+                interpreted[0],
+                jit_result[0]
             );
         }
     }
@@ -1457,15 +1462,21 @@ mod layer7_auto_lowerable {
             jit_fn.evaluate_jacobian(&vars, &mut jit_values);
             let jit_coo = jit_fn.jacobian_to_coo(&jit_values);
 
-            assert_eq!(interpreted.len(), jit_coo.len(),
-                "Jacobian nnz mismatch at x={}", val);
+            assert_eq!(
+                interpreted.len(),
+                jit_coo.len(),
+                "Jacobian nnz mismatch at x={}",
+                val
+            );
             for (interp, jit) in interpreted.iter().zip(jit_coo.iter()) {
                 assert_eq!(interp.0, jit.0, "row mismatch");
                 assert_eq!(interp.1, jit.1, "col mismatch");
                 assert!(
                     (interp.2 - jit.2).abs() < 1e-10,
                     "Jacobian value mismatch at x={}: interpreted={}, jit={}",
-                    val, interp.2, jit.2
+                    val,
+                    interp.2,
+                    jit.2
                 );
             }
         }
@@ -1487,12 +1498,24 @@ mod layer7_auto_lowerable {
     }
 
     impl Problem for AutoDistance {
-        fn name(&self) -> &str { "AutoDistance" }
-        fn residual_count(&self) -> usize { 1 }
-        fn variable_count(&self) -> usize { 4 }
-        fn residuals(&self, x: &[f64]) -> Vec<f64> { vec![self.residual(x)] }
-        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> { self.jacobian_entries(x) }
-        fn initial_point(&self, _: f64) -> Vec<f64> { vec![0.0, 0.0, 1.0, 0.0] }
+        fn name(&self) -> &str {
+            "AutoDistance"
+        }
+        fn residual_count(&self) -> usize {
+            1
+        }
+        fn variable_count(&self) -> usize {
+            4
+        }
+        fn residuals(&self, x: &[f64]) -> Vec<f64> {
+            vec![self.residual(x)]
+        }
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+            self.jacobian_entries(x)
+        }
+        fn initial_point(&self, _: f64) -> Vec<f64> {
+            vec![0.0, 0.0, 1.0, 0.0]
+        }
     }
 
     #[test]
@@ -1515,7 +1538,9 @@ mod layer7_auto_lowerable {
             assert!(
                 (jit_result[0] - interpreted[0]).abs() < 1e-10,
                 "Auto distance mismatch at {:?}: interpreted={}, jit={}",
-                vars, interpreted[0], jit_result[0]
+                vars,
+                interpreted[0],
+                jit_result[0]
             );
         }
     }
@@ -1540,12 +1565,24 @@ mod layer7_auto_lowerable {
     }
 
     impl Problem for AutoMicrostrip {
-        fn name(&self) -> &str { "AutoMicrostrip" }
-        fn residual_count(&self) -> usize { 1 }
-        fn variable_count(&self) -> usize { 1 }
-        fn residuals(&self, x: &[f64]) -> Vec<f64> { vec![self.residual(x)] }
-        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> { self.jacobian_entries(x) }
-        fn initial_point(&self, _: f64) -> Vec<f64> { vec![8.0] }
+        fn name(&self) -> &str {
+            "AutoMicrostrip"
+        }
+        fn residual_count(&self) -> usize {
+            1
+        }
+        fn variable_count(&self) -> usize {
+            1
+        }
+        fn residuals(&self, x: &[f64]) -> Vec<f64> {
+            vec![self.residual(x)]
+        }
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+            self.jacobian_entries(x)
+        }
+        fn initial_point(&self, _: f64) -> Vec<f64> {
+            vec![8.0]
+        }
     }
 
     #[test]
@@ -1601,7 +1638,9 @@ mod layer7_auto_lowerable {
                 assert!(
                     (interp.2 - jit.2).abs() < 1e-8,
                     "Microstrip Jacobian mismatch at W={}: interpreted={}, jit={}",
-                    w, interp.2, jit.2
+                    w,
+                    interp.2,
+                    jit.2
                 );
             }
         }
@@ -1629,12 +1668,24 @@ mod layer7_auto_lowerable {
     }
 
     impl Problem for AutoDiffImpedance {
-        fn name(&self) -> &str { "AutoDiffImpedance" }
-        fn residual_count(&self) -> usize { 1 }
-        fn variable_count(&self) -> usize { 2 }
-        fn residuals(&self, x: &[f64]) -> Vec<f64> { vec![self.residual(x)] }
-        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> { self.jacobian_entries(x) }
-        fn initial_point(&self, _: f64) -> Vec<f64> { vec![5.0, 5.0] }
+        fn name(&self) -> &str {
+            "AutoDiffImpedance"
+        }
+        fn residual_count(&self) -> usize {
+            1
+        }
+        fn variable_count(&self) -> usize {
+            2
+        }
+        fn residuals(&self, x: &[f64]) -> Vec<f64> {
+            vec![self.residual(x)]
+        }
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+            self.jacobian_entries(x)
+        }
+        fn initial_point(&self, _: f64) -> Vec<f64> {
+            vec![5.0, 5.0]
+        }
     }
 
     #[test]
@@ -1649,9 +1700,7 @@ mod layer7_auto_lowerable {
         let mut compiler = JITCompiler::new().unwrap();
         let jit_fn = compiler.compile(&cc).unwrap();
 
-        let test_points = [
-            [4.0, 4.0], [5.0, 5.0], [6.0, 8.0], [8.0, 3.0], [10.0, 10.0],
-        ];
+        let test_points = [[4.0, 4.0], [5.0, 5.0], [6.0, 8.0], [8.0, 3.0], [10.0, 10.0]];
 
         for vars in &test_points {
             let interpreted = problem.residuals(vars);
@@ -1660,7 +1709,9 @@ mod layer7_auto_lowerable {
             assert!(
                 (jit_result[0] - interpreted[0]).abs() < 1e-10,
                 "Auto diff impedance mismatch at {:?}: interpreted={}, jit={}",
-                vars, interpreted[0], jit_result[0]
+                vars,
+                interpreted[0],
+                jit_result[0]
             );
         }
     }
@@ -1686,8 +1737,16 @@ mod layer7_auto_lowerable {
         jit2.evaluate_residuals(&vars, &mut r2);
 
         // 5^2 - 4 = 21, 5^2 - 100 = -75
-        assert!((r1[0] - 21.0).abs() < 1e-10, "p1: expected 21, got {}", r1[0]);
-        assert!((r2[0] - (-75.0)).abs() < 1e-10, "p2: expected -75, got {}", r2[0]);
+        assert!(
+            (r1[0] - 21.0).abs() < 1e-10,
+            "p1: expected 21, got {}",
+            r1[0]
+        );
+        assert!(
+            (r2[0] - (-75.0)).abs() < 1e-10,
+            "p2: expected -75, got {}",
+            r2[0]
+        );
     }
 }
 
@@ -1696,9 +1755,9 @@ mod layer7_auto_lowerable {
 // ============================================================================
 
 mod layer8_auto_detection {
-    use solverang::{auto_jacobian, Problem};
-    use solverang::jit::{JITConfig, CompiledConstraints};
+    use solverang::jit::{CompiledConstraints, JITConfig};
     use solverang::solver::JITSolver;
+    use solverang::{auto_jacobian, Problem};
 
     /// A JIT-capable problem: uses #[auto_jacobian] and implements
     /// Problem::lower_to_compiled_constraints returning Some(...).
@@ -1715,9 +1774,15 @@ mod layer8_auto_detection {
     }
 
     impl Problem for JITCapableQuadratic {
-        fn name(&self) -> &str { "JITCapableQuadratic" }
-        fn residual_count(&self) -> usize { 1 }
-        fn variable_count(&self) -> usize { 1 }
+        fn name(&self) -> &str {
+            "JITCapableQuadratic"
+        }
+        fn residual_count(&self) -> usize {
+            1
+        }
+        fn variable_count(&self) -> usize {
+            1
+        }
 
         fn residuals(&self, x: &[f64]) -> Vec<f64> {
             vec![self.residual(x)]
@@ -1742,9 +1807,15 @@ mod layer8_auto_detection {
     }
 
     impl Problem for PlainQuadratic {
-        fn name(&self) -> &str { "PlainQuadratic" }
-        fn residual_count(&self) -> usize { 1 }
-        fn variable_count(&self) -> usize { 1 }
+        fn name(&self) -> &str {
+            "PlainQuadratic"
+        }
+        fn residual_count(&self) -> usize {
+            1
+        }
+        fn variable_count(&self) -> usize {
+            1
+        }
 
         fn residuals(&self, x: &[f64]) -> Vec<f64> {
             vec![x[0] * x[0] - self.target]
@@ -1766,7 +1837,11 @@ mod layer8_auto_detection {
         let mut solver = JITSolver::new(JITConfig::always_jit());
 
         let result = solver.solve(&problem, &[1.5]);
-        assert!(result.is_converged(), "JIT auto-detect should converge: {:?}", result);
+        assert!(
+            result.is_converged(),
+            "JIT auto-detect should converge: {:?}",
+            result
+        );
 
         let solution = result.solution().unwrap();
         assert!(
@@ -1783,7 +1858,11 @@ mod layer8_auto_detection {
         let mut solver = JITSolver::new(JITConfig::default());
 
         let result = solver.solve(&problem, &[1.5]);
-        assert!(result.is_converged(), "interpreted fallback should converge: {:?}", result);
+        assert!(
+            result.is_converged(),
+            "interpreted fallback should converge: {:?}",
+            result
+        );
 
         let solution = result.solution().unwrap();
         assert!(
@@ -1800,7 +1879,11 @@ mod layer8_auto_detection {
         let mut solver = JITSolver::new(JITConfig::always_interpreted());
 
         let result = solver.solve(&problem, &[1.5]);
-        assert!(result.is_converged(), "forced interpreted should converge: {:?}", result);
+        assert!(
+            result.is_converged(),
+            "forced interpreted should converge: {:?}",
+            result
+        );
     }
 
     /// Multi-residual JIT auto-detection: Rosenbrock with 2 residuals.
@@ -1820,9 +1903,15 @@ mod layer8_auto_detection {
     }
 
     impl Problem for JITRosenbrock {
-        fn name(&self) -> &str { "JITRosenbrock" }
-        fn residual_count(&self) -> usize { 2 }
-        fn variable_count(&self) -> usize { 2 }
+        fn name(&self) -> &str {
+            "JITRosenbrock"
+        }
+        fn residual_count(&self) -> usize {
+            2
+        }
+        fn variable_count(&self) -> usize {
+            2
+        }
 
         fn residuals(&self, x: &[f64]) -> Vec<f64> {
             vec![self.residual_0(x), self.residual_1(x)]
@@ -1848,13 +1937,18 @@ mod layer8_auto_detection {
         let mut solver = JITSolver::new(JITConfig::always_jit());
 
         let result = solver.solve(&problem, &[-1.2, 1.0]);
-        assert!(result.is_converged(), "JIT Rosenbrock should converge: {:?}", result);
+        assert!(
+            result.is_converged(),
+            "JIT Rosenbrock should converge: {:?}",
+            result
+        );
 
         let solution = result.solution().unwrap();
         assert!(
             (solution[0] - 1.0).abs() < 1e-4 && (solution[1] - 1.0).abs() < 1e-4,
             "Rosenbrock solution should be (1, 1), got ({}, {})",
-            solution[0], solution[1]
+            solution[0],
+            solution[1]
         );
     }
 }
@@ -1864,8 +1958,8 @@ mod layer8_auto_detection {
 // ============================================================================
 
 mod layer9_fused_evaluation {
+    use solverang::jit::{CompiledConstraints, ConstraintOp, JITCompiler};
     use solverang::{auto_jacobian, Problem};
-    use solverang::jit::{JITCompiler, CompiledConstraints, ConstraintOp};
 
     /// Distance constraint for fused evaluation tests.
     struct FusedDistance {
@@ -1883,9 +1977,15 @@ mod layer9_fused_evaluation {
     }
 
     impl Problem for FusedDistance {
-        fn name(&self) -> &str { "FusedDistance" }
-        fn residual_count(&self) -> usize { 1 }
-        fn variable_count(&self) -> usize { 4 }
+        fn name(&self) -> &str {
+            "FusedDistance"
+        }
+        fn residual_count(&self) -> usize {
+            1
+        }
+        fn variable_count(&self) -> usize {
+            4
+        }
 
         fn residuals(&self, x: &[f64]) -> Vec<f64> {
             vec![self.residual(x)]
@@ -1932,7 +2032,10 @@ mod layer9_fused_evaluation {
                 assert!(
                     (s - f).abs() < 1e-10,
                     "Residual {} mismatch at {:?}: separate={}, fused={}",
-                    i, vars, s, f
+                    i,
+                    vars,
+                    s,
+                    f
                 );
             }
 
@@ -1940,7 +2043,10 @@ mod layer9_fused_evaluation {
                 assert!(
                     (s - f).abs() < 1e-10,
                     "Jacobian {} mismatch at {:?}: separate={}, fused={}",
-                    i, vars, s, f
+                    i,
+                    vars,
+                    s,
+                    f
                 );
             }
         }
@@ -1952,30 +2058,38 @@ mod layer9_fused_evaluation {
         let problem = FusedDistance { target: 5.0 };
         let cc = problem.lower_to_compiled_constraints();
 
-        let residual_loads = cc.residual_ops.iter()
+        let residual_loads = cc
+            .residual_ops
+            .iter()
             .filter(|op| matches!(op, ConstraintOp::LoadVar { .. }))
             .count();
-        let jacobian_loads = cc.jacobian_ops.iter()
+        let jacobian_loads = cc
+            .jacobian_ops
+            .iter()
             .filter(|op| matches!(op, ConstraintOp::LoadVar { .. }))
             .count();
         let separate_total = residual_loads + jacobian_loads;
 
         let (fused_ops, _) = cc.fuse_ops();
-        let fused_loads = fused_ops.iter()
+        let fused_loads = fused_ops
+            .iter()
             .filter(|op| matches!(op, ConstraintOp::LoadVar { .. }))
             .count();
 
         assert!(
             fused_loads < separate_total,
             "Fused should have fewer LoadVar ops: fused={} < separate={}",
-            fused_loads, separate_total
+            fused_loads,
+            separate_total
         );
 
         // Fused should have at most max(residual_loads, jacobian_loads) loads
         assert!(
             fused_loads <= residual_loads.max(jacobian_loads),
             "Fused loads ({}) should be <= max of individual ({}, {})",
-            fused_loads, residual_loads, jacobian_loads
+            fused_loads,
+            residual_loads,
+            jacobian_loads
         );
     }
 
@@ -1996,9 +2110,15 @@ mod layer9_fused_evaluation {
     }
 
     impl Problem for FusedRosenbrock {
-        fn name(&self) -> &str { "FusedRosenbrock" }
-        fn residual_count(&self) -> usize { 2 }
-        fn variable_count(&self) -> usize { 2 }
+        fn name(&self) -> &str {
+            "FusedRosenbrock"
+        }
+        fn residual_count(&self) -> usize {
+            2
+        }
+        fn variable_count(&self) -> usize {
+            2
+        }
 
         fn residuals(&self, x: &[f64]) -> Vec<f64> {
             vec![self.residual_0(x), self.residual_1(x)]
@@ -2057,8 +2177,8 @@ mod layer9_fused_evaluation {
 // ============================================================================
 
 mod layer10_dense_jacobian {
+    use solverang::jit::{CompiledConstraints, ConstraintOp, JITCompiler};
     use solverang::{auto_jacobian, Problem};
-    use solverang::jit::{JITCompiler, CompiledConstraints, ConstraintOp};
 
     /// Rosenbrock for dense Jacobian tests: 2 residuals, 2 variables.
     struct DenseRosenbrock;
@@ -2077,9 +2197,15 @@ mod layer10_dense_jacobian {
     }
 
     impl Problem for DenseRosenbrock {
-        fn name(&self) -> &str { "DenseRosenbrock" }
-        fn residual_count(&self) -> usize { 2 }
-        fn variable_count(&self) -> usize { 2 }
+        fn name(&self) -> &str {
+            "DenseRosenbrock"
+        }
+        fn residual_count(&self) -> usize {
+            2
+        }
+        fn variable_count(&self) -> usize {
+            2
+        }
 
         fn residuals(&self, x: &[f64]) -> Vec<f64> {
             vec![self.residual_0(x), self.residual_1(x)]
@@ -2109,7 +2235,8 @@ mod layer10_dense_jacobian {
         let dense_ops = cc.densify_jacobian_ops(m);
 
         // Collect the StoreJacobianIndexed output_idx values from dense ops
-        let dense_indices: Vec<u32> = dense_ops.iter()
+        let dense_indices: Vec<u32> = dense_ops
+            .iter()
             .filter_map(|op| {
                 if let ConstraintOp::StoreJacobianIndexed { output_idx, .. } = op {
                     Some(*output_idx)
@@ -2120,7 +2247,9 @@ mod layer10_dense_jacobian {
             .collect();
 
         // Collect expected indices from jacobian_pattern: col * m + row
-        let expected_indices: Vec<u32> = cc.jacobian_pattern.iter()
+        let expected_indices: Vec<u32> = cc
+            .jacobian_pattern
+            .iter()
             .map(|e| e.col * (m as u32) + e.row)
             .collect();
 
@@ -2166,7 +2295,9 @@ mod layer10_dense_jacobian {
             assert!(
                 (coo_residuals[i] - dense_residuals[i]).abs() < 1e-10,
                 "Residual {} mismatch: coo={}, dense={}",
-                i, coo_residuals[i], dense_residuals[i]
+                i,
+                coo_residuals[i],
+                dense_residuals[i]
             );
         }
 
@@ -2175,7 +2306,9 @@ mod layer10_dense_jacobian {
             assert!(
                 (coo_dense[i] - dense_jacobian[i]).abs() < 1e-10,
                 "Dense Jacobian [{}] mismatch: coo={}, dense={}",
-                i, coo_dense[i], dense_jacobian[i]
+                i,
+                coo_dense[i],
+                dense_jacobian[i]
             );
         }
     }
@@ -2196,9 +2329,15 @@ mod layer10_dense_jacobian {
     }
 
     impl Problem for DenseDistance {
-        fn name(&self) -> &str { "DenseDistance" }
-        fn residual_count(&self) -> usize { 1 }
-        fn variable_count(&self) -> usize { 4 }
+        fn name(&self) -> &str {
+            "DenseDistance"
+        }
+        fn residual_count(&self) -> usize {
+            1
+        }
+        fn variable_count(&self) -> usize {
+            4
+        }
 
         fn residuals(&self, x: &[f64]) -> Vec<f64> {
             vec![self.residual(x)]
@@ -2216,20 +2355,25 @@ mod layer10_dense_jacobian {
     /// Dense Rosenbrock solved via JITSolver with dense path.
     #[test]
     fn dense_solver_rosenbrock_converges() {
-        use solverang::jit::{JITConfig, CompiledConstraints as _CC};
+        use solverang::jit::{CompiledConstraints as _CC, JITConfig};
         use solverang::solver::JITSolver;
 
         let problem = DenseRosenbrock;
         let mut solver = JITSolver::new(JITConfig::always_jit());
 
         let result = solver.solve(&problem, &[-1.2, 1.0]);
-        assert!(result.is_converged(), "Dense Rosenbrock should converge: {:?}", result);
+        assert!(
+            result.is_converged(),
+            "Dense Rosenbrock should converge: {:?}",
+            result
+        );
 
         let solution = result.solution().unwrap();
         assert!(
             (solution[0] - 1.0).abs() < 1e-4 && (solution[1] - 1.0).abs() < 1e-4,
             "Solution should be (1, 1), got ({}, {})",
-            solution[0], solution[1]
+            solution[0],
+            solution[1]
         );
     }
 
@@ -2239,7 +2383,7 @@ mod layer10_dense_jacobian {
         let problem = DenseDistance { target: 5.0 };
         let cc = problem.lower_to_compiled_constraints();
         let m = cc.n_residuals; // 1
-        let n = cc.n_vars;      // 4
+        let n = cc.n_vars; // 4
 
         let mut compiler = JITCompiler::new().unwrap();
         let jit_fn = compiler.compile(&cc).unwrap();
@@ -2270,8 +2414,8 @@ mod layer10_dense_jacobian {
 // ============================================================================
 
 mod layer11_compiled_newton {
+    use solverang::jit::{CompiledConstraints, JITCompiler};
     use solverang::{auto_jacobian, Problem};
-    use solverang::jit::{JITCompiler, CompiledConstraints};
 
     /// Simple quadratic for Newton step tests: x^2 - 4 = 0, solution x=2.
     struct NewtonQuadratic;
@@ -2285,12 +2429,24 @@ mod layer11_compiled_newton {
     }
 
     impl Problem for NewtonQuadratic {
-        fn name(&self) -> &str { "NewtonQuadratic" }
-        fn residual_count(&self) -> usize { 1 }
-        fn variable_count(&self) -> usize { 1 }
-        fn residuals(&self, x: &[f64]) -> Vec<f64> { vec![self.residual(x)] }
-        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> { self.jacobian_entries(x) }
-        fn initial_point(&self, factor: f64) -> Vec<f64> { vec![factor] }
+        fn name(&self) -> &str {
+            "NewtonQuadratic"
+        }
+        fn residual_count(&self) -> usize {
+            1
+        }
+        fn variable_count(&self) -> usize {
+            1
+        }
+        fn residuals(&self, x: &[f64]) -> Vec<f64> {
+            vec![self.residual(x)]
+        }
+        fn jacobian(&self, x: &[f64]) -> Vec<(usize, usize, f64)> {
+            self.jacobian_entries(x)
+        }
+        fn initial_point(&self, factor: f64) -> Vec<f64> {
+            vec![factor]
+        }
     }
 
     /// Rosenbrock for Newton step tests.
@@ -2310,9 +2466,15 @@ mod layer11_compiled_newton {
     }
 
     impl Problem for NewtonRosenbrock {
-        fn name(&self) -> &str { "NewtonRosenbrock" }
-        fn residual_count(&self) -> usize { 2 }
-        fn variable_count(&self) -> usize { 2 }
+        fn name(&self) -> &str {
+            "NewtonRosenbrock"
+        }
+        fn residual_count(&self) -> usize {
+            2
+        }
+        fn variable_count(&self) -> usize {
+            2
+        }
         fn residuals(&self, x: &[f64]) -> Vec<f64> {
             vec![self.residual_0(x), self.residual_1(x)]
         }
@@ -2385,7 +2547,8 @@ mod layer11_compiled_newton {
         assert!(
             (sol[0] - 1.0_f64).abs() < 1e-4 && (sol[1] - 1.0_f64).abs() < 1e-4,
             "Solution should be (1,1), got ({}, {})",
-            sol[0], sol[1]
+            sol[0],
+            sol[1]
         );
     }
 }

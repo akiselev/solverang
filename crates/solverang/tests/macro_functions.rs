@@ -52,7 +52,9 @@ fn test_sinh_gradient_matches_fd() {
         assert!(
             (grad - fd[0]).abs() < FD_TOL,
             "sinh gradient mismatch at x={}: got {}, fd={}",
-            xval, grad, fd[0]
+            xval,
+            grad,
+            fd[0]
         );
     }
 }
@@ -86,7 +88,9 @@ fn test_cosh_gradient_matches_fd() {
         assert!(
             (grad - fd[0]).abs() < FD_TOL,
             "cosh gradient mismatch at x={}: got {}, fd={}",
-            xval, grad, fd[0]
+            xval,
+            grad,
+            fd[0]
         );
     }
 }
@@ -120,7 +124,9 @@ fn test_tanh_gradient_matches_fd() {
         assert!(
             (grad - fd[0]).abs() < FD_TOL,
             "tanh gradient mismatch at x={}: got {}, fd={}",
-            xval, grad, fd[0]
+            xval,
+            grad,
+            fd[0]
         );
     }
 }
@@ -153,7 +159,9 @@ fn test_asin_gradient_matches_fd() {
         assert!(
             (grad - fd[0]).abs() < FD_TOL,
             "asin gradient mismatch at x={}: got {}, fd={}",
-            xval, grad, fd[0]
+            xval,
+            grad,
+            fd[0]
         );
     }
 }
@@ -186,7 +194,9 @@ fn test_acos_gradient_matches_fd() {
         assert!(
             (grad - fd[0]).abs() < FD_TOL,
             "acos gradient mismatch at x={}: got {}, fd={}",
-            xval, grad, fd[0]
+            xval,
+            grad,
+            fd[0]
         );
     }
 }
@@ -220,7 +230,9 @@ fn test_sinh_tanh_composed_gradient_matches_fd() {
         assert!(
             (grad - fd[0]).abs() < FD_TOL,
             "sinh.tanh() gradient mismatch at x={}: got {}, fd={}",
-            xval, grad, fd[0]
+            xval,
+            grad,
+            fd[0]
         );
     }
 }
@@ -248,5 +260,9 @@ fn test_asin_const_simplification() {
     assert_eq!(entries.len(), 1);
     let (idx, grad) = entries[0];
     assert_eq!(idx, 0);
-    assert!((grad - 1.0).abs() < 1e-10, "gradient should be 1.0, got {}", grad);
+    assert!(
+        (grad - 1.0).abs() < 1e-10,
+        "gradient should be 1.0, got {}",
+        grad
+    );
 }

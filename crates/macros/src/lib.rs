@@ -407,7 +407,11 @@ fn generate_jacobian_impl(
                 entries,
             };
 
-            residual_infos.push(ResidualInfo { parsed, jac_info, method_name });
+            residual_infos.push(ResidualInfo {
+                parsed,
+                jac_info,
+                method_name,
+            });
         }
     } // residual_methods borrows dropped here
 
@@ -415,13 +419,13 @@ fn generate_jacobian_impl(
 
     // Generate the jacobian method body from ALL residuals.
     // We need to move the JacobianInfos out since generate_jacobian_method takes &[JacobianInfo].
-    let all_jac_infos: Vec<codegen::JacobianInfo> =
-        residual_infos.iter().map(|ri| {
-            codegen::JacobianInfo {
-                residual_row: ri.jac_info.residual_row,
-                entries: ri.jac_info.entries.clone(),
-            }
-        }).collect();
+    let all_jac_infos: Vec<codegen::JacobianInfo> = residual_infos
+        .iter()
+        .map(|ri| codegen::JacobianInfo {
+            residual_row: ri.jac_info.residual_row,
+            entries: ri.jac_info.entries.clone(),
+        })
+        .collect();
     let jacobian_body = codegen::generate_jacobian_method(&all_jac_infos);
 
     // Get the array parameter name as an identifier
@@ -569,10 +573,8 @@ fn generate_jacobian_impl(
 
     // Generate residuals_all helper if there are multiple residuals
     if num_residuals > 1 {
-        let residual_method_names: Vec<&Ident> = residual_infos
-            .iter()
-            .map(|ri| &ri.method_name)
-            .collect();
+        let residual_method_names: Vec<&Ident> =
+            residual_infos.iter().map(|ri| &ri.method_name).collect();
 
         let residuals_all_method: ImplItem = syn::parse_quote! {
             /// Evaluate all residuals and return them as a Vec.
@@ -764,7 +766,10 @@ fn find_objective_methods(impl_block: &ItemImpl) -> Vec<(&ImplItem, &Signature, 
 fn has_hessian_marker(impl_block: &ItemImpl) -> bool {
     impl_block.items.iter().any(|item| {
         if let ImplItem::Fn(method) = item {
-            method.attrs.iter().any(|attr| attr.path().is_ident("hessian"))
+            method
+                .attrs
+                .iter()
+                .any(|attr| attr.path().is_ident("hessian"))
         } else {
             false
         }
@@ -856,7 +861,9 @@ fn generate_auto_diff_impl(
     // Remove #[objective] and #[hessian] attributes from all methods
     for item in &mut impl_block.items {
         if let ImplItem::Fn(method) = item {
-            method.attrs.retain(|attr| !attr.path().is_ident("objective"));
+            method
+                .attrs
+                .retain(|attr| !attr.path().is_ident("objective"));
             method.attrs.retain(|attr| !attr.path().is_ident("hessian"));
         }
     }
@@ -888,12 +895,23 @@ fn generate_auto_diff_impl(
 fn contains_abs(expr: &expr::Expr) -> bool {
     match expr {
         expr::Expr::Abs(_) => true,
-        expr::Expr::Neg(e) | expr::Expr::Sqrt(e) | expr::Expr::Sin(e)
-        | expr::Expr::Cos(e) | expr::Expr::Tan(e) | expr::Expr::Ln(e)
-        | expr::Expr::Exp(e) | expr::Expr::Asin(e) | expr::Expr::Acos(e)
-        | expr::Expr::Sinh(e) | expr::Expr::Cosh(e) | expr::Expr::Tanh(e) => contains_abs(e),
-        expr::Expr::Add(a, b) | expr::Expr::Sub(a, b) | expr::Expr::Mul(a, b)
-        | expr::Expr::Div(a, b) | expr::Expr::Atan2(a, b) => contains_abs(a) || contains_abs(b),
+        expr::Expr::Neg(e)
+        | expr::Expr::Sqrt(e)
+        | expr::Expr::Sin(e)
+        | expr::Expr::Cos(e)
+        | expr::Expr::Tan(e)
+        | expr::Expr::Ln(e)
+        | expr::Expr::Exp(e)
+        | expr::Expr::Asin(e)
+        | expr::Expr::Acos(e)
+        | expr::Expr::Sinh(e)
+        | expr::Expr::Cosh(e)
+        | expr::Expr::Tanh(e) => contains_abs(e),
+        expr::Expr::Add(a, b)
+        | expr::Expr::Sub(a, b)
+        | expr::Expr::Mul(a, b)
+        | expr::Expr::Div(a, b)
+        | expr::Expr::Atan2(a, b) => contains_abs(a) || contains_abs(b),
         expr::Expr::Pow(base, _) => contains_abs(base),
         expr::Expr::Var(_) | expr::Expr::Const(_) | expr::Expr::RuntimeConst(_) => false,
     }

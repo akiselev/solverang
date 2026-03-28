@@ -48,13 +48,13 @@
 //! assert!(result.is_converged());
 //! ```
 
-mod auto;
 pub mod alm;
+mod auto;
 pub mod bfgs;
 pub mod bfgs_b;
 mod config;
-pub mod line_search;
 mod levenberg_marquardt;
+pub mod line_search;
 mod lm_adapter;
 mod lm_config;
 mod newton_raphson;

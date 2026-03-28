@@ -14,5 +14,5 @@
 mod cache;
 mod tracker;
 
-pub use cache::{ClusterCache, SolutionCache};
+pub use cache::SolutionCache;
 pub use tracker::ChangeTracker;

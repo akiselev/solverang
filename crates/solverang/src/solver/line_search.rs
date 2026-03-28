@@ -41,15 +41,19 @@ pub fn strong_wolfe_search(
     let mut alpha = 1.0;
 
     for i in 0..MAX_BRACKET_ITERS {
-        let x_trial: Vec<f64> = x.iter().zip(direction).map(|(xi, di)| xi + alpha * di).collect();
+        let x_trial: Vec<f64> = x
+            .iter()
+            .zip(direction)
+            .map(|(xi, di)| xi + alpha * di)
+            .collect();
         write_x_to_store(store, param_ids, &x_trial);
         let f_alpha = objective.value(store);
 
         // Armijo fails or function increased relative to previous bracket point.
         if f_alpha > f_x + c1 * alpha * dg0 || (i > 0 && f_alpha >= f_prev) {
             return zoom(
-                objective, store, param_ids, x, direction, f_x, grad, dg0, c1, c2,
-                alpha_prev, alpha, f_prev, f_alpha, n, config,
+                objective, store, param_ids, x, direction, f_x, grad, dg0, c1, c2, alpha_prev,
+                alpha, f_prev, f_alpha, n, config,
             );
         }
 
@@ -68,8 +72,8 @@ pub fn strong_wolfe_search(
         // Slope at alpha is positive: minimum lies between alpha_prev and alpha.
         if dg_alpha >= 0.0 {
             return zoom(
-                objective, store, param_ids, x, direction, f_x, grad, dg0, c1, c2,
-                alpha, alpha_prev, f_alpha, f_prev, n, config,
+                objective, store, param_ids, x, direction, f_x, grad, dg0, c1, c2, alpha,
+                alpha_prev, f_alpha, f_prev, n, config,
             );
         }
 
@@ -81,7 +85,14 @@ pub fn strong_wolfe_search(
     // Bracketing exhausted — fall back to Armijo.
     let dg = dot(grad, direction);
     let alpha_armijo = armijo_search(objective, store, param_ids, x, direction, f_x, dg, config);
-    write_x_to_store(store, param_ids, &x.iter().zip(direction).map(|(xi, di)| xi + alpha_armijo * di).collect::<Vec<_>>());
+    write_x_to_store(
+        store,
+        param_ids,
+        &x.iter()
+            .zip(direction)
+            .map(|(xi, di)| xi + alpha_armijo * di)
+            .collect::<Vec<_>>(),
+    );
     let f_armijo = objective.value(store);
     (alpha_armijo, f_armijo)
 }
@@ -118,7 +129,11 @@ fn zoom(
         // Bisect the bracket.
         let alpha_j = 0.5 * (alpha_lo + alpha_hi);
 
-        let x_trial: Vec<f64> = x.iter().zip(direction).map(|(xi, di)| xi + alpha_j * di).collect();
+        let x_trial: Vec<f64> = x
+            .iter()
+            .zip(direction)
+            .map(|(xi, di)| xi + alpha_j * di)
+            .collect();
         write_x_to_store(store, param_ids, &x_trial);
         let f_j = objective.value(store);
 
@@ -178,7 +193,11 @@ pub fn armijo_search(
     let mut alpha = 1.0;
 
     loop {
-        let x_trial: Vec<f64> = x.iter().zip(direction).map(|(xi, di)| xi + alpha * di).collect();
+        let x_trial: Vec<f64> = x
+            .iter()
+            .zip(direction)
+            .map(|(xi, di)| xi + alpha * di)
+            .collect();
         write_x_to_store(store, param_ids, &x_trial);
         let f_trial = objective.value(store);
 
@@ -210,9 +229,8 @@ pub fn line_search(
 
     // Only attempt Wolfe when direction is a descent direction.
     if dg < 0.0 {
-        let (alpha, f_alpha) = strong_wolfe_search(
-            objective, store, param_ids, x, direction, f_x, grad, config,
-        );
+        let (alpha, f_alpha) =
+            strong_wolfe_search(objective, store, param_ids, x, direction, f_x, grad, config);
         // Verify the result is an improving step; if not, fall back to Armijo.
         if f_alpha < f_x {
             return (alpha, f_alpha);
@@ -221,7 +239,11 @@ pub fn line_search(
 
     // Armijo fallback.
     let alpha = armijo_search(objective, store, param_ids, x, direction, f_x, dg, config);
-    let x_new: Vec<f64> = x.iter().zip(direction).map(|(xi, di)| xi + alpha * di).collect();
+    let x_new: Vec<f64> = x
+        .iter()
+        .zip(direction)
+        .map(|(xi, di)| xi + alpha * di)
+        .collect();
     write_x_to_store(store, param_ids, &x_new);
     let f_alpha = objective.value(store);
     (alpha, f_alpha)

@@ -521,7 +521,11 @@ impl Spline2D {
             .into_iter()
             .flat_map(|(x, y)| [x, y])
             .collect();
-        Self { id, params, n_points }
+        Self {
+            id,
+            params,
+            n_points,
+        }
     }
 
     /// Number of control points.
@@ -541,7 +545,10 @@ impl Spline2D {
 
     /// Read the coordinates of control point `i` from the store.
     pub fn get_control_point(&self, store: &ParamStore, i: usize) -> (f64, f64) {
-        (store.get(self.params[2 * i]), store.get(self.params[2 * i + 1]))
+        (
+            store.get(self.params[2 * i]),
+            store.get(self.params[2 * i + 1]),
+        )
     }
 }
 

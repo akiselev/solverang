@@ -178,7 +178,9 @@ mod tests {
             residuals: per_eq.clone(),
         };
 
-        let got = result.residuals().expect("NotConverged should have residuals");
+        let got = result
+            .residuals()
+            .expect("NotConverged should have residuals");
         assert_eq!(got, per_eq.as_slice());
     }
 

@@ -80,7 +80,11 @@ fn rosenbrock_hessian_fd() {
         assert!(
             rel_err < 1e-4,
             "H[{},{}]: analytic={}, fd={}, rel_err={}",
-            i, j, v, fd, rel_err
+            i,
+            j,
+            v,
+            fd,
+            rel_err
         );
     }
 }
@@ -105,7 +109,11 @@ impl LinearHessian {
 fn linear_hessian_zero() {
     let l = LinearHessian;
     let h = l.hessian_entries(&[1.0, 1.0]);
-    assert!(h.is_empty(), "Linear function should have empty Hessian, got {:?}", h);
+    assert!(
+        h.is_empty(),
+        "Linear function should have empty Hessian, got {:?}",
+        h
+    );
 }
 
 // =========================================================================
@@ -129,7 +137,11 @@ fn gradient_only_no_hessian() {
     assert_eq!(grad.len(), 1);
     let (idx, val) = grad[0];
     assert_eq!(idx, 0);
-    assert!((val - 6.0).abs() < 1e-10, "gradient at x=3 should be 6.0, got {}", val);
+    assert!(
+        (val - 6.0).abs() < 1e-10,
+        "gradient at x=3 should be 6.0, got {}",
+        val
+    );
 }
 
 // =========================================================================
@@ -161,6 +173,8 @@ fn cubic_hessian_single_var() {
     assert!(
         (v - expected).abs() < 1e-10,
         "H[0,0] at x={}: got {}, expected {}",
-        xval, v, expected
+        xval,
+        v,
+        expected
     );
 }

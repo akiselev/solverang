@@ -466,8 +466,16 @@ fn test_rosenbrock_macro_residuals() {
 
     // At solution (1, 1): both residuals should be 0
     let r = problem.residuals(&[1.0, 1.0]);
-    assert!((r[0]).abs() < 1e-10, "F0 at solution should be 0, got {}", r[0]);
-    assert!((r[1]).abs() < 1e-10, "F1 at solution should be 0, got {}", r[1]);
+    assert!(
+        (r[0]).abs() < 1e-10,
+        "F0 at solution should be 0, got {}",
+        r[0]
+    );
+    assert!(
+        (r[1]).abs() < 1e-10,
+        "F1 at solution should be 0, got {}",
+        r[1]
+    );
 
     // At (0, 0): F0 = 0, F1 = 1
     let r = problem.residuals(&[0.0, 0.0]);
@@ -516,8 +524,7 @@ fn test_rosenbrock_macro_jacobian_verification() {
     assert!(
         result.passed,
         "Jacobian verification failed: max error = {}, location = {:?}",
-        result.max_absolute_error,
-        result.max_error_location
+        result.max_absolute_error, result.max_error_location
     );
 }
 
@@ -697,12 +704,19 @@ fn test_objective_gradient_rosenbrock_fd() {
             x_minus[i] -= eps;
             let fd = (obj.value(&x_plus) - obj.value(&x_minus)) / (2.0 * eps);
 
-            let analytical = grad.iter().find(|(j, _)| *j == i).map(|(_, v)| *v).unwrap_or(0.0);
+            let analytical = grad
+                .iter()
+                .find(|(j, _)| *j == i)
+                .map(|(_, v)| *v)
+                .unwrap_or(0.0);
 
             assert!(
                 (analytical - fd).abs() < 1e-4,
                 "Gradient mismatch at x={:?}, var {}: analytical={}, fd={}",
-                x, i, analytical, fd
+                x,
+                i,
+                analytical,
+                fd
             );
         }
     }
@@ -746,5 +760,8 @@ fn test_auto_jacobian_still_works() {
     let problem = QuadraticConstraint { target: 4.0 };
     let x = vec![2.0];
     let result = verify_jacobian(&problem, &x, 1e-7, 1e-5);
-    assert!(result.passed, "Regression: auto_jacobian Jacobian verification failed");
+    assert!(
+        result.passed,
+        "Regression: auto_jacobian Jacobian verification failed"
+    );
 }

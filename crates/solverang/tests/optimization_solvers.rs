@@ -21,9 +21,15 @@ struct Quadratic1D {
 }
 
 impl Objective for Quadratic1D {
-    fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
-    fn name(&self) -> &str { "quadratic_1d" }
-    fn param_ids(&self) -> &[ParamId] { std::slice::from_ref(&self.param) }
+    fn id(&self) -> ObjectiveId {
+        ObjectiveId::new(0, 0)
+    }
+    fn name(&self) -> &str {
+        "quadratic_1d"
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        std::slice::from_ref(&self.param)
+    }
     fn value(&self, store: &ParamStore) -> f64 {
         let x = store.get(self.param);
         (x - 3.0).powi(2)
@@ -43,14 +49,24 @@ impl Rosenbrock {
     fn new(px: ParamId, py: ParamId) -> Self {
         Self { params: [px, py] }
     }
-    fn px(&self) -> ParamId { self.params[0] }
-    fn py(&self) -> ParamId { self.params[1] }
+    fn px(&self) -> ParamId {
+        self.params[0]
+    }
+    fn py(&self) -> ParamId {
+        self.params[1]
+    }
 }
 
 impl Objective for Rosenbrock {
-    fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
-    fn name(&self) -> &str { "rosenbrock" }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
+    fn id(&self) -> ObjectiveId {
+        ObjectiveId::new(0, 0)
+    }
+    fn name(&self) -> &str {
+        "rosenbrock"
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
     fn value(&self, store: &ParamStore) -> f64 {
         let x = store.get(self.px());
         let y = store.get(self.py());
@@ -72,9 +88,15 @@ struct QuadraticND {
 }
 
 impl Objective for QuadraticND {
-    fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
-    fn name(&self) -> &str { "quadratic_nd" }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
+    fn id(&self) -> ObjectiveId {
+        ObjectiveId::new(0, 0)
+    }
+    fn name(&self) -> &str {
+        "quadratic_nd"
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
     fn value(&self, store: &ParamStore) -> f64 {
         self.params
             .iter()
@@ -115,7 +137,11 @@ fn bfgs_1d_quadratic_converges() {
     let result = BfgsSolver::solve(&obj, &mut store, &config);
 
     assert_eq!(result.status, OptimizationStatus::Converged);
-    assert!(result.outer_iterations < 10, "took {} iterations", result.outer_iterations);
+    assert!(
+        result.outer_iterations < 10,
+        "took {} iterations",
+        result.outer_iterations
+    );
     let x = store.get(px);
     assert!((x - 3.0).abs() < 1e-6, "x = {}, expected 3.0", x);
     assert!(result.objective_value < 1e-12);
@@ -135,9 +161,13 @@ fn bfgs_rosenbrock_converges() {
 
     let result = BfgsSolver::solve(&obj, &mut store, &config);
 
-    assert_eq!(result.status, OptimizationStatus::Converged,
+    assert_eq!(
+        result.status,
+        OptimizationStatus::Converged,
         "BFGS did not converge on Rosenbrock after {} iterations (grad_norm = {})",
-        result.outer_iterations, result.kkt_residual.dual);
+        result.outer_iterations,
+        result.kkt_residual.dual
+    );
     let x = store.get(px);
     let y = store.get(py);
     assert!((x - 1.0).abs() < 1e-4, "x = {}, expected 1.0", x);
@@ -151,7 +181,9 @@ fn bfgs_nd_quadratic_converges() {
     let n = 10;
     let params: Vec<ParamId> = (0..n).map(|_| store.alloc(0.0, owner)).collect();
 
-    let obj = QuadraticND { params: params.clone() };
+    let obj = QuadraticND {
+        params: params.clone(),
+    };
     let config = OptimizationConfig::default();
 
     let result = BfgsSolver::solve(&obj, &mut store, &config);
@@ -160,7 +192,13 @@ fn bfgs_nd_quadratic_converges() {
     for (i, &p) in params.iter().enumerate() {
         let x = store.get(p);
         let target = (i + 1) as f64;
-        assert!((x - target).abs() < 1e-5, "x[{}] = {}, expected {}", i, x, target);
+        assert!(
+            (x - target).abs() < 1e-5,
+            "x[{}] = {}, expected {}",
+            i,
+            x,
+            target
+        );
     }
 }
 
@@ -205,7 +243,9 @@ fn wolfe_10d_quadratic_iteration_count() {
     let n = 10;
     let params: Vec<ParamId> = (0..n).map(|_| store.alloc(0.0, owner)).collect();
 
-    let obj = QuadraticND { params: params.clone() };
+    let obj = QuadraticND {
+        params: params.clone(),
+    };
     let config = OptimizationConfig::default();
 
     let result = BfgsSolver::solve(&obj, &mut store, &config);
@@ -219,7 +259,13 @@ fn wolfe_10d_quadratic_iteration_count() {
     for (i, &p) in params.iter().enumerate() {
         let x = store.get(p);
         let target = (i + 1) as f64;
-        assert!((x - target).abs() < 1e-5, "x[{}] = {}, expected {}", i, x, target);
+        assert!(
+            (x - target).abs() < 1e-5,
+            "x[{}] = {}, expected {}",
+            i,
+            x,
+            target
+        );
     }
 }
 
@@ -234,7 +280,9 @@ fn bfgs_2d_quadratic_relative_tolerance_converges() {
     let mut store = ParamStore::new();
     let params: Vec<ParamId> = (0..2).map(|_| store.alloc(0.0, owner)).collect();
 
-    let obj = QuadraticND { params: params.clone() };
+    let obj = QuadraticND {
+        params: params.clone(),
+    };
     let config = OptimizationConfig::default();
     assert!(config.relative_tolerance, "default should be relative");
 
@@ -244,7 +292,13 @@ fn bfgs_2d_quadratic_relative_tolerance_converges() {
     for (i, &p) in params.iter().enumerate() {
         let x = store.get(p);
         let target = (i + 1) as f64;
-        assert!((x - target).abs() < 1e-5, "x[{}] = {}, expected {}", i, x, target);
+        assert!(
+            (x - target).abs() < 1e-5,
+            "x[{}] = {}, expected {}",
+            i,
+            x,
+            target
+        );
     }
 }
 
@@ -314,10 +368,18 @@ struct LinearEqualityConstraint {
 
 impl LinearEqualityConstraint {
     fn new(id: ConstraintId, px: ParamId, py: ParamId, target: f64) -> Self {
-        Self { id, params: [px, py], target }
+        Self {
+            id,
+            params: [px, py],
+            target,
+        }
     }
-    fn px(&self) -> ParamId { self.params[0] }
-    fn py(&self) -> ParamId { self.params[1] }
+    fn px(&self) -> ParamId {
+        self.params[0]
+    }
+    fn py(&self) -> ParamId {
+        self.params[1]
+    }
 }
 
 impl Constraint for LinearEqualityConstraint {
@@ -393,7 +455,10 @@ fn alm_rosenbrock_with_linear_constraint() {
 
     // Check multiplier is present
     let multipliers = result.multipliers.lambda_for_constraint(cid);
-    assert!(multipliers.is_some(), "No multiplier returned for constraint");
+    assert!(
+        multipliers.is_some(),
+        "No multiplier returned for constraint"
+    );
     let lambda = multipliers.unwrap();
     assert_eq!(lambda.len(), 1);
     // Multiplier should be non-zero (constraint is active)
@@ -420,9 +485,15 @@ fn alm_quadratic_with_constraint() {
         targets: [f64; 2],
     }
     impl Objective for Quad2D {
-        fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
-        fn name(&self) -> &str { "quad2d" }
-        fn param_ids(&self) -> &[ParamId] { &self.params }
+        fn id(&self) -> ObjectiveId {
+            ObjectiveId::new(0, 0)
+        }
+        fn name(&self) -> &str {
+            "quad2d"
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            &self.params
+        }
         fn value(&self, store: &ParamStore) -> f64 {
             let x = store.get(self.params[0]);
             let y = store.get(self.params[1]);
@@ -462,16 +533,8 @@ fn alm_quadratic_with_constraint() {
     // Analytical solution: project (3,4) onto x+y=5
     // x* = 3 - λ/2, y* = 4 - λ/2, with x+y=5: 7 - λ = 5, so λ = 2
     // x* = 2, y* = 3
-    assert!(
-        (x - 2.0).abs() < 1e-3,
-        "x = {} (expected 2.0)",
-        x
-    );
-    assert!(
-        (y - 3.0).abs() < 1e-3,
-        "y = {} (expected 3.0)",
-        y
-    );
+    assert!((x - 2.0).abs() < 1e-3, "x = {} (expected 2.0)", x);
+    assert!((y - 3.0).abs() < 1e-3, "y = {} (expected 3.0)", y);
     assert!(
         (x + y - 5.0).abs() < 1e-4,
         "Constraint: x+y = {} (expected 5.0)",
@@ -498,11 +561,19 @@ fn alm_already_feasible() {
     let px = store.alloc(2.0, owner);
     let py = store.alloc(3.0, owner); // x + y = 5 already
 
-    struct SimpleQuad { params: [ParamId; 2] }
+    struct SimpleQuad {
+        params: [ParamId; 2],
+    }
     impl Objective for SimpleQuad {
-        fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
-        fn name(&self) -> &str { "simple" }
-        fn param_ids(&self) -> &[ParamId] { &self.params }
+        fn id(&self) -> ObjectiveId {
+            ObjectiveId::new(0, 0)
+        }
+        fn name(&self) -> &str {
+            "simple"
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            &self.params
+        }
         fn value(&self, store: &ParamStore) -> f64 {
             let x = store.get(self.params[0]);
             let y = store.get(self.params[1]);
@@ -556,9 +627,15 @@ fn bfgs_b_bounded_quadratic() {
         params: [ParamId; 2],
     }
     impl Objective for BoundedQuad {
-        fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
-        fn name(&self) -> &str { "bounded_quad" }
-        fn param_ids(&self) -> &[ParamId] { &self.params }
+        fn id(&self) -> ObjectiveId {
+            ObjectiveId::new(0, 0)
+        }
+        fn name(&self) -> &str {
+            "bounded_quad"
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            &self.params
+        }
         fn value(&self, store: &ParamStore) -> f64 {
             let x = store.get(self.params[0]);
             let y = store.get(self.params[1]);
@@ -643,11 +720,19 @@ fn bfgs_b_all_bounds_active() {
     let obj = Quadratic1D { param: px };
 
     // Redefine objective targeting 5.0 instead of 3.0.
-    struct QuadTarget5 { param: ParamId }
+    struct QuadTarget5 {
+        param: ParamId,
+    }
     impl Objective for QuadTarget5 {
-        fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
-        fn name(&self) -> &str { "quad_target5" }
-        fn param_ids(&self) -> &[ParamId] { std::slice::from_ref(&self.param) }
+        fn id(&self) -> ObjectiveId {
+            ObjectiveId::new(0, 0)
+        }
+        fn name(&self) -> &str {
+            "quad_target5"
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            std::slice::from_ref(&self.param)
+        }
         fn value(&self, store: &ParamStore) -> f64 {
             let x = store.get(self.param);
             (x - 5.0).powi(2)
@@ -694,18 +779,38 @@ struct LinearInequalityConstraint {
 
 impl LinearInequalityConstraint {
     fn new(id: ConstraintId, px: ParamId, py: ParamId, a: f64, b: f64, rhs: f64) -> Self {
-        Self { id, params: [px, py], a, b, rhs }
+        Self {
+            id,
+            params: [px, py],
+            a,
+            b,
+            rhs,
+        }
     }
-    fn px(&self) -> ParamId { self.params[0] }
-    fn py(&self) -> ParamId { self.params[1] }
+    fn px(&self) -> ParamId {
+        self.params[0]
+    }
+    fn py(&self) -> ParamId {
+        self.params[1]
+    }
 }
 
 impl InequalityFn for LinearInequalityConstraint {
-    fn id(&self) -> ConstraintId { self.id }
-    fn name(&self) -> &str { "linear_inequality" }
-    fn entity_ids(&self) -> &[EntityId] { &[] }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
-    fn inequality_count(&self) -> usize { 1 }
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+    fn name(&self) -> &str {
+        "linear_inequality"
+    }
+    fn entity_ids(&self) -> &[EntityId] {
+        &[]
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+    fn inequality_count(&self) -> usize {
+        1
+    }
     fn values(&self, store: &ParamStore) -> Vec<f64> {
         let x = store.get(self.px());
         let y = store.get(self.py());
@@ -723,9 +828,15 @@ struct Quad2DTarget {
 }
 
 impl Objective for Quad2DTarget {
-    fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
-    fn name(&self) -> &str { "quad2d_target" }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
+    fn id(&self) -> ObjectiveId {
+        ObjectiveId::new(0, 0)
+    }
+    fn name(&self) -> &str {
+        "quad2d_target"
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
     fn value(&self, store: &ParamStore) -> f64 {
         let x = store.get(self.params[0]);
         let y = store.get(self.params[1]);
@@ -751,7 +862,10 @@ fn alm_inequality_inactive() {
     let px = store.alloc(0.0, owner);
     let py = store.alloc(0.0, owner);
 
-    let obj = Quad2DTarget { params: [px, py], target: [2.0, 1.0] };
+    let obj = Quad2DTarget {
+        params: [px, py],
+        target: [2.0, 1.0],
+    };
 
     let hid = ConstraintId::new(1, 0);
     let ineq = LinearInequalityConstraint::new(hid, px, py, 1.0, 1.0, 5.0);
@@ -799,7 +913,10 @@ fn alm_inequality_active() {
     let px = store.alloc(0.0, owner);
     let py = store.alloc(0.0, owner);
 
-    let obj = Quad2DTarget { params: [px, py], target: [5.0, 5.0] };
+    let obj = Quad2DTarget {
+        params: [px, py],
+        target: [5.0, 5.0],
+    };
 
     let hid = ConstraintId::new(1, 0);
     let ineq = LinearInequalityConstraint::new(hid, px, py, 1.0, 1.0, 3.0);
@@ -854,11 +971,19 @@ fn alm_mixed_equality_inequality() {
     let px = store.alloc(0.5, owner);
     let py = store.alloc(0.5, owner);
 
-    struct NormSquared { params: [ParamId; 2] }
+    struct NormSquared {
+        params: [ParamId; 2],
+    }
     impl Objective for NormSquared {
-        fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
-        fn name(&self) -> &str { "norm_squared" }
-        fn param_ids(&self) -> &[ParamId] { &self.params }
+        fn id(&self) -> ObjectiveId {
+            ObjectiveId::new(0, 0)
+        }
+        fn name(&self) -> &str {
+            "norm_squared"
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            &self.params
+        }
         fn value(&self, store: &ParamStore) -> f64 {
             let x = store.get(self.params[0]);
             let y = store.get(self.params[1]);
@@ -878,13 +1003,26 @@ fn alm_mixed_equality_inequality() {
     let constraints: Vec<&dyn Constraint> = vec![&eq_constraint];
 
     // h(x, y) = -x <= 0  (enforces x >= 0)
-    struct NonNegativityConstraint { id: ConstraintId, param: ParamId }
+    struct NonNegativityConstraint {
+        id: ConstraintId,
+        param: ParamId,
+    }
     impl InequalityFn for NonNegativityConstraint {
-        fn id(&self) -> ConstraintId { self.id }
-        fn name(&self) -> &str { "non_negativity" }
-        fn entity_ids(&self) -> &[EntityId] { &[] }
-        fn param_ids(&self) -> &[ParamId] { std::slice::from_ref(&self.param) }
-        fn inequality_count(&self) -> usize { 1 }
+        fn id(&self) -> ConstraintId {
+            self.id
+        }
+        fn name(&self) -> &str {
+            "non_negativity"
+        }
+        fn entity_ids(&self) -> &[EntityId] {
+            &[]
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            std::slice::from_ref(&self.param)
+        }
+        fn inequality_count(&self) -> usize {
+            1
+        }
         fn values(&self, store: &ParamStore) -> Vec<f64> {
             vec![-store.get(self.param)]
         }
@@ -920,7 +1058,11 @@ fn alm_mixed_equality_inequality() {
     assert!((y - 0.5).abs() < 1e-3, "y = {} (expected 0.5)", y);
 
     // Equality constraint satisfied
-    assert!((x + y - 1.0).abs() < 1e-4, "Equality violated: x+y = {}", x + y);
+    assert!(
+        (x + y - 1.0).abs() < 1e-4,
+        "Equality violated: x+y = {}",
+        x + y
+    );
 
     // Inequality satisfied: x >= 0
     assert!(x >= -1e-5, "Inequality violated: x = {} (expected >= 0)", x);
@@ -976,7 +1118,9 @@ fn trust_region_10d_quadratic() {
     let n = 10;
     let params: Vec<ParamId> = (0..n).map(|_| store.alloc(0.0, owner)).collect();
 
-    let obj = QuadraticND { params: params.clone() };
+    let obj = QuadraticND {
+        params: params.clone(),
+    };
     let mut config = OptimizationConfig::default();
     config.algorithm = OptimizationAlgorithm::TrustRegion;
 
@@ -991,7 +1135,13 @@ fn trust_region_10d_quadratic() {
     for (i, &p) in params.iter().enumerate() {
         let x = store.get(p);
         let target = (i + 1) as f64;
-        assert!((x - target).abs() < 1e-5, "x[{}] = {}, expected {}", i, x, target);
+        assert!(
+            (x - target).abs() < 1e-5,
+            "x[{}] = {}, expected {}",
+            i,
+            x,
+            target
+        );
     }
 }
 
@@ -1003,7 +1153,9 @@ fn bfgs_50d_quadratic_relative_tolerance_converges() {
     let n = 50;
     let params: Vec<ParamId> = (0..n).map(|_| store.alloc(0.0, owner)).collect();
 
-    let obj = QuadraticND { params: params.clone() };
+    let obj = QuadraticND {
+        params: params.clone(),
+    };
     let config = OptimizationConfig::default();
     assert!(config.relative_tolerance, "default should be relative");
 
@@ -1018,7 +1170,13 @@ fn bfgs_50d_quadratic_relative_tolerance_converges() {
     for (i, &p) in params.iter().enumerate() {
         let x = store.get(p);
         let target = (i + 1) as f64;
-        assert!((x - target).abs() < 1e-4, "x[{}] = {}, expected {}", i, x, target);
+        assert!(
+            (x - target).abs() < 1e-4,
+            "x[{}] = {}, expected {}",
+            i,
+            x,
+            target
+        );
     }
 }
 
@@ -1031,7 +1189,9 @@ fn trust_region_200d_steihaug_cg_path() {
     let n = 200;
     let params: Vec<ParamId> = (0..n).map(|_| store.alloc(0.0, owner)).collect();
 
-    let obj = QuadraticND { params: params.clone() };
+    let obj = QuadraticND {
+        params: params.clone(),
+    };
     let mut config = OptimizationConfig::default();
     config.algorithm = OptimizationAlgorithm::TrustRegion;
 
@@ -1046,7 +1206,13 @@ fn trust_region_200d_steihaug_cg_path() {
     for (i, &p) in params.iter().enumerate() {
         let x = store.get(p);
         let target = (i + 1) as f64;
-        assert!((x - target).abs() < 1e-4, "x[{}] = {}, expected {}", i, x, target);
+        assert!(
+            (x - target).abs() < 1e-4,
+            "x[{}] = {}, expected {}",
+            i,
+            x,
+            target
+        );
     }
 }
 
@@ -1058,9 +1224,15 @@ fn trust_region_beale_converges() {
         params: [ParamId; 2],
     }
     impl Objective for Beale {
-        fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
-        fn name(&self) -> &str { "beale" }
-        fn param_ids(&self) -> &[ParamId] { &self.params }
+        fn id(&self) -> ObjectiveId {
+            ObjectiveId::new(0, 0)
+        }
+        fn name(&self) -> &str {
+            "beale"
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            &self.params
+        }
         fn value(&self, store: &ParamStore) -> f64 {
             let x = store.get(self.params[0]);
             let y = store.get(self.params[1]);
@@ -1128,7 +1300,10 @@ fn trust_region_already_at_minimum() {
     let result = TrustRegionSolver::solve(&obj, &mut store, &config);
 
     assert_eq!(result.status, OptimizationStatus::Converged);
-    assert_eq!(result.outer_iterations, 0, "should detect convergence immediately");
+    assert_eq!(
+        result.outer_iterations, 0,
+        "should detect convergence immediately"
+    );
     let x = store.get(px);
     assert!((x - 3.0).abs() < 1e-10, "x = {}, expected 3.0", x);
 }
@@ -1148,7 +1323,10 @@ fn alm_bounded_quadratic_with_equality() {
     store.set_bounds(px, 0.0, 3.0);
     store.set_bounds(py, 0.0, 10.0);
 
-    let obj = Quad2DTarget { params: [px, py], target: [5.0, 5.0] };
+    let obj = Quad2DTarget {
+        params: [px, py],
+        target: [5.0, 5.0],
+    };
 
     let cid = ConstraintId::new(0, 0);
     let eq = LinearEqualityConstraint::new(cid, px, py, 6.0);
@@ -1171,7 +1349,11 @@ fn alm_bounded_quadratic_with_equality() {
 
     let x = store.get(px);
     let y = store.get(py);
-    assert!((x + y - 6.0).abs() < 1e-3, "constraint violated: x+y = {}", x + y);
+    assert!(
+        (x + y - 6.0).abs() < 1e-3,
+        "constraint violated: x+y = {}",
+        x + y
+    );
     assert!(x <= 3.0 + 1e-4, "x = {} exceeds upper bound 3.0", x);
     assert!(y >= 0.0 - 1e-4, "y = {} below lower bound", y);
     assert!((x - 3.0).abs() < 0.05, "x = {} (expected ~3.0)", x);
@@ -1189,7 +1371,10 @@ fn alm_bounded_inequality_active() {
     store.set_bounds(px, 0.0, 10.0);
     store.set_bounds(py, 0.0, 10.0);
 
-    let obj = Quad2DTarget { params: [px, py], target: [5.0, 5.0] };
+    let obj = Quad2DTarget {
+        params: [px, py],
+        target: [5.0, 5.0],
+    };
 
     let hid = ConstraintId::new(1, 0);
     let ineq = LinearInequalityConstraint::new(hid, px, py, 1.0, 1.0, 2.0);
@@ -1229,20 +1414,37 @@ fn alm_bounded_equality_and_inequality() {
     store.set_bounds(px, 0.0, 10.0);
     store.set_bounds(py, 0.0, 10.0);
 
-    let obj = Quad2DTarget { params: [px, py], target: [5.0, 1.0] };
+    let obj = Quad2DTarget {
+        params: [px, py],
+        target: [5.0, 1.0],
+    };
 
     let cid = ConstraintId::new(0, 0);
     let eq = LinearEqualityConstraint::new(cid, px, py, 6.0);
     let constraints: Vec<&dyn Constraint> = vec![&eq];
 
     // x <= 2.5  ↔  h(x,y) = x - 2.5 <= 0
-    struct UpperBoundConstraint { id: ConstraintId, param: ParamId, bound: f64 }
+    struct UpperBoundConstraint {
+        id: ConstraintId,
+        param: ParamId,
+        bound: f64,
+    }
     impl InequalityFn for UpperBoundConstraint {
-        fn id(&self) -> ConstraintId { self.id }
-        fn name(&self) -> &str { "upper_bound" }
-        fn entity_ids(&self) -> &[EntityId] { &[] }
-        fn param_ids(&self) -> &[ParamId] { std::slice::from_ref(&self.param) }
-        fn inequality_count(&self) -> usize { 1 }
+        fn id(&self) -> ConstraintId {
+            self.id
+        }
+        fn name(&self) -> &str {
+            "upper_bound"
+        }
+        fn entity_ids(&self) -> &[EntityId] {
+            &[]
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            std::slice::from_ref(&self.param)
+        }
+        fn inequality_count(&self) -> usize {
+            1
+        }
         fn values(&self, store: &ParamStore) -> Vec<f64> {
             vec![store.get(self.param) - self.bound]
         }
@@ -1252,7 +1454,11 @@ fn alm_bounded_equality_and_inequality() {
     }
 
     let hid = ConstraintId::new(1, 0);
-    let ineq = UpperBoundConstraint { id: hid, param: px, bound: 2.5 };
+    let ineq = UpperBoundConstraint {
+        id: hid,
+        param: px,
+        bound: 2.5,
+    };
     let inequalities: Vec<&dyn InequalityFn> = vec![&ineq];
 
     let mut config = OptimizationConfig::default();
@@ -1271,7 +1477,11 @@ fn alm_bounded_equality_and_inequality() {
 
     let x = store.get(px);
     let y = store.get(py);
-    assert!((x + y - 6.0).abs() < 1e-3, "equality violated: x+y = {}", x + y);
+    assert!(
+        (x + y - 6.0).abs() < 1e-3,
+        "equality violated: x+y = {}",
+        x + y
+    );
     assert!(x <= 2.5 + 1e-3, "inequality violated: x = {}", x);
     assert!((x - 2.5).abs() < 0.1, "x = {} (expected ~2.5)", x);
     assert!((y - 3.5).abs() < 0.1, "y = {} (expected ~3.5)", y);
@@ -1304,22 +1514,40 @@ fn alm_warm_start_reduces_iterations() {
 
     // First solve — cold start.
     let (mut store1, px1, py1) = mk_store(owner);
-    let obj1 = Quad2DTarget { params: [px1, py1], target: [3.0, 4.0] };
+    let obj1 = Quad2DTarget {
+        params: [px1, py1],
+        target: [3.0, 4.0],
+    };
     let eq1 = LinearEqualityConstraint::new(cid, px1, py1, 5.0);
     let c1: Vec<&dyn Constraint> = vec![&eq1];
     let result1 = AlmSolver::solve(&obj1, &c1, &[], &mut store1, &config, None);
-    assert!(result1.status.is_converged(), "first solve did not converge");
+    assert!(
+        result1.status.is_converged(),
+        "first solve did not converge"
+    );
 
     // Second solve — warm start from first solve's multipliers.
     let (mut store2, px2, py2) = mk_store(owner);
-    let obj2 = Quad2DTarget { params: [px2, py2], target: [3.0, 4.0] };
+    let obj2 = Quad2DTarget {
+        params: [px2, py2],
+        target: [3.0, 4.0],
+    };
     let eq2 = LinearEqualityConstraint::new(cid, px2, py2, 5.0);
     let c2: Vec<&dyn Constraint> = vec![&eq2];
     let mut warm_config = config.clone();
     warm_config.multiplier_init = MultiplierInitStrategy::WarmStart;
-    let result2 = AlmSolver::solve(&obj2, &c2, &[], &mut store2, &warm_config,
-                                   Some(&result1.multipliers));
-    assert!(result2.status.is_converged(), "warm-start solve did not converge");
+    let result2 = AlmSolver::solve(
+        &obj2,
+        &c2,
+        &[],
+        &mut store2,
+        &warm_config,
+        Some(&result1.multipliers),
+    );
+    assert!(
+        result2.status.is_converged(),
+        "warm-start solve did not converge"
+    );
 
     // Warm-start should converge in at most as many outer iterations as cold start.
     assert!(
@@ -1338,7 +1566,10 @@ fn alm_warm_start_empty_store_falls_back() {
     let px = store.alloc(0.0, owner);
     let py = store.alloc(0.0, owner);
 
-    let obj = Quad2DTarget { params: [px, py], target: [3.0, 4.0] };
+    let obj = Quad2DTarget {
+        params: [px, py],
+        target: [3.0, 4.0],
+    };
 
     let cid = ConstraintId::new(0, 0);
     let eq = LinearEqualityConstraint::new(cid, px, py, 5.0);
@@ -1348,7 +1579,14 @@ fn alm_warm_start_empty_store_falls_back() {
     config.multiplier_init = MultiplierInitStrategy::WarmStart;
 
     let empty_store = MultiplierStore::new();
-    let result = AlmSolver::solve(&obj, &constraints, &[], &mut store, &config, Some(&empty_store));
+    let result = AlmSolver::solve(
+        &obj,
+        &constraints,
+        &[],
+        &mut store,
+        &config,
+        Some(&empty_store),
+    );
 
     assert!(
         result.status.is_converged(),
@@ -1358,7 +1596,11 @@ fn alm_warm_start_empty_store_falls_back() {
 
     let x = store.get(px);
     let y = store.get(py);
-    assert!((x + y - 5.0).abs() < 1e-3, "constraint violated: x+y = {}", x + y);
+    assert!(
+        (x + y - 5.0).abs() < 1e-3,
+        "constraint violated: x+y = {}",
+        x + y
+    );
 }
 
 // =========================================================================
@@ -1394,7 +1636,11 @@ fn bfgs_b_gcp_rosenbrock_bounded() {
     let y = store.get(py);
     assert!(x <= 0.5 + 1e-6, "x = {} violates upper bound", x);
     assert!(x >= 0.0 - 1e-6, "x = {} violates lower bound", x);
-    assert!((x - 0.5).abs() < 0.05, "x = {} (expected ~0.5, bound active)", x);
+    assert!(
+        (x - 0.5).abs() < 0.05,
+        "x = {} (expected ~0.5, bound active)",
+        x
+    );
     assert!((y - 0.25).abs() < 0.05, "y = {} (expected ~0.25)", y);
 }
 
@@ -1409,7 +1655,10 @@ fn bfgs_b_gcp_tight_bounds_corner() {
     store.set_bounds(px, 0.0, 1.0);
     store.set_bounds(py, 0.0, 1.0);
 
-    let obj = Quad2DTarget { params: [px, py], target: [5.0, 5.0] };
+    let obj = Quad2DTarget {
+        params: [px, py],
+        target: [5.0, 5.0],
+    };
     let config = OptimizationConfig::default();
 
     let result = BfgsBSolver::solve(&obj, &mut store, &config);
@@ -1431,7 +1680,10 @@ fn bfgs_b_gcp_interior_solution() {
     store.set_bounds(px, -10.0, 10.0);
     store.set_bounds(py, -10.0, 10.0);
 
-    let obj = Quad2DTarget { params: [px, py], target: [2.0, 3.0] };
+    let obj = Quad2DTarget {
+        params: [px, py],
+        target: [2.0, 3.0],
+    };
     let config = OptimizationConfig::default();
 
     let result = BfgsBSolver::solve(&obj, &mut store, &config);
@@ -1452,11 +1704,19 @@ fn bfgs_b_gcp_one_sided_lower_bounds() {
     let px = store.alloc(6.0, owner);
     store.set_bounds(px, 5.0, f64::INFINITY);
 
-    struct QuadAt3 { param: ParamId }
+    struct QuadAt3 {
+        param: ParamId,
+    }
     impl Objective for QuadAt3 {
-        fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
-        fn name(&self) -> &str { "quad_at3" }
-        fn param_ids(&self) -> &[ParamId] { std::slice::from_ref(&self.param) }
+        fn id(&self) -> ObjectiveId {
+            ObjectiveId::new(0, 0)
+        }
+        fn name(&self) -> &str {
+            "quad_at3"
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            std::slice::from_ref(&self.param)
+        }
         fn value(&self, store: &ParamStore) -> f64 {
             let x = store.get(self.param);
             (x - 3.0).powi(2)
@@ -1475,7 +1735,11 @@ fn bfgs_b_gcp_one_sided_lower_bounds() {
     assert_eq!(result.status, OptimizationStatus::Converged);
     let x = store.get(px);
     assert!(x >= 5.0 - 1e-6, "x = {} violates lower bound", x);
-    assert!((x - 5.0).abs() < 1e-5, "x = {} (expected 5.0, lower bound active)", x);
+    assert!(
+        (x - 5.0).abs() < 1e-5,
+        "x = {} (expected 5.0, lower bound active)",
+        x
+    );
 }
 
 // =========================================================================
@@ -1491,14 +1755,24 @@ impl RosenbrockWithHessian {
     fn new(px: ParamId, py: ParamId) -> Self {
         Self { params: [px, py] }
     }
-    fn px(&self) -> ParamId { self.params[0] }
-    fn py(&self) -> ParamId { self.params[1] }
+    fn px(&self) -> ParamId {
+        self.params[0]
+    }
+    fn py(&self) -> ParamId {
+        self.params[1]
+    }
 }
 
 impl Objective for RosenbrockWithHessian {
-    fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
-    fn name(&self) -> &str { "rosenbrock_hessian" }
-    fn param_ids(&self) -> &[ParamId] { &self.params }
+    fn id(&self) -> ObjectiveId {
+        ObjectiveId::new(0, 0)
+    }
+    fn name(&self) -> &str {
+        "rosenbrock_hessian"
+    }
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
     fn value(&self, store: &ParamStore) -> f64 {
         let x = store.get(self.px());
         let y = store.get(self.py());
@@ -1567,9 +1841,15 @@ fn trust_region_exact_hessian_quadratic_1step() {
         target: [f64; 2],
     }
     impl Objective for QuadWithHessian {
-        fn id(&self) -> ObjectiveId { ObjectiveId::new(0, 0) }
-        fn name(&self) -> &str { "quad_hessian" }
-        fn param_ids(&self) -> &[ParamId] { &self.params }
+        fn id(&self) -> ObjectiveId {
+            ObjectiveId::new(0, 0)
+        }
+        fn name(&self) -> &str {
+            "quad_hessian"
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            &self.params
+        }
         fn value(&self, store: &ParamStore) -> f64 {
             let x = store.get(self.params[0]);
             let y = store.get(self.params[1]);
@@ -1598,7 +1878,10 @@ fn trust_region_exact_hessian_quadratic_1step() {
     let px = store.alloc(0.0, owner);
     let py = store.alloc(0.0, owner);
 
-    let obj = QuadWithHessian { params: [px, py], target: [2.0, 3.0] };
+    let obj = QuadWithHessian {
+        params: [px, py],
+        target: [2.0, 3.0],
+    };
     let mut config = OptimizationConfig::default();
     config.trust_region_init = 100.0; // large enough to accept Newton step
 

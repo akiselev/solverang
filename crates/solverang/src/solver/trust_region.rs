@@ -109,7 +109,11 @@ impl TrustRegionSolver {
             let predicted_reduction = predicted_reduction_quadratic(&grad, &step, &hessian);
 
             let rho = if predicted_reduction <= 1e-30 {
-                if actual_reduction > 0.0 { 1.0 } else { 0.0 }
+                if actual_reduction > 0.0 {
+                    1.0
+                } else {
+                    0.0
+                }
             } else {
                 actual_reduction / predicted_reduction
             };
@@ -234,7 +238,11 @@ impl TrustRegionSolver {
             let predicted_reduction = predicted_reduction_linear(&grad, &step);
 
             let rho = if predicted_reduction <= 1e-30 {
-                if actual_reduction > 0.0 { 1.0 } else { 0.0 }
+                if actual_reduction > 0.0 {
+                    1.0
+                } else {
+                    0.0
+                }
             } else {
                 actual_reduction / predicted_reduction
             };
@@ -250,8 +258,7 @@ impl TrustRegionSolver {
                 let grad_new = dense_gradient(objective, store, param_ids, n);
 
                 let s: Vec<f64> = step.clone();
-                let y: Vec<f64> =
-                    grad_new.iter().zip(&grad).map(|(a, b)| a - b).collect();
+                let y: Vec<f64> = grad_new.iter().zip(&grad).map(|(a, b)| a - b).collect();
                 update_lbfgs_history(&mut s_history, &mut y_history, s, y, m);
 
                 x = x_trial;
@@ -301,7 +308,11 @@ fn dogleg_step(
         gtg / gtbg
     } else {
         let gn = vec_norm(grad);
-        if gn > 1e-30 { delta / gn } else { 1.0 }
+        if gn > 1e-30 {
+            delta / gn
+        } else {
+            1.0
+        }
     };
     let p_cauchy: Vec<f64> = grad.iter().map(|g| -tau_c * g).collect();
     let cauchy_norm = vec_norm(&p_cauchy);
@@ -318,8 +329,7 @@ fn dogleg_step(
         return p_newton;
     }
 
-    let diff: Vec<f64> =
-        p_newton.iter().zip(&p_cauchy).map(|(n, c)| n - c).collect();
+    let diff: Vec<f64> = p_newton.iter().zip(&p_cauchy).map(|(n, c)| n - c).collect();
     let a = dot(&diff, &diff);
     let b = 2.0 * dot(&p_cauchy, &diff);
     let c = dot(&p_cauchy, &p_cauchy) - delta * delta;
@@ -331,7 +341,11 @@ fn dogleg_step(
     };
     let tau = tau.clamp(0.0, 1.0);
 
-    p_cauchy.iter().zip(&diff).map(|(c, d)| c + tau * d).collect()
+    p_cauchy
+        .iter()
+        .zip(&diff)
+        .map(|(c, d)| c + tau * d)
+        .collect()
 }
 
 /// Steihaug-CG: truncated conjugate gradient for the trust-region subproblem.
@@ -365,15 +379,13 @@ fn steihaug_cg(
         let rtr = dot(&r, &r);
         let alpha = rtr / dtbd;
 
-        let z_new: Vec<f64> =
-            z.iter().zip(&d).map(|(zi, di)| zi + alpha * di).collect();
+        let z_new: Vec<f64> = z.iter().zip(&d).map(|(zi, di)| zi + alpha * di).collect();
 
         if vec_norm(&z_new) >= delta {
             return to_trust_boundary(&z, &d, delta);
         }
 
-        let r_new: Vec<f64> =
-            r.iter().zip(&bd).map(|(ri, bi)| ri + alpha * bi).collect();
+        let r_new: Vec<f64> = r.iter().zip(&bd).map(|(ri, bi)| ri + alpha * bi).collect();
 
         if vec_norm(&r_new) < tol {
             return z_new;
@@ -381,8 +393,11 @@ fn steihaug_cg(
 
         let rtr_new = dot(&r_new, &r_new);
         let beta = rtr_new / rtr;
-        let d_new: Vec<f64> =
-            r_new.iter().zip(&d).map(|(ri, di)| -ri + beta * di).collect();
+        let d_new: Vec<f64> = r_new
+            .iter()
+            .zip(&d)
+            .map(|(ri, di)| -ri + beta * di)
+            .collect();
 
         z = z_new;
         r = r_new;
@@ -430,7 +445,10 @@ fn to_trust_boundary(z: &[f64], d: &[f64], delta: f64) -> Vec<f64> {
     } else {
         0.0
     };
-    z.iter().zip(d).map(|(zi, di)| zi + tau.max(0.0) * di).collect()
+    z.iter()
+        .zip(d)
+        .map(|(zi, di)| zi + tau.max(0.0) * di)
+        .collect()
 }
 
 /// Predicted reduction of the linear model: m(0) - m(p) = -(gᵀp).
@@ -457,8 +475,12 @@ fn build_dense_hessian(
 ) -> Vec<Vec<f64>> {
     let mut h = vec![vec![0.0; n]; n];
     for (pi, pj, val) in objective.hessian_entries(store) {
-        let Some(row) = param_ids.iter().position(|&p| p == pi) else { continue };
-        let Some(col) = param_ids.iter().position(|&p| p == pj) else { continue };
+        let Some(row) = param_ids.iter().position(|&p| p == pi) else {
+            continue;
+        };
+        let Some(col) = param_ids.iter().position(|&p| p == pj) else {
+            continue;
+        };
         h[row][col] += val;
         if row != col {
             h[col][row] += val; // symmetrize
@@ -484,7 +506,11 @@ fn dogleg_step_exact(grad: &[f64], hessian: &[Vec<f64>], delta: f64, _n: usize) 
         gtg / gtbg
     } else {
         let gn = vec_norm(grad);
-        if gn > 1e-30 { delta / gn } else { 1.0 }
+        if gn > 1e-30 {
+            delta / gn
+        } else {
+            1.0
+        }
     };
     let p_cauchy: Vec<f64> = grad.iter().map(|g| -tau_c * g).collect();
     let cauchy_norm = vec_norm(&p_cauchy);
@@ -503,8 +529,7 @@ fn dogleg_step_exact(grad: &[f64], hessian: &[Vec<f64>], delta: f64, _n: usize) 
     }
 
     // Interpolate between Cauchy and Newton along the dogleg path.
-    let diff: Vec<f64> =
-        p_newton.iter().zip(&p_cauchy).map(|(n, c)| n - c).collect();
+    let diff: Vec<f64> = p_newton.iter().zip(&p_cauchy).map(|(n, c)| n - c).collect();
     let a = dot(&diff, &diff);
     let b = 2.0 * dot(&p_cauchy, &diff);
     let c = dot(&p_cauchy, &p_cauchy) - delta * delta;
@@ -516,7 +541,11 @@ fn dogleg_step_exact(grad: &[f64], hessian: &[Vec<f64>], delta: f64, _n: usize) 
     };
     let tau = tau.clamp(0.0, 1.0);
 
-    p_cauchy.iter().zip(&diff).map(|(c, d)| c + tau * d).collect()
+    p_cauchy
+        .iter()
+        .zip(&diff)
+        .map(|(c, d)| c + tau * d)
+        .collect()
 }
 
 /// Solve H·x = b using Cholesky-like approach or Gauss elimination.
@@ -599,15 +628,13 @@ fn steihaug_cg_exact(grad: &[f64], hessian: &[Vec<f64>], delta: f64, n: usize) -
         let rtr = dot(&r, &r);
         let alpha = rtr / dtbd;
 
-        let z_new: Vec<f64> =
-            z.iter().zip(&d).map(|(zi, di)| zi + alpha * di).collect();
+        let z_new: Vec<f64> = z.iter().zip(&d).map(|(zi, di)| zi + alpha * di).collect();
 
         if vec_norm(&z_new) >= delta {
             return to_trust_boundary(&z, &d, delta);
         }
 
-        let r_new: Vec<f64> =
-            r.iter().zip(&bd).map(|(ri, bi)| ri + alpha * bi).collect();
+        let r_new: Vec<f64> = r.iter().zip(&bd).map(|(ri, bi)| ri + alpha * bi).collect();
 
         if vec_norm(&r_new) < tol {
             return z_new;
@@ -615,8 +642,11 @@ fn steihaug_cg_exact(grad: &[f64], hessian: &[Vec<f64>], delta: f64, n: usize) -
 
         let rtr_new = dot(&r_new, &r_new);
         let beta = rtr_new / rtr;
-        let d_new: Vec<f64> =
-            r_new.iter().zip(&d).map(|(ri, di)| -ri + beta * di).collect();
+        let d_new: Vec<f64> = r_new
+            .iter()
+            .zip(&d)
+            .map(|(ri, di)| -ri + beta * di)
+            .collect();
 
         z = z_new;
         r = r_new;

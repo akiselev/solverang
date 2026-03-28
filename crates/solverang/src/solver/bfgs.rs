@@ -103,17 +103,13 @@ impl BfgsSolver {
                 y_history.clear();
                 let direction: Vec<f64> = grad.iter().map(|g| -g).collect();
                 let (alpha, f_new) = line_search::line_search(
-                    objective,
-                    store,
-                    &param_ids,
-                    &x,
-                    &direction,
-                    f,
-                    &grad,
-                    config,
+                    objective, store, &param_ids, &x, &direction, f, &grad, config,
                 );
-                let x_new: Vec<f64> =
-                    x.iter().zip(&direction).map(|(xi, di)| xi + alpha * di).collect();
+                let x_new: Vec<f64> = x
+                    .iter()
+                    .zip(&direction)
+                    .map(|(xi, di)| xi + alpha * di)
+                    .collect();
                 write_x_to_store(store, &param_ids, &x_new);
                 let grad_new = dense_gradient(objective, store, &param_ids, n);
 
@@ -130,19 +126,15 @@ impl BfgsSolver {
             }
 
             let (alpha, f_new) = line_search::line_search(
-                objective,
-                store,
-                &param_ids,
-                &x,
-                &direction,
-                f,
-                &grad,
-                config,
+                objective, store, &param_ids, &x, &direction, f, &grad, config,
             );
 
             // Update x
-            let x_new: Vec<f64> =
-                x.iter().zip(&direction).map(|(xi, di)| xi + alpha * di).collect();
+            let x_new: Vec<f64> = x
+                .iter()
+                .zip(&direction)
+                .map(|(xi, di)| xi + alpha * di)
+                .collect();
 
             // Compute new gradient
             write_x_to_store(store, &param_ids, &x_new);

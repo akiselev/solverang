@@ -438,8 +438,14 @@ mod tests {
             )),
         );
         let vars = vec![
-            VarRef { id: 0, index_tokens: "0".to_string() },
-            VarRef { id: 1, index_tokens: "1".to_string() },
+            VarRef {
+                id: 0,
+                index_tokens: "0".to_string(),
+            },
+            VarRef {
+                id: 1,
+                index_tokens: "1".to_string(),
+            },
         ];
         let emitter = quote::format_ident!("e");
         let tokens = generate_hessian_opcode_method(&expr, &vars, &emitter);

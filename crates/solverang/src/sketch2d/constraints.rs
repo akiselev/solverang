@@ -1370,13 +1370,7 @@ pub struct EqualRadius {
 
 impl EqualRadius {
     /// Create an equal-radius constraint between two circular entities.
-    pub fn new(
-        id: ConstraintId,
-        e1: EntityId,
-        r1: ParamId,
-        e2: EntityId,
-        r2: ParamId,
-    ) -> Self {
+    pub fn new(id: ConstraintId, e1: EntityId, r1: ParamId, e2: EntityId, r2: ParamId) -> Self {
         Self {
             id,
             entities: [e1, e2],
@@ -1413,10 +1407,7 @@ impl Constraint for EqualRadius {
     }
 
     fn jacobian(&self, _store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
-        vec![
-            (0, self.r1, 1.0),
-            (0, self.r2, -1.0),
-        ]
+        vec![(0, self.r1, 1.0), (0, self.r2, -1.0)]
     }
 }
 
@@ -1511,6 +1502,199 @@ impl Constraint for Collinear {
             (0, self.y2, -(x3 - x1)),
             (0, self.x3, -(y2 - y1)),
             (0, self.y3, x2 - x1),
+        ]
+    }
+}
+
+// ===========================================================================
+// SymmetricAboutLine
+// ===========================================================================
+
+/// Symmetry of two points about a line defined by two endpoints.
+///
+/// Given points P1, P2 and line endpoints A, B, enforces two conditions:
+///
+/// **r0 — midpoint of P1P2 lies on line AB:**
+///   Let M = (P1+P2)/2.  The signed area of triangle (A, B, M) must be zero:
+///   `r0 = (mx - ax)*(by - ay) - (my - ay)*(bx - ax)`
+///
+/// **r1 — segment P1P2 is perpendicular to AB:**
+///   `r1 = (p2x - p1x)*(bx - ax) + (p2y - p1y)*(by - ay)`
+///
+/// Together these two equations uniquely characterise reflection symmetry about
+/// the line (they are equivalent to: midpoint is the foot of the perpendicular
+/// from either point onto the line).
+#[derive(Debug, Clone)]
+pub struct SymmetricAboutLine {
+    id: ConstraintId,
+    entities: [EntityId; 3],
+    p1x: ParamId,
+    p1y: ParamId,
+    p2x: ParamId,
+    p2y: ParamId,
+    ax: ParamId,
+    ay: ParamId,
+    bx: ParamId,
+    by: ParamId,
+    params: [ParamId; 8],
+}
+
+impl SymmetricAboutLine {
+    /// `p1`, `p2` are the symmetric pair; `line` is the mirror line entity
+    /// with endpoints A = (ax, ay) and B = (bx, by).
+    pub fn new(
+        id: ConstraintId,
+        p1: EntityId,
+        p2: EntityId,
+        line: EntityId,
+        p1x: ParamId,
+        p1y: ParamId,
+        p2x: ParamId,
+        p2y: ParamId,
+        ax: ParamId,
+        ay: ParamId,
+        bx: ParamId,
+        by: ParamId,
+    ) -> Self {
+        Self {
+            id,
+            entities: [p1, p2, line],
+            p1x,
+            p1y,
+            p2x,
+            p2y,
+            ax,
+            ay,
+            bx,
+            by,
+            params: [p1x, p1y, p2x, p2y, ax, ay, bx, by],
+        }
+    }
+}
+
+impl Constraint for SymmetricAboutLine {
+    fn id(&self) -> ConstraintId {
+        self.id
+    }
+
+    fn name(&self) -> &str {
+        "SymmetricAboutLine"
+    }
+
+    fn entity_ids(&self) -> &[EntityId] {
+        &self.entities
+    }
+
+    fn param_ids(&self) -> &[ParamId] {
+        &self.params
+    }
+
+    fn equation_count(&self) -> usize {
+        2
+    }
+
+    fn residuals(&self, store: &ParamStore) -> Vec<f64> {
+        let p1x = store.get(self.p1x);
+        let p1y = store.get(self.p1y);
+        let p2x = store.get(self.p2x);
+        let p2y = store.get(self.p2y);
+        let ax = store.get(self.ax);
+        let ay = store.get(self.ay);
+        let bx = store.get(self.bx);
+        let by = store.get(self.by);
+
+        // Midpoint of P1, P2.
+        let mx = (p1x + p2x) * 0.5;
+        let my = (p1y + p2y) * 0.5;
+
+        // Direction vector of the mirror line.
+        let dx = bx - ax;
+        let dy = by - ay;
+
+        // r0: (M - A) × (B - A) = 0  (midpoint on line AB)
+        let r0 = (mx - ax) * dy - (my - ay) * dx;
+
+        // r1: (P2 - P1) · (B - A) = 0  (P1P2 perpendicular to AB)
+        let r1 = (p2x - p1x) * dx + (p2y - p1y) * dy;
+
+        vec![r0, r1]
+    }
+
+    fn jacobian(&self, store: &ParamStore) -> Vec<(usize, ParamId, f64)> {
+        let p1x = store.get(self.p1x);
+        let p1y = store.get(self.p1y);
+        let p2x = store.get(self.p2x);
+        let p2y = store.get(self.p2y);
+        let ax = store.get(self.ax);
+        let ay = store.get(self.ay);
+        let bx = store.get(self.bx);
+        let by = store.get(self.by);
+
+        let mx = (p1x + p2x) * 0.5;
+        let my = (p1y + p2y) * 0.5;
+        let dx = bx - ax;
+        let dy = by - ay;
+
+        // --- r0 = (mx - ax)*dy - (my - ay)*dx ---
+        //
+        // ∂r0/∂p1x = dy/2         (mx = (p1x+p2x)/2, so ∂mx/∂p1x = 1/2)
+        // ∂r0/∂p1y = -dx/2        (my = (p1y+p2y)/2, so ∂my/∂p1y = 1/2)
+        // ∂r0/∂p2x = dy/2
+        // ∂r0/∂p2y = -dx/2
+        // ∂r0/∂ax  = -dy + (my - ay)   (∂/∂ax: -(by-ay) + (my-ay)*(-(-1)) no —
+        //             expand: r0 = mx*dy - ax*dy - my*dx + ay*dx
+        //             ∂r0/∂ax = -dy - my*(-1) + ay*(-1) = -dy + my - ay ... wrong sign on ay.
+        //             Careful: dx = bx-ax so ∂dx/∂ax = -1; dy = by-ay so ∂dy/∂ax = 0.
+        //             r0 = (mx-ax)*dy - (my-ay)*dx
+        //             ∂r0/∂ax = (-1)*dy - (my-ay)*(-1) = -dy + (my-ay)
+        // ∂r0/∂ay  = (mx-ax)*(-1) - (-1)*dx = -(mx-ax) + dx
+        // ∂r0/∂bx  = 0 - (my-ay)*(1) = -(my-ay)   (∂dx/∂bx = 1, ∂dy/∂bx = 0)
+        // ∂r0/∂by  = (mx-ax)*(1) - 0 = (mx-ax)
+        let r0_dp1x = dy * 0.5;
+        let r0_dp1y = -dx * 0.5;
+        let r0_dp2x = dy * 0.5;
+        let r0_dp2y = -dx * 0.5;
+        let r0_dax = -dy + (my - ay);
+        let r0_day = -(mx - ax) + dx;
+        let r0_dbx = -(my - ay);
+        let r0_dby = mx - ax;
+
+        // --- r1 = (p2x-p1x)*dx + (p2y-p1y)*dy ---
+        //
+        // ∂r1/∂p1x = -dx
+        // ∂r1/∂p1y = -dy
+        // ∂r1/∂p2x = dx
+        // ∂r1/∂p2y = dy
+        // ∂r1/∂ax  = (p2x-p1x)*(-1) = -(p2x-p1x)
+        // ∂r1/∂ay  = (p2y-p1y)*(-1) = -(p2y-p1y)
+        // ∂r1/∂bx  = (p2x-p1x)
+        // ∂r1/∂by  = (p2y-p1y)
+        let r1_dp1x = -dx;
+        let r1_dp1y = -dy;
+        let r1_dp2x = dx;
+        let r1_dp2y = dy;
+        let r1_dax = -(p2x - p1x);
+        let r1_day = -(p2y - p1y);
+        let r1_dbx = p2x - p1x;
+        let r1_dby = p2y - p1y;
+
+        vec![
+            (0, self.p1x, r0_dp1x),
+            (0, self.p1y, r0_dp1y),
+            (0, self.p2x, r0_dp2x),
+            (0, self.p2y, r0_dp2y),
+            (0, self.ax, r0_dax),
+            (0, self.ay, r0_day),
+            (0, self.bx, r0_dbx),
+            (0, self.by, r0_dby),
+            (1, self.p1x, r1_dp1x),
+            (1, self.p1y, r1_dp1y),
+            (1, self.p2x, r1_dp2x),
+            (1, self.p2y, r1_dp2y),
+            (1, self.ax, r1_dax),
+            (1, self.ay, r1_day),
+            (1, self.bx, r1_dbx),
+            (1, self.by, r1_dby),
         ]
     }
 }
@@ -2229,5 +2413,98 @@ mod tests {
         assert_send_sync::<Symmetric>();
         assert_send_sync::<EqualLength>();
         assert_send_sync::<PointOnCircle>();
+        assert_send_sync::<SymmetricAboutLine>();
+    }
+
+    // -----------------------------------------------------------------------
+    // SymmetricAboutLine
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_symmetric_about_line_satisfied_horizontal() {
+        // Mirror line: y=0 (x-axis), A=(0,0), B=(1,0).
+        // P1=(3,2), P2=(3,-2) are reflections about the x-axis.
+        let ep1 = eid(0);
+        let ep2 = eid(1);
+        let el = eid(2);
+        let mut store = ParamStore::new();
+        let p1x = store.alloc(3.0, ep1);
+        let p1y = store.alloc(2.0, ep1);
+        let p2x = store.alloc(3.0, ep2);
+        let p2y = store.alloc(-2.0, ep2);
+        let ax = store.alloc(0.0, el);
+        let ay = store.alloc(0.0, el);
+        let bx = store.alloc(1.0, el);
+        let by = store.alloc(0.0, el);
+
+        let c = SymmetricAboutLine::new(cid(0), ep1, ep2, el, p1x, p1y, p2x, p2y, ax, ay, bx, by);
+        let r = c.residuals(&store);
+        assert!(r[0].abs() < 1e-12, "r0={}", r[0]);
+        assert!(r[1].abs() < 1e-12, "r1={}", r[1]);
+    }
+
+    #[test]
+    fn test_symmetric_about_line_satisfied_vertical() {
+        // Mirror line: x=0 (y-axis), A=(0,0), B=(0,1).
+        // P1=(-4,5), P2=(4,5) are reflections about the y-axis.
+        let ep1 = eid(0);
+        let ep2 = eid(1);
+        let el = eid(2);
+        let mut store = ParamStore::new();
+        let p1x = store.alloc(-4.0, ep1);
+        let p1y = store.alloc(5.0, ep1);
+        let p2x = store.alloc(4.0, ep2);
+        let p2y = store.alloc(5.0, ep2);
+        let ax = store.alloc(0.0, el);
+        let ay = store.alloc(0.0, el);
+        let bx = store.alloc(0.0, el);
+        let by = store.alloc(1.0, el);
+
+        let c = SymmetricAboutLine::new(cid(0), ep1, ep2, el, p1x, p1y, p2x, p2y, ax, ay, bx, by);
+        let r = c.residuals(&store);
+        assert!(r[0].abs() < 1e-12, "r0={}", r[0]);
+        assert!(r[1].abs() < 1e-12, "r1={}", r[1]);
+    }
+
+    #[test]
+    fn test_symmetric_about_line_unsatisfied() {
+        // P1 and P2 are NOT symmetric about the x-axis.
+        let ep1 = eid(0);
+        let ep2 = eid(1);
+        let el = eid(2);
+        let mut store = ParamStore::new();
+        let p1x = store.alloc(3.0, ep1);
+        let p1y = store.alloc(2.0, ep1);
+        let p2x = store.alloc(3.0, ep2);
+        let p2y = store.alloc(1.0, ep2); // should be -2 for symmetry
+        let ax = store.alloc(0.0, el);
+        let ay = store.alloc(0.0, el);
+        let bx = store.alloc(1.0, el);
+        let by = store.alloc(0.0, el);
+
+        let c = SymmetricAboutLine::new(cid(0), ep1, ep2, el, p1x, p1y, p2x, p2y, ax, ay, bx, by);
+        let r = c.residuals(&store);
+        // midpoint y = 1.5, not on x-axis → r0 ≠ 0
+        assert!(r[0].abs() > 1e-10 || r[1].abs() > 1e-10);
+    }
+
+    #[test]
+    fn test_symmetric_about_line_jacobian() {
+        // Use a non-axis-aligned line for a thorough Jacobian check.
+        let ep1 = eid(0);
+        let ep2 = eid(1);
+        let el = eid(2);
+        let mut store = ParamStore::new();
+        let p1x = store.alloc(1.0, ep1);
+        let p1y = store.alloc(3.0, ep1);
+        let p2x = store.alloc(3.0, ep2);
+        let p2y = store.alloc(1.0, ep2);
+        let ax = store.alloc(0.0, el);
+        let ay = store.alloc(0.5, el);
+        let bx = store.alloc(4.0, el);
+        let by = store.alloc(2.5, el);
+
+        let c = SymmetricAboutLine::new(cid(0), ep1, ep2, el, p1x, p1y, p2x, p2y, ax, ay, bx, by);
+        check_jacobian(&c, &store, 1e-7, 1e-5);
     }
 }

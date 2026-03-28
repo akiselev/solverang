@@ -267,15 +267,15 @@ impl JITCompiler {
         self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
         self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
         self.ctx.func.signature.params.push(AbiParam::new(ptr_type));
-        self.ctx.func.signature.returns.push(AbiParam::new(types::F64));
+        self.ctx
+            .func
+            .signature
+            .returns
+            .push(AbiParam::new(types::F64));
 
         let func_id = self
             .module
-            .declare_function(
-                "newton_step",
-                Linkage::Local,
-                &self.ctx.func.signature,
-            )
+            .declare_function("newton_step", Linkage::Local, &self.ctx.func.signature)
             .map_err(|e| JITError::ModuleError(format!("failed to declare function: {}", e)))?;
 
         {
@@ -298,18 +298,40 @@ impl JITCompiler {
             let delta_ptr = builder.ins().iadd_imm(scratch_ptr, delta_offset);
 
             let math_refs = MathFuncRefs {
-                sin: self.module.declare_func_in_func(self.math.sin, builder.func),
-                cos: self.module.declare_func_in_func(self.math.cos, builder.func),
-                tan: self.module.declare_func_in_func(self.math.tan, builder.func),
-                exp: self.module.declare_func_in_func(self.math.exp, builder.func),
+                sin: self
+                    .module
+                    .declare_func_in_func(self.math.sin, builder.func),
+                cos: self
+                    .module
+                    .declare_func_in_func(self.math.cos, builder.func),
+                tan: self
+                    .module
+                    .declare_func_in_func(self.math.tan, builder.func),
+                exp: self
+                    .module
+                    .declare_func_in_func(self.math.exp, builder.func),
                 ln: self.module.declare_func_in_func(self.math.ln, builder.func),
-                pow: self.module.declare_func_in_func(self.math.pow, builder.func),
-                atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
-                asin: self.module.declare_func_in_func(self.math.asin, builder.func),
-                acos: self.module.declare_func_in_func(self.math.acos, builder.func),
-                sinh: self.module.declare_func_in_func(self.math.sinh, builder.func),
-                cosh: self.module.declare_func_in_func(self.math.cosh, builder.func),
-                tanh: self.module.declare_func_in_func(self.math.tanh, builder.func),
+                pow: self
+                    .module
+                    .declare_func_in_func(self.math.pow, builder.func),
+                atan2: self
+                    .module
+                    .declare_func_in_func(self.math.atan2, builder.func),
+                asin: self
+                    .module
+                    .declare_func_in_func(self.math.asin, builder.func),
+                acos: self
+                    .module
+                    .declare_func_in_func(self.math.acos, builder.func),
+                sinh: self
+                    .module
+                    .declare_func_in_func(self.math.sinh, builder.func),
+                cosh: self
+                    .module
+                    .declare_func_in_func(self.math.cosh, builder.func),
+                tanh: self
+                    .module
+                    .declare_func_in_func(self.math.tanh, builder.func),
             };
 
             // Step 1: Zero the dense Jacobian buffer
@@ -349,13 +371,17 @@ impl JITCompiler {
                 // Load pivot J[k,k]
                 let pivot_offset = ((k * m + k) * 8) as i64;
                 let pivot_addr = builder.ins().iadd_imm(jac_ptr, pivot_offset);
-                let pivot = builder.ins().load(types::F64, MemFlags::trusted(), pivot_addr, 0);
+                let pivot = builder
+                    .ins()
+                    .load(types::F64, MemFlags::trusted(), pivot_addr, 0);
 
                 for i in (k + 1)..m {
                     // L[i,k] = J[i,k] / J[k,k]
                     let ik_offset = ((k * m + i) * 8) as i64;
                     let ik_addr = builder.ins().iadd_imm(jac_ptr, ik_offset);
-                    let jik = builder.ins().load(types::F64, MemFlags::trusted(), ik_addr, 0);
+                    let jik = builder
+                        .ins()
+                        .load(types::F64, MemFlags::trusted(), ik_addr, 0);
                     let lik = builder.ins().fdiv(jik, pivot);
                     builder.ins().store(MemFlags::trusted(), lik, ik_addr, 0);
 
@@ -363,15 +389,21 @@ impl JITCompiler {
                         // J[i,j] -= L[i,k] * J[k,j]
                         let ij_offset = ((j * m + i) * 8) as i64;
                         let ij_addr = builder.ins().iadd_imm(jac_ptr, ij_offset);
-                        let jij = builder.ins().load(types::F64, MemFlags::trusted(), ij_addr, 0);
+                        let jij = builder
+                            .ins()
+                            .load(types::F64, MemFlags::trusted(), ij_addr, 0);
 
                         let kj_offset = ((j * m + k) * 8) as i64;
                         let kj_addr = builder.ins().iadd_imm(jac_ptr, kj_offset);
-                        let jkj = builder.ins().load(types::F64, MemFlags::trusted(), kj_addr, 0);
+                        let jkj = builder
+                            .ins()
+                            .load(types::F64, MemFlags::trusted(), kj_addr, 0);
 
                         let prod = builder.ins().fmul(lik, jkj);
                         let new_jij = builder.ins().fsub(jij, prod);
-                        builder.ins().store(MemFlags::trusted(), new_jij, ij_addr, 0);
+                        builder
+                            .ins()
+                            .store(MemFlags::trusted(), new_jij, ij_addr, 0);
                     }
                 }
             }
@@ -382,17 +414,23 @@ impl JITCompiler {
             for i in 0..n {
                 // y[i] = -r[i]
                 let ri_addr = builder.ins().iadd_imm(residuals_ptr, (i * 8) as i64);
-                let ri = builder.ins().load(types::F64, MemFlags::trusted(), ri_addr, 0);
+                let ri = builder
+                    .ins()
+                    .load(types::F64, MemFlags::trusted(), ri_addr, 0);
                 let mut yi = builder.ins().fneg(ri);
 
                 for j in 0..i {
                     // y[i] -= L[i,j] * y[j]
                     let lij_offset = ((j * m + i) * 8) as i64;
                     let lij_addr = builder.ins().iadd_imm(jac_ptr, lij_offset);
-                    let lij = builder.ins().load(types::F64, MemFlags::trusted(), lij_addr, 0);
+                    let lij = builder
+                        .ins()
+                        .load(types::F64, MemFlags::trusted(), lij_addr, 0);
 
                     let yj_addr = builder.ins().iadd_imm(delta_ptr, (j * 8) as i64);
-                    let yj = builder.ins().load(types::F64, MemFlags::trusted(), yj_addr, 0);
+                    let yj = builder
+                        .ins()
+                        .load(types::F64, MemFlags::trusted(), yj_addr, 0);
 
                     let prod = builder.ins().fmul(lij, yj);
                     yi = builder.ins().fsub(yi, prod);
@@ -406,16 +444,22 @@ impl JITCompiler {
             // U is upper triangular (on/above diagonal of LU). delta overwrites y.
             for i in (0..n).rev() {
                 let yi_addr = builder.ins().iadd_imm(delta_ptr, (i * 8) as i64);
-                let mut di = builder.ins().load(types::F64, MemFlags::trusted(), yi_addr, 0);
+                let mut di = builder
+                    .ins()
+                    .load(types::F64, MemFlags::trusted(), yi_addr, 0);
 
                 for j in (i + 1)..n {
                     // di -= U[i,j] * delta[j]
                     let uij_offset = ((j * m + i) * 8) as i64;
                     let uij_addr = builder.ins().iadd_imm(jac_ptr, uij_offset);
-                    let uij = builder.ins().load(types::F64, MemFlags::trusted(), uij_addr, 0);
+                    let uij = builder
+                        .ins()
+                        .load(types::F64, MemFlags::trusted(), uij_addr, 0);
 
                     let dj_addr = builder.ins().iadd_imm(delta_ptr, (j * 8) as i64);
-                    let dj = builder.ins().load(types::F64, MemFlags::trusted(), dj_addr, 0);
+                    let dj = builder
+                        .ins()
+                        .load(types::F64, MemFlags::trusted(), dj_addr, 0);
 
                     let prod = builder.ins().fmul(uij, dj);
                     di = builder.ins().fsub(di, prod);
@@ -424,7 +468,9 @@ impl JITCompiler {
                 // di /= U[i,i]
                 let uii_offset = ((i * m + i) * 8) as i64;
                 let uii_addr = builder.ins().iadd_imm(jac_ptr, uii_offset);
-                let uii = builder.ins().load(types::F64, MemFlags::trusted(), uii_addr, 0);
+                let uii = builder
+                    .ins()
+                    .load(types::F64, MemFlags::trusted(), uii_addr, 0);
                 di = builder.ins().fdiv(di, uii);
 
                 builder.ins().store(MemFlags::trusted(), di, yi_addr, 0);
@@ -433,10 +479,14 @@ impl JITCompiler {
             // Step 7: Update vars_out = vars_in + delta
             for i in 0..n {
                 let xi_addr = builder.ins().iadd_imm(vars_in, (i * 8) as i64);
-                let xi = builder.ins().load(types::F64, MemFlags::trusted(), xi_addr, 0);
+                let xi = builder
+                    .ins()
+                    .load(types::F64, MemFlags::trusted(), xi_addr, 0);
 
                 let di_addr = builder.ins().iadd_imm(delta_ptr, (i * 8) as i64);
-                let di = builder.ins().load(types::F64, MemFlags::trusted(), di_addr, 0);
+                let di = builder
+                    .ins()
+                    .load(types::F64, MemFlags::trusted(), di_addr, 0);
 
                 let xi_new = builder.ins().fadd(xi, di);
                 let xo_addr = builder.ins().iadd_imm(vars_out, (i * 8) as i64);
@@ -504,7 +554,9 @@ impl JITCompiler {
             residual_fn: unsafe { std::mem::transmute::<*const u8, JITFnPtr>(residual_ptr) },
             jacobian_fn: unsafe { std::mem::transmute::<*const u8, JITFnPtr>(jacobian_ptr) },
             fused_fn: unsafe { std::mem::transmute::<*const u8, FusedFnPtr>(fused_ptr) },
-            dense_fused_fn: unsafe { std::mem::transmute::<*const u8, FusedFnPtr>(dense_fused_ptr) },
+            dense_fused_fn: unsafe {
+                std::mem::transmute::<*const u8, FusedFnPtr>(dense_fused_ptr)
+            },
             n_residuals: compiled.n_residuals,
             n_vars: compiled.n_vars,
             jacobian_nnz: compiled.jacobian_nnz,
@@ -545,18 +597,40 @@ impl JITCompiler {
 
             // Import math functions into this Cranelift function.
             let math_refs = MathFuncRefs {
-                sin: self.module.declare_func_in_func(self.math.sin, builder.func),
-                cos: self.module.declare_func_in_func(self.math.cos, builder.func),
-                tan: self.module.declare_func_in_func(self.math.tan, builder.func),
-                exp: self.module.declare_func_in_func(self.math.exp, builder.func),
+                sin: self
+                    .module
+                    .declare_func_in_func(self.math.sin, builder.func),
+                cos: self
+                    .module
+                    .declare_func_in_func(self.math.cos, builder.func),
+                tan: self
+                    .module
+                    .declare_func_in_func(self.math.tan, builder.func),
+                exp: self
+                    .module
+                    .declare_func_in_func(self.math.exp, builder.func),
                 ln: self.module.declare_func_in_func(self.math.ln, builder.func),
-                pow: self.module.declare_func_in_func(self.math.pow, builder.func),
-                atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
-                asin: self.module.declare_func_in_func(self.math.asin, builder.func),
-                acos: self.module.declare_func_in_func(self.math.acos, builder.func),
-                sinh: self.module.declare_func_in_func(self.math.sinh, builder.func),
-                cosh: self.module.declare_func_in_func(self.math.cosh, builder.func),
-                tanh: self.module.declare_func_in_func(self.math.tanh, builder.func),
+                pow: self
+                    .module
+                    .declare_func_in_func(self.math.pow, builder.func),
+                atan2: self
+                    .module
+                    .declare_func_in_func(self.math.atan2, builder.func),
+                asin: self
+                    .module
+                    .declare_func_in_func(self.math.asin, builder.func),
+                acos: self
+                    .module
+                    .declare_func_in_func(self.math.acos, builder.func),
+                sinh: self
+                    .module
+                    .declare_func_in_func(self.math.sinh, builder.func),
+                cosh: self
+                    .module
+                    .declare_func_in_func(self.math.cosh, builder.func),
+                tanh: self
+                    .module
+                    .declare_func_in_func(self.math.tanh, builder.func),
             };
 
             // Translate opcodes
@@ -599,11 +673,7 @@ impl JITCompiler {
 
         let func_id = self
             .module
-            .declare_function(
-                "evaluate_fused",
-                Linkage::Local,
-                &self.ctx.func.signature,
-            )
+            .declare_function("evaluate_fused", Linkage::Local, &self.ctx.func.signature)
             .map_err(|e| JITError::ModuleError(format!("failed to declare function: {}", e)))?;
 
         {
@@ -619,18 +689,40 @@ impl JITCompiler {
             let jacobian_ptr = builder.block_params(entry_block)[2];
 
             let math_refs = MathFuncRefs {
-                sin: self.module.declare_func_in_func(self.math.sin, builder.func),
-                cos: self.module.declare_func_in_func(self.math.cos, builder.func),
-                tan: self.module.declare_func_in_func(self.math.tan, builder.func),
-                exp: self.module.declare_func_in_func(self.math.exp, builder.func),
+                sin: self
+                    .module
+                    .declare_func_in_func(self.math.sin, builder.func),
+                cos: self
+                    .module
+                    .declare_func_in_func(self.math.cos, builder.func),
+                tan: self
+                    .module
+                    .declare_func_in_func(self.math.tan, builder.func),
+                exp: self
+                    .module
+                    .declare_func_in_func(self.math.exp, builder.func),
                 ln: self.module.declare_func_in_func(self.math.ln, builder.func),
-                pow: self.module.declare_func_in_func(self.math.pow, builder.func),
-                atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
-                asin: self.module.declare_func_in_func(self.math.asin, builder.func),
-                acos: self.module.declare_func_in_func(self.math.acos, builder.func),
-                sinh: self.module.declare_func_in_func(self.math.sinh, builder.func),
-                cosh: self.module.declare_func_in_func(self.math.cosh, builder.func),
-                tanh: self.module.declare_func_in_func(self.math.tanh, builder.func),
+                pow: self
+                    .module
+                    .declare_func_in_func(self.math.pow, builder.func),
+                atan2: self
+                    .module
+                    .declare_func_in_func(self.math.atan2, builder.func),
+                asin: self
+                    .module
+                    .declare_func_in_func(self.math.asin, builder.func),
+                acos: self
+                    .module
+                    .declare_func_in_func(self.math.acos, builder.func),
+                sinh: self
+                    .module
+                    .declare_func_in_func(self.math.sinh, builder.func),
+                cosh: self
+                    .module
+                    .declare_func_in_func(self.math.cosh, builder.func),
+                tanh: self
+                    .module
+                    .declare_func_in_func(self.math.tanh, builder.func),
             };
 
             // Use fused opcode stream with deduplicated variable loads
@@ -662,10 +754,7 @@ impl JITCompiler {
     /// into dense column-major storage.
     ///
     /// Signature: fn(vars: *const f64, residuals: *mut f64, dense_jacobian: *mut f64)
-    fn compile_fused_dense(
-        &mut self,
-        compiled: &CompiledConstraints,
-    ) -> Result<FuncId, JITError> {
+    fn compile_fused_dense(&mut self, compiled: &CompiledConstraints) -> Result<FuncId, JITError> {
         self.ctx.func.signature.params.clear();
         self.ctx.func.signature.returns.clear();
 
@@ -697,18 +786,40 @@ impl JITCompiler {
             let dense_jac_ptr = builder.block_params(entry_block)[2];
 
             let math_refs = MathFuncRefs {
-                sin: self.module.declare_func_in_func(self.math.sin, builder.func),
-                cos: self.module.declare_func_in_func(self.math.cos, builder.func),
-                tan: self.module.declare_func_in_func(self.math.tan, builder.func),
-                exp: self.module.declare_func_in_func(self.math.exp, builder.func),
+                sin: self
+                    .module
+                    .declare_func_in_func(self.math.sin, builder.func),
+                cos: self
+                    .module
+                    .declare_func_in_func(self.math.cos, builder.func),
+                tan: self
+                    .module
+                    .declare_func_in_func(self.math.tan, builder.func),
+                exp: self
+                    .module
+                    .declare_func_in_func(self.math.exp, builder.func),
                 ln: self.module.declare_func_in_func(self.math.ln, builder.func),
-                pow: self.module.declare_func_in_func(self.math.pow, builder.func),
-                atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
-                asin: self.module.declare_func_in_func(self.math.asin, builder.func),
-                acos: self.module.declare_func_in_func(self.math.acos, builder.func),
-                sinh: self.module.declare_func_in_func(self.math.sinh, builder.func),
-                cosh: self.module.declare_func_in_func(self.math.cosh, builder.func),
-                tanh: self.module.declare_func_in_func(self.math.tanh, builder.func),
+                pow: self
+                    .module
+                    .declare_func_in_func(self.math.pow, builder.func),
+                atan2: self
+                    .module
+                    .declare_func_in_func(self.math.atan2, builder.func),
+                asin: self
+                    .module
+                    .declare_func_in_func(self.math.asin, builder.func),
+                acos: self
+                    .module
+                    .declare_func_in_func(self.math.acos, builder.func),
+                sinh: self
+                    .module
+                    .declare_func_in_func(self.math.sinh, builder.func),
+                cosh: self
+                    .module
+                    .declare_func_in_func(self.math.cosh, builder.func),
+                tanh: self
+                    .module
+                    .declare_func_in_func(self.math.tanh, builder.func),
             };
 
             // Use fused+densified opcode stream
@@ -768,18 +879,40 @@ impl JITCompiler {
             let jacobian_ptr = builder.block_params(entry_block)[1];
 
             let math_refs = MathFuncRefs {
-                sin: self.module.declare_func_in_func(self.math.sin, builder.func),
-                cos: self.module.declare_func_in_func(self.math.cos, builder.func),
-                tan: self.module.declare_func_in_func(self.math.tan, builder.func),
-                exp: self.module.declare_func_in_func(self.math.exp, builder.func),
+                sin: self
+                    .module
+                    .declare_func_in_func(self.math.sin, builder.func),
+                cos: self
+                    .module
+                    .declare_func_in_func(self.math.cos, builder.func),
+                tan: self
+                    .module
+                    .declare_func_in_func(self.math.tan, builder.func),
+                exp: self
+                    .module
+                    .declare_func_in_func(self.math.exp, builder.func),
                 ln: self.module.declare_func_in_func(self.math.ln, builder.func),
-                pow: self.module.declare_func_in_func(self.math.pow, builder.func),
-                atan2: self.module.declare_func_in_func(self.math.atan2, builder.func),
-                asin: self.module.declare_func_in_func(self.math.asin, builder.func),
-                acos: self.module.declare_func_in_func(self.math.acos, builder.func),
-                sinh: self.module.declare_func_in_func(self.math.sinh, builder.func),
-                cosh: self.module.declare_func_in_func(self.math.cosh, builder.func),
-                tanh: self.module.declare_func_in_func(self.math.tanh, builder.func),
+                pow: self
+                    .module
+                    .declare_func_in_func(self.math.pow, builder.func),
+                atan2: self
+                    .module
+                    .declare_func_in_func(self.math.atan2, builder.func),
+                asin: self
+                    .module
+                    .declare_func_in_func(self.math.asin, builder.func),
+                acos: self
+                    .module
+                    .declare_func_in_func(self.math.acos, builder.func),
+                sinh: self
+                    .module
+                    .declare_func_in_func(self.math.sinh, builder.func),
+                cosh: self
+                    .module
+                    .declare_func_in_func(self.math.cosh, builder.func),
+                tanh: self
+                    .module
+                    .declare_func_in_func(self.math.tanh, builder.func),
             };
 
             // Translate opcodes
@@ -901,7 +1034,6 @@ fn translate_ops(
             }
 
             // --- Math functions via libm calls ---
-
             ConstraintOp::Sin { dst, src } => {
                 let src_val = get_reg(&registers, *src)
                     .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
@@ -943,8 +1075,9 @@ fn translate_ops(
             }
 
             ConstraintOp::Pow { dst, base, exp } => {
-                let base_val = get_reg(&registers, *base)
-                    .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", base)))?;
+                let base_val = get_reg(&registers, *base).ok_or_else(|| {
+                    JITError::CodegenError(format!("undefined register {}", base))
+                })?;
                 let exp_val = get_reg(&registers, *exp)
                     .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", exp)))?;
                 let call = builder.ins().call(math_refs.pow, &[base_val, exp_val]);
@@ -1003,7 +1136,6 @@ fn translate_ops(
             }
 
             // --- Non-math ops ---
-
             ConstraintOp::Abs { dst, src } => {
                 let src_val = get_reg(&registers, *src)
                     .ok_or_else(|| JITError::CodegenError(format!("undefined register {}", src)))?;
@@ -1194,12 +1326,7 @@ impl JITFunction {
     /// - `vars` has length >= `variable_count()`
     /// - `residuals` has length >= `residual_count()`
     /// - `jacobian_values` has length >= `jacobian_nnz()`
-    pub fn evaluate_both(
-        &self,
-        vars: &[f64],
-        residuals: &mut [f64],
-        jacobian_values: &mut [f64],
-    ) {
+    pub fn evaluate_both(&self, vars: &[f64], residuals: &mut [f64], jacobian_values: &mut [f64]) {
         debug_assert!(
             vars.len() >= self.n_vars,
             "vars slice too short: {} < {}",

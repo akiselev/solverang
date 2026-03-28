@@ -447,16 +447,21 @@ mod tests {
                 src: crate::jit::Reg::new(0),
             },
         ];
-        assert!(!solver.should_jit(&small_cc), "small problem should not use JIT");
+        assert!(
+            !solver.should_jit(&small_cc),
+            "small problem should not use JIT"
+        );
 
         // Large problem: many ops → should JIT
         let mut large_cc = CompiledConstraints::new(100, 100);
         // Add 200 ops to exceed threshold
         for i in 0..200 {
-            large_cc.residual_ops.push(crate::jit::ConstraintOp::LoadVar {
-                dst: crate::jit::Reg::new(i as u16),
-                var_idx: i.min(99),
-            });
+            large_cc
+                .residual_ops
+                .push(crate::jit::ConstraintOp::LoadVar {
+                    dst: crate::jit::Reg::new(i as u16),
+                    var_idx: i.min(99),
+                });
         }
         assert!(
             solver.should_jit(&large_cc) == crate::jit::jit_available(),

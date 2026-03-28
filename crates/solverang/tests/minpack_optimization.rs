@@ -81,8 +81,7 @@ macro_rules! minpack_bfgs_test {
             let problem = $problem;
             let (status, obj_val, _solution) = solve_via_bfgs(&problem, 1.0, MAX_ITER, TOLERANCE);
             assert!(
-                status == OptimizationStatus::Converged
-                    || obj_val < RESIDUAL_TOL,
+                status == OptimizationStatus::Converged || obj_val < RESIDUAL_TOL,
                 "{}: status={:?}, f(x)={:.6e} (expected < {:.1e})",
                 problem.name(),
                 status,

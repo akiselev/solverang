@@ -47,8 +47,13 @@ impl CompiledNewtonStep {
         debug_assert!(vars_out.len() >= n);
         debug_assert!(scratch.len() >= n + n * n + n);
 
-        let norm =
-            unsafe { (self.step_fn)(vars_in.as_ptr(), vars_out.as_mut_ptr(), scratch.as_mut_ptr()) };
+        let norm = unsafe {
+            (self.step_fn)(
+                vars_in.as_ptr(),
+                vars_out.as_mut_ptr(),
+                scratch.as_mut_ptr(),
+            )
+        };
 
         // If LU decomposition hit a singular pivot, norm will be NaN.
         // In that case, copy vars_in to vars_out unchanged so the caller

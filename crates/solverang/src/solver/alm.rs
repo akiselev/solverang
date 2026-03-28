@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use crate::constraint::Constraint;
 use crate::optimization::{
-    InequalityFn, KktResidual, MultiplierInitStrategy, MultiplierId, MultiplierStore, Objective,
+    InequalityFn, KktResidual, MultiplierId, MultiplierInitStrategy, MultiplierStore, Objective,
     OptimizationConfig, OptimizationResult, OptimizationStatus,
 };
 use crate::param::ParamStore;
@@ -210,10 +210,7 @@ impl AlmSolver {
                 let mut eq_idx = 0;
                 for c in constraints {
                     for row in 0..c.equation_count() {
-                        multiplier_store.set(
-                            MultiplierId::new(c.id(), row),
-                            lambda[eq_idx],
-                        );
+                        multiplier_store.set(MultiplierId::new(c.id(), row), lambda[eq_idx]);
                         eq_idx += 1;
                     }
                 }
@@ -249,10 +246,8 @@ impl AlmSolver {
                     lambda[eq_idx] += rho * r;
                     // Divergence guard: clamp prevents multiplier explosion when
                     // the inner solve does not reduce constraint violation sufficiently.
-                    lambda[eq_idx] = lambda[eq_idx].clamp(
-                        -config.max_multiplier,
-                        config.max_multiplier,
-                    );
+                    lambda[eq_idx] =
+                        lambda[eq_idx].clamp(-config.max_multiplier, config.max_multiplier);
                     eq_idx += 1;
                     let _ = row;
                 }
@@ -276,7 +271,6 @@ impl AlmSolver {
                 rho = (rho * config.rho_growth).min(config.rho_max);
             }
             prev_violation = violation_norm;
-
         }
 
         // Max outer iterations

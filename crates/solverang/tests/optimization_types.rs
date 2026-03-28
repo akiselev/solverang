@@ -104,10 +104,7 @@ fn multiplier_store_lambda_for_constraint() {
 #[test]
 fn optimization_config_defaults() {
     let config = OptimizationConfig::default();
-    assert_eq!(
-        config.algorithm,
-        solverang::OptimizationAlgorithm::Auto
-    );
+    assert_eq!(config.algorithm, solverang::OptimizationAlgorithm::Auto);
     assert!(config.outer_tolerance > 0.0);
     assert!(config.inner_tolerance > 0.0);
     assert!(config.rho_init > 0.0);
@@ -275,9 +272,15 @@ fn constraint_system_optimize_with_equality_constraint() {
         targets: [f64; 2],
     }
     impl Objective for Quad2D {
-        fn id(&self) -> ObjectiveId { self.id }
-        fn name(&self) -> &str { "quad2d" }
-        fn param_ids(&self) -> &[ParamId] { &self.params }
+        fn id(&self) -> ObjectiveId {
+            self.id
+        }
+        fn name(&self) -> &str {
+            "quad2d"
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            &self.params
+        }
         fn value(&self, store: &ParamStore) -> f64 {
             let x = store.get(self.params[0]);
             let y = store.get(self.params[1]);
@@ -299,11 +302,21 @@ fn constraint_system_optimize_with_equality_constraint() {
         target: f64,
     }
     impl Constraint for SumConstraint {
-        fn id(&self) -> ConstraintId { self.id }
-        fn name(&self) -> &str { "sum" }
-        fn entity_ids(&self) -> &[solverang::EntityId] { &[] }
-        fn param_ids(&self) -> &[ParamId] { &self.params }
-        fn equation_count(&self) -> usize { 1 }
+        fn id(&self) -> ConstraintId {
+            self.id
+        }
+        fn name(&self) -> &str {
+            "sum"
+        }
+        fn entity_ids(&self) -> &[solverang::EntityId] {
+            &[]
+        }
+        fn param_ids(&self) -> &[ParamId] {
+            &self.params
+        }
+        fn equation_count(&self) -> usize {
+            1
+        }
         fn residuals(&self, store: &ParamStore) -> Vec<f64> {
             vec![store.get(self.params[0]) + store.get(self.params[1]) - self.target]
         }

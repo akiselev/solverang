@@ -118,7 +118,11 @@ pub fn generate_hessian_entries(
             }
 
             let deriv_tokens = second_deriv.to_tokens();
-            entries.push((var_i.index_tokens.clone(), var_j.index_tokens.clone(), deriv_tokens));
+            entries.push((
+                var_i.index_tokens.clone(),
+                var_j.index_tokens.clone(),
+                deriv_tokens,
+            ));
         }
     }
 

@@ -7,7 +7,7 @@ use solverang::constraint::Constraint;
 use solverang::entity::Entity;
 use solverang::id::{ConstraintId, EntityId, ParamId};
 use solverang::param::ParamStore;
-use solverang::sketch2d::{Collinear, EqualRadius, Ellipse2D, Spline2D};
+use solverang::sketch2d::{Collinear, Ellipse2D, EqualRadius, Spline2D};
 use solverang::ConstraintSystem;
 
 use common::check_jacobian_fd;
@@ -22,7 +22,9 @@ struct TestCtx {
 
 impl TestCtx {
     fn new() -> Self {
-        Self { sys: ConstraintSystem::new() }
+        Self {
+            sys: ConstraintSystem::new(),
+        }
     }
 
     fn entity(&mut self) -> EntityId {
@@ -89,8 +91,18 @@ fn test_ellipse2d_point_at_t0() {
     let th = std::f64::consts::FRAC_PI_4;
     let expected_x = 3.0 + 4.0 * th.cos();
     let expected_y = -1.0 + 4.0 * th.sin();
-    assert!((px - expected_x).abs() < 1e-12, "px={} expected={}", px, expected_x);
-    assert!((py - expected_y).abs() < 1e-12, "py={} expected={}", py, expected_y);
+    assert!(
+        (px - expected_x).abs() < 1e-12,
+        "px={} expected={}",
+        px,
+        expected_x
+    );
+    assert!(
+        (py - expected_y).abs() < 1e-12,
+        "py={} expected={}",
+        py,
+        expected_y
+    );
 }
 
 /// Degenerate ellipse (a == b) is a circle: distance from center must be constant = a.
@@ -115,7 +127,8 @@ fn test_ellipse2d_degenerate_is_circle() {
         assert!(
             (dist - 3.0).abs() < 1e-12,
             "degenerate ellipse at t={}: dist={}, expected 3.0",
-            t, dist
+            t,
+            dist
         );
     }
 }
@@ -177,7 +190,11 @@ fn test_equal_radius_satisfied() {
 
     let c = EqualRadius::new(ctx.cid(), e1, r1, e2, r2);
     let res = c.residuals(&store);
-    assert!(res[0].abs() < 1e-15, "equal radii must give residual=0, got {}", res[0]);
+    assert!(
+        res[0].abs() < 1e-15,
+        "equal radii must give residual=0, got {}",
+        res[0]
+    );
 }
 
 #[test]
@@ -192,7 +209,11 @@ fn test_equal_radius_unsatisfied() {
     let c = EqualRadius::new(ctx.cid(), e1, r1, e2, r2);
     let res = c.residuals(&store);
     // R = r1 - r2 = 4.0
-    assert!((res[0] - 4.0).abs() < 1e-15, "residual should be 4.0, got {}", res[0]);
+    assert!(
+        (res[0] - 4.0).abs() < 1e-15,
+        "residual should be 4.0, got {}",
+        res[0]
+    );
 }
 
 // =============================================================================
@@ -236,7 +257,11 @@ fn test_collinear_satisfied() {
 
     let c = Collinear::new(ctx.cid(), e1, x1, y1, e2, x2, y2, e3, x3, y3);
     let res = c.residuals(&store);
-    assert!(res[0].abs() < 1e-15, "collinear points must give residual=0, got {}", res[0]);
+    assert!(
+        res[0].abs() < 1e-15,
+        "collinear points must give residual=0, got {}",
+        res[0]
+    );
 }
 
 #[test]
@@ -257,7 +282,11 @@ fn test_collinear_unsatisfied() {
     let c = Collinear::new(ctx.cid(), e1, x1, y1, e2, x2, y2, e3, x3, y3);
     let res = c.residuals(&store);
     // R = (1-0)*(1-0) - (0-0)*(0-0) = 1
-    assert!(res[0].abs() > 0.5, "non-collinear points must give nonzero residual, got {}", res[0]);
+    assert!(
+        res[0].abs() > 0.5,
+        "non-collinear points must give nonzero residual, got {}",
+        res[0]
+    );
 }
 
 // =============================================================================

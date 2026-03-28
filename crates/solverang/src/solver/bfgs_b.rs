@@ -107,11 +107,16 @@ impl BfgsBSolver {
 
             // Compute search direction via Generalized Cauchy Point + subspace minimization.
             let gamma = compute_gamma(&s_history, &y_history);
-            let (x_cauchy, active_set) =
-                generalized_cauchy_point(&x, &grad, &lower, &upper, gamma);
-            let correction =
-                subspace_minimization(&x_cauchy, &grad, &active_set, &lower, &upper,
-                                       &s_history, &y_history);
+            let (x_cauchy, active_set) = generalized_cauchy_point(&x, &grad, &lower, &upper, gamma);
+            let correction = subspace_minimization(
+                &x_cauchy,
+                &grad,
+                &active_set,
+                &lower,
+                &upper,
+                &s_history,
+                &y_history,
+            );
             let mut direction: Vec<f64> = x_cauchy
                 .iter()
                 .zip(&correction)
@@ -122,8 +127,12 @@ impl BfgsBSolver {
             // Fallback: if GCP produces a degenerate zero direction, use
             // projected steepest descent.
             if vec_norm(&direction) < 1e-15 {
-                direction = project_direction(&grad.iter().map(|g| -g).collect::<Vec<_>>(),
-                                              &x, &lower, &upper);
+                direction = project_direction(
+                    &grad.iter().map(|g| -g).collect::<Vec<_>>(),
+                    &x,
+                    &lower,
+                    &upper,
+                );
                 // If projected steepest descent is also zero, we are at a
                 // corner of the feasible box — converged.
                 if vec_norm(&direction) < 1e-15 {
@@ -152,8 +161,12 @@ impl BfgsBSolver {
             if dg >= 0.0 {
                 s_history.clear();
                 y_history.clear();
-                direction = project_direction(&grad.iter().map(|g| -g).collect::<Vec<_>>(),
-                                              &x, &lower, &upper);
+                direction = project_direction(
+                    &grad.iter().map(|g| -g).collect::<Vec<_>>(),
+                    &x,
+                    &lower,
+                    &upper,
+                );
                 if vec_norm(&direction) < 1e-15 {
                     write_x_to_store(store, param_ids, &x);
                     return OptimizationResult {
@@ -175,22 +188,21 @@ impl BfgsBSolver {
 
             // Line search along the projected direction.
             let (alpha, f_new) = line_search::line_search(
-                objective,
-                store,
-                param_ids,
-                &x,
-                &direction,
-                f,
-                &grad,
-                config,
+                objective, store, param_ids, &x, &direction, f, &grad, config,
             );
 
             // Compute new iterate and project onto box.
-            let mut x_new: Vec<f64> =
-                x.iter().zip(&direction).map(|(xi, di)| xi + alpha * di).collect();
+            let mut x_new: Vec<f64> = x
+                .iter()
+                .zip(&direction)
+                .map(|(xi, di)| xi + alpha * di)
+                .collect();
             project(&mut x_new, &lower, &upper);
             debug_assert!(
-                x_new.iter().zip(lower.iter()).zip(upper.iter())
+                x_new
+                    .iter()
+                    .zip(lower.iter())
+                    .zip(upper.iter())
                     .all(|((xi, lo), hi)| *xi >= *lo && *xi <= *hi),
                 "BfgsB bounds invariant violated after projection"
             );
@@ -203,18 +215,32 @@ impl BfgsBSolver {
 
             // Project gradients: zero out components where the iterate is at a bound
             // and the gradient would push further into the bound
-            let pg_new: Vec<f64> = grad_new.iter().enumerate()
+            let pg_new: Vec<f64> = grad_new
+                .iter()
+                .enumerate()
                 .map(|(i, &g)| {
-                    if x_new[i] <= lower[i] && g > 0.0 { 0.0 }
-                    else if x_new[i] >= upper[i] && g < 0.0 { 0.0 }
-                    else { g }
-                }).collect();
-            let pg_old: Vec<f64> = grad.iter().enumerate()
+                    if x_new[i] <= lower[i] && g > 0.0 {
+                        0.0
+                    } else if x_new[i] >= upper[i] && g < 0.0 {
+                        0.0
+                    } else {
+                        g
+                    }
+                })
+                .collect();
+            let pg_old: Vec<f64> = grad
+                .iter()
+                .enumerate()
                 .map(|(i, &g)| {
-                    if x[i] <= lower[i] && g > 0.0 { 0.0 }
-                    else if x[i] >= upper[i] && g < 0.0 { 0.0 }
-                    else { g }
-                }).collect();
+                    if x[i] <= lower[i] && g > 0.0 {
+                        0.0
+                    } else if x[i] >= upper[i] && g < 0.0 {
+                        0.0
+                    } else {
+                        g
+                    }
+                })
+                .collect();
             let y: Vec<f64> = pg_new.iter().zip(&pg_old).map(|(a, b)| a - b).collect();
 
             update_lbfgs_history(&mut s_history, &mut y_history, s, y, m);
@@ -343,7 +369,10 @@ fn generalized_cauchy_point(
     // Path derivative at t=0: fp = gᵀ d where d[i] = -g[i] for free vars.
     // fp = -sum_{free} g[i]^2
     // fpp = gamma * sum_{free} g[i]^2 = -gamma * fp
-    let mut fp: f64 = -(0..n).filter(|&i| !active[i]).map(|i| grad[i] * grad[i]).sum::<f64>();
+    let mut fp: f64 = -(0..n)
+        .filter(|&i| !active[i])
+        .map(|i| grad[i] * grad[i])
+        .sum::<f64>();
     let mut fpp: f64 = -gamma * fp; // = gamma * sum g_i^2
 
     if fpp < 1e-30 || fp >= 0.0 {

@@ -320,6 +320,79 @@ impl Sketch2DBuilder {
         cid
     }
 
+    /// Constrain two circles to share the same center (concentric).
+    ///
+    /// Reuses `Coincident` on the center parameters of each circle.
+    pub fn constrain_concentric(&mut self, c1: EntityId, c2: EntityId) -> ConstraintId {
+        let (cx1, cy1, _) = self.circle_params(c1);
+        let (cx2, cy2, _) = self.circle_params(c2);
+        let cid = self.alloc_constraint_id();
+        let c = Coincident::new(cid, c1, c2, cx1, cy1, cx2, cy2);
+        self.system.add_constraint(Box::new(c));
+        cid
+    }
+
+    /// Constrain two circles to be externally tangent (center distance = r1 + r2).
+    pub fn constrain_tangent_circle_circle(
+        &mut self,
+        c1: EntityId,
+        c2: EntityId,
+    ) -> ConstraintId {
+        let (cx1, cy1, r1) = self.circle_params(c1);
+        let (cx2, cy2, r2) = self.circle_params(c2);
+        let cid = self.alloc_constraint_id();
+        let c = TangentCircleCircle::external(cid, c1, c2, cx1, cy1, r1, cx2, cy2, r2);
+        self.system.add_constraint(Box::new(c));
+        cid
+    }
+
+    /// Constrain three point entities to be collinear.
+    pub fn constrain_collinear(
+        &mut self,
+        p1: EntityId,
+        p2: EntityId,
+        p3: EntityId,
+    ) -> ConstraintId {
+        let (x1, y1) = self.point_params(p1);
+        let (x2, y2) = self.point_params(p2);
+        let (x3, y3) = self.point_params(p3);
+        let cid = self.alloc_constraint_id();
+        let c = Collinear::new(cid, p1, x1, y1, p2, x2, y2, p3, x3, y3);
+        self.system.add_constraint(Box::new(c));
+        cid
+    }
+
+    /// Constrain two circle entities to have equal radii.
+    pub fn constrain_equal_radius(&mut self, c1: EntityId, c2: EntityId) -> ConstraintId {
+        let (_, _, r1) = self.circle_params(c1);
+        let (_, _, r2) = self.circle_params(c2);
+        let cid = self.alloc_constraint_id();
+        let c = EqualRadius::new(cid, c1, r1, c2, r2);
+        self.system.add_constraint(Box::new(c));
+        cid
+    }
+
+    /// Constrain two point entities to be mirror-symmetric about a line entity.
+    ///
+    /// The line entity must be a `LineSegment2D` (or anything registered with 4 params:
+    /// ax, ay, bx, by).  Two residual equations are enforced:
+    /// - The midpoint of P1,P2 lies on line AB.
+    /// - The segment P1P2 is perpendicular to AB.
+    pub fn constrain_symmetric_about_line(
+        &mut self,
+        p1: EntityId,
+        p2: EntityId,
+        line: EntityId,
+    ) -> ConstraintId {
+        let (p1x, p1y) = self.point_params(p1);
+        let (p2x, p2y) = self.point_params(p2);
+        let (ax, ay, bx, by) = self.line_params(line);
+        let cid = self.alloc_constraint_id();
+        let c = SymmetricAboutLine::new(cid, p1, p2, line, p1x, p1y, p2x, p2y, ax, ay, bx, by);
+        self.system.add_constraint(Box::new(c));
+        cid
+    }
+
     // ======================================================================
     // Fixing parameters / entities
     // ======================================================================
@@ -372,6 +445,7 @@ impl Sketch2DBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::system::SystemStatus;
 
     #[test]
     fn test_builder_add_point() {
@@ -630,5 +704,202 @@ mod tests {
 
         let r = sys.compute_residuals();
         assert!(r[0].abs() < 1e-12); // Already satisfied
+    }
+
+    // -----------------------------------------------------------------------
+    // New builder methods
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_constrain_concentric() {
+        // Two circles at different centers; constrain concentric and solve.
+        // Fix c1 fully; fix c2's radius. After solve, c2's center must match c1's.
+        let mut b = Sketch2DBuilder::new();
+        let c1 = b.add_circle(3.0, 4.0, 2.0);
+        let c2 = b.add_circle(7.0, 8.0, 5.0);
+        b.constrain_concentric(c1, c2);
+
+        let params1 = b.entity_param_ids(c1).to_vec(); // [cx1, cy1, r1]
+        let params2 = b.entity_param_ids(c2).to_vec(); // [cx2, cy2, r2]
+        b.fix_param(params1[0]);
+        b.fix_param(params1[1]);
+        b.fix_param(params1[2]);
+        b.fix_param(params2[2]); // only radii are independent of concentric
+
+        let mut sys = b.build();
+        let result = sys.solve();
+        assert!(
+            matches!(result.status, SystemStatus::Solved | SystemStatus::PartiallySolved),
+            "solver did not converge"
+        );
+
+        let cx1 = sys.params().get(params1[0]);
+        let cy1 = sys.params().get(params1[1]);
+        let cx2 = sys.params().get(params2[0]);
+        let cy2 = sys.params().get(params2[1]);
+        assert!((cx2 - cx1).abs() < 1e-8, "cx mismatch: {} vs {}", cx2, cx1);
+        assert!((cy2 - cy1).abs() < 1e-8, "cy mismatch: {} vs {}", cy2, cy1);
+    }
+
+    #[test]
+    fn test_constrain_tangent_circle_circle() {
+        // Two circles constrained externally tangent.
+        // Fix c1 fully; fix c2's center-x and radius. After solve, dist = r1 + r2.
+        let mut b = Sketch2DBuilder::new();
+        let c1 = b.add_circle(0.0, 0.0, 3.0);
+        // Place c2 at cy=7.0 (= r1+r2) so the squared-formulation residual starts
+        // close to zero and the single-step scalar solver converges exactly.
+        let c2 = b.add_circle(0.0, 7.0, 4.0);
+        b.constrain_tangent_circle_circle(c1, c2);
+
+        let p1 = b.entity_param_ids(c1).to_vec();
+        let p2 = b.entity_param_ids(c2).to_vec();
+        b.fix_param(p1[0]);
+        b.fix_param(p1[1]);
+        b.fix_param(p1[2]);
+        b.fix_param(p2[0]); // fix cx2 on x-axis
+        b.fix_param(p2[2]); // fix r2
+
+        let mut sys = b.build();
+        let result = sys.solve();
+        assert!(
+            matches!(result.status, SystemStatus::Solved | SystemStatus::PartiallySolved),
+            "solver did not converge"
+        );
+
+        let cx1v = sys.params().get(p1[0]);
+        let cy1v = sys.params().get(p1[1]);
+        let r1v = sys.params().get(p1[2]);
+        let cx2v = sys.params().get(p2[0]);
+        let cy2v = sys.params().get(p2[1]);
+        let r2v = sys.params().get(p2[2]);
+
+        let dist = ((cx2v - cx1v).powi(2) + (cy2v - cy1v).powi(2)).sqrt();
+        let rsum = r1v + r2v;
+        assert!(
+            (dist - rsum).abs() < 1e-6,
+            "external tangency not satisfied: dist={}, r1+r2={}",
+            dist,
+            rsum
+        );
+    }
+
+    #[test]
+    fn test_constrain_collinear() {
+        // Three points constrained collinear.
+        // p1 and p2 are fixed on the x-axis; p3 starts off-axis and must move onto it.
+        let mut b = Sketch2DBuilder::new();
+        let p1 = b.add_fixed_point(0.0, 0.0);
+        let p2 = b.add_fixed_point(10.0, 0.0);
+        let p3 = b.add_point(5.0, 3.0); // off the x-axis
+        b.constrain_collinear(p1, p2, p3);
+
+        // Capture p1/p2/p3 param IDs before build.
+        let pp1 = b.entity_param_ids(p1).to_vec(); // [x1, y1]
+        let pp2 = b.entity_param_ids(p2).to_vec(); // [x2, y2]
+        let pp3 = b.entity_param_ids(p3).to_vec(); // [x3, y3]
+        // Fix x3 so p3 can only slide vertically onto the line.
+        b.fix_param(pp3[0]);
+
+        let mut sys = b.build();
+        let result = sys.solve();
+        assert!(
+            matches!(result.status, SystemStatus::Solved | SystemStatus::PartiallySolved),
+            "solver did not converge"
+        );
+
+        let x1v = sys.params().get(pp1[0]);
+        let y1v = sys.params().get(pp1[1]);
+        let x2v = sys.params().get(pp2[0]);
+        let y2v = sys.params().get(pp2[1]);
+        let x3v = sys.params().get(pp3[0]);
+        let y3v = sys.params().get(pp3[1]);
+
+        // Cross product (p2-p1)×(p3-p1) must be zero for collinearity.
+        let cross = (x2v - x1v) * (y3v - y1v) - (y2v - y1v) * (x3v - x1v);
+        assert!(cross.abs() < 1e-8, "cross product = {}", cross);
+    }
+
+    #[test]
+    fn test_constrain_equal_radius() {
+        // Two circles with different radii; constrain equal radius.
+        // Fix c1's center and radius; fix c2's center. Let r2 float.
+        let mut b = Sketch2DBuilder::new();
+        let c1 = b.add_circle(0.0, 0.0, 5.0);
+        let c2 = b.add_circle(10.0, 0.0, 3.0);
+        b.constrain_equal_radius(c1, c2);
+
+        let p1 = b.entity_param_ids(c1).to_vec();
+        let p2 = b.entity_param_ids(c2).to_vec();
+        b.fix_param(p1[0]);
+        b.fix_param(p1[1]);
+        b.fix_param(p1[2]); // fix r1=5
+        b.fix_param(p2[0]);
+        b.fix_param(p2[1]);
+
+        let mut sys = b.build();
+        let result = sys.solve();
+        assert!(
+            matches!(result.status, SystemStatus::Solved | SystemStatus::PartiallySolved),
+            "solver did not converge"
+        );
+
+        let r1v = sys.params().get(p1[2]);
+        let r2v = sys.params().get(p2[2]);
+        assert!((r1v - r2v).abs() < 1e-8, "radii mismatch: r1={}, r2={}", r1v, r2v);
+    }
+
+    #[test]
+    fn test_constrain_symmetric_about_line() {
+        // Mirror line: the x-axis. Fix line endpoints and p1.
+        // p2 starts at wrong position; must move to be symmetric.
+        let mut b = Sketch2DBuilder::new();
+        let pa = b.add_fixed_point(0.0, 0.0); // line endpoint A
+        let pb = b.add_fixed_point(1.0, 0.0); // line endpoint B (x-axis)
+        let line = b.add_line_segment(pa, pb);
+        let p1 = b.add_fixed_point(3.0, 2.0);
+        let p2 = b.add_point(3.0, 1.0); // wrong; should be (3, -2)
+        b.constrain_symmetric_about_line(p1, p2, line);
+
+        let pp2 = b.entity_param_ids(p2).to_vec();
+        // Fix x-coordinate of p2 so only y can move.
+        b.fix_param(pp2[0]);
+
+        let mut sys = b.build();
+        let result = sys.solve();
+        assert!(
+            matches!(result.status, SystemStatus::Solved | SystemStatus::PartiallySolved),
+            "solver did not converge"
+        );
+
+        let r = sys.compute_residuals();
+        for (i, rv) in r.iter().enumerate() {
+            assert!(rv.abs() < 1e-8, "residual[{}] = {} after solve", i, rv);
+        }
+    }
+
+    #[test]
+    fn test_constrain_symmetric_about_vertical_line() {
+        // Mirror line: y-axis (x=0), A=(0,0) to B=(0,1).
+        // p1=(-4, 5) must reflect to p2=(4, 5).
+        let mut b = Sketch2DBuilder::new();
+        let pa = b.add_fixed_point(0.0, 0.0);
+        let pb = b.add_fixed_point(0.0, 1.0);
+        let line = b.add_line_segment(pa, pb);
+        let p1 = b.add_fixed_point(-4.0, 5.0);
+        let p2 = b.add_point(1.0, 1.0); // wrong initial guess
+        b.constrain_symmetric_about_line(p1, p2, line);
+
+        let mut sys = b.build();
+        let result = sys.solve();
+        assert!(
+            matches!(result.status, SystemStatus::Solved | SystemStatus::PartiallySolved),
+            "solver did not converge"
+        );
+
+        let r = sys.compute_residuals();
+        for (i, rv) in r.iter().enumerate() {
+            assert!(rv.abs() < 1e-8, "residual[{}] = {} after solve", i, rv);
+        }
     }
 }
