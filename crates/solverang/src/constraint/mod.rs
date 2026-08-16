@@ -15,6 +15,11 @@
 //!   point arrays. This allows constraints over any combination of parameters.
 //!
 //! - **No geometry types** — the solver never sees `Point2D`, `Circle`, etc.
+//! - **Symbolic export is optional** — [`symbolic::SymbolicConstraint`] is a
+//!   companion capability for exact algebra/diagnostics and does not replace the
+//!   fast numeric residual/Jacobian path.
+
+pub mod symbolic;
 
 use crate::id::{ConstraintId, EntityId, ParamId};
 use crate::param::ParamStore;
