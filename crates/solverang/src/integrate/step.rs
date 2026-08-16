@@ -69,11 +69,7 @@ pub(crate) enum StepOutcome {
 enum Stage {
     /// A BDF stage: `G(x) = a0·q(t_np1,x) + hist + g(t_np1,x)`, iteration matrix
     /// `bdf(a0)`. `hist = Σ_{j≥1} a_j q^{n+1−j}` is precomputed (constant in `x`).
-    Bdf {
-        t_np1: f64,
-        a0: f64,
-        hist: Vec<f64>,
-    },
+    Bdf { t_np1: f64, a0: f64, hist: Vec<f64> },
     /// A generalized-α stage evaluated at the intermediate `(t_αf, x_αf)`, applying
     /// the mass action to `ẋ_αm`. Iteration matrix `generalized_alpha(c_a, 0, c_d)`.
     GenAlpha {
@@ -163,8 +159,9 @@ impl<'a, D: DaeResidual<f64> + Sync> DaeStepProblem<'a, D> {
             } => {
                 let inv = 1.0 / (gamma * h);
                 let c1 = (1.0 - gamma) / gamma;
-                let xdot_np1: Vec<f64> =
-                    (0..n).map(|i| inv * (x[i] - x_n[i]) - c1 * xdot_n[i]).collect();
+                let xdot_np1: Vec<f64> = (0..n)
+                    .map(|i| inv * (x[i] - x_n[i]) - c1 * xdot_n[i])
+                    .collect();
                 let x_af: Vec<f64> = (0..n).map(|i| x_n[i] + alpha_f * (x[i] - x_n[i])).collect();
                 let xdot_am: Vec<f64> = (0..n)
                     .map(|i| xdot_n[i] + alpha_m * (xdot_np1[i] - xdot_n[i]))
@@ -178,7 +175,11 @@ impl<'a, D: DaeResidual<f64> + Sync> DaeStepProblem<'a, D> {
                     return 0.0;
                 }
                 let mut g = vec![0.0; n];
-                if self.dae.residual_at(self.ctx, *t_af, &x_af, &mut g).is_err() {
+                if self
+                    .dae
+                    .residual_at(self.ctx, *t_af, &x_af, &mut g)
+                    .is_err()
+                {
                     return 0.0;
                 }
                 let acc = (0..n)
@@ -236,14 +237,18 @@ impl<D: DaeResidual<f64> + Sync> Problem for DaeStepProblem<'_, D> {
                 // ẋ^{n+1} = (x − x_n)/(γ h) − ((1−γ)/γ) ẋ_n
                 let inv = 1.0 / (gamma * h);
                 let c1 = (1.0 - gamma) / gamma;
-                let xdot_np1: Vec<f64> =
-                    (0..n).map(|i| inv * (x[i] - x_n[i]) - c1 * xdot_n[i]).collect();
+                let xdot_np1: Vec<f64> = (0..n)
+                    .map(|i| inv * (x[i] - x_n[i]) - c1 * xdot_n[i])
+                    .collect();
                 let x_af: Vec<f64> = (0..n).map(|i| x_n[i] + alpha_f * (x[i] - x_n[i])).collect();
                 let xdot_am: Vec<f64> = (0..n)
                     .map(|i| xdot_n[i] + alpha_m * (xdot_np1[i] - xdot_n[i]))
                     .collect();
                 let mut m = vec![0.0; n];
-                if let Err(e) = self.dae.mass_apply(self.ctx, *t_af, &x_af, &xdot_am, &mut m) {
+                if let Err(e) = self
+                    .dae
+                    .mass_apply(self.ctx, *t_af, &x_af, &xdot_am, &mut m)
+                {
                     self.record_error(e);
                     return vec![f64::NAN; n];
                 }
@@ -587,9 +592,7 @@ fn solve_stage<D: DaeResidual<f64> + Sync>(
             residual_norm,
             ..
         } => Ok((Some(solution), residual_norm, iters)),
-        SolveResult::NotConverged {
-            residual_norm, ..
-        } => Ok((None, residual_norm, iters)),
+        SolveResult::NotConverged { residual_norm, .. } => Ok((None, residual_norm, iters)),
         SolveResult::Failed { .. } => Ok((None, f64::INFINITY, iters)),
     }
 }

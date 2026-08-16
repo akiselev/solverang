@@ -103,12 +103,24 @@ mod tests {
         fn constant_f64_exact(&mut self, value: f64) -> Option<SymbolicNode> {
             value.is_finite().then(|| self.node())
         }
-        fn add(&mut self, _: SymbolicNode, _: SymbolicNode) -> SymbolicNode { self.node() }
-        fn sub(&mut self, _: SymbolicNode, _: SymbolicNode) -> SymbolicNode { self.node() }
-        fn mul(&mut self, _: SymbolicNode, _: SymbolicNode) -> SymbolicNode { self.node() }
-        fn div(&mut self, _: SymbolicNode, _: SymbolicNode) -> SymbolicNode { self.node() }
-        fn pow_i(&mut self, _: SymbolicNode, _: i32) -> SymbolicNode { self.node() }
-        fn apply(&mut self, _: &str, _: &[SymbolicNode]) -> SymbolicNode { self.node() }
+        fn add(&mut self, _: SymbolicNode, _: SymbolicNode) -> SymbolicNode {
+            self.node()
+        }
+        fn sub(&mut self, _: SymbolicNode, _: SymbolicNode) -> SymbolicNode {
+            self.node()
+        }
+        fn mul(&mut self, _: SymbolicNode, _: SymbolicNode) -> SymbolicNode {
+            self.node()
+        }
+        fn div(&mut self, _: SymbolicNode, _: SymbolicNode) -> SymbolicNode {
+            self.node()
+        }
+        fn pow_i(&mut self, _: SymbolicNode, _: i32) -> SymbolicNode {
+            self.node()
+        }
+        fn apply(&mut self, _: &str, _: &[SymbolicNode]) -> SymbolicNode {
+            self.node()
+        }
     }
 
     #[test]

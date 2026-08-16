@@ -141,7 +141,10 @@ fn verdict(mut system: solverang::ConstraintSystem, track: Option<solverang::Ent
         conflicts,
         rank_deficiency,
     };
-    eprintln!("  solverang verdict: {v:?} (solve status {:?})", result.status);
+    eprintln!(
+        "  solverang verdict: {v:?} (solve status {:?})",
+        result.status
+    );
     if v.solve_solved && !v.consistent() {
         // The S5 divergence surfacing in the lane: solve() accepted a system the
         // classification (conflict + residual) marks inconsistent.
@@ -171,8 +174,16 @@ fn s1_coincident_grounded_is_well_defined() {
     let v = verdict(b.build(), Some(p1.entity_id()));
 
     assert!(v.consistent(), "S1 must be consistent (D-Cubed: SUCCEEDED)");
-    assert!(v.well_defined(), "S1 must be well-defined, 0 DOF (D-Cubed: dof_count=0); got total_dof={}", v.total_dof);
-    assert_eq!(v.entity_dof, Some(0), "S1 p1 per-entity DOF (D-Cubed underdefined_dof=0)");
+    assert!(
+        v.well_defined(),
+        "S1 must be well-defined, 0 DOF (D-Cubed: dof_count=0); got total_dof={}",
+        v.total_dof
+    );
+    assert_eq!(
+        v.entity_dof,
+        Some(0),
+        "S1 p1 per-entity DOF (D-Cubed underdefined_dof=0)"
+    );
     assert!(!v.over_constrained(), "S1 has no redundancy");
     assert_eq!(v.conflicts, 0);
 }
@@ -198,9 +209,20 @@ fn s2_distance_grounded_is_under_defined_by_rotation() {
     let v = verdict(b.build(), Some(p1.entity_id()));
 
     assert!(v.consistent(), "S2 must be consistent (D-Cubed: SUCCEEDED)");
-    assert!(v.under_defined(), "S2 must be under-defined (D-Cubed: POSITION_UNDERDEFINED); got total_dof={}", v.total_dof);
-    assert_eq!(v.total_dof, 1, "S2 residual DOF = 1 rotation (D-Cubed dof_count=1)");
-    assert_eq!(v.entity_dof, Some(1), "S2 p1 per-entity DOF (D-Cubed underdefined_dof=1)");
+    assert!(
+        v.under_defined(),
+        "S2 must be under-defined (D-Cubed: POSITION_UNDERDEFINED); got total_dof={}",
+        v.total_dof
+    );
+    assert_eq!(
+        v.total_dof, 1,
+        "S2 residual DOF = 1 rotation (D-Cubed dof_count=1)"
+    );
+    assert_eq!(
+        v.entity_dof,
+        Some(1),
+        "S2 p1 per-entity DOF (D-Cubed underdefined_dof=1)"
+    );
     assert!(!v.over_constrained(), "S2 has no redundancy");
 }
 
@@ -229,8 +251,16 @@ fn s3_rigid_triangle_grounded_edge_is_well_defined() {
     let v = verdict(b.build(), Some(p2.entity_id()));
 
     assert!(v.consistent(), "S3 must be consistent (D-Cubed: SUCCEEDED)");
-    assert!(v.well_defined(), "S3 must be well-defined, 0 DOF (D-Cubed: dof_count=0); got total_dof={}", v.total_dof);
-    assert_eq!(v.entity_dof, Some(0), "S3 p2 per-entity DOF (D-Cubed underdefined_dof=0)");
+    assert!(
+        v.well_defined(),
+        "S3 must be well-defined, 0 DOF (D-Cubed: dof_count=0); got total_dof={}",
+        v.total_dof
+    );
+    assert_eq!(
+        v.entity_dof,
+        Some(0),
+        "S3 p2 per-entity DOF (D-Cubed underdefined_dof=0)"
+    );
     assert!(!v.over_constrained(), "S3 has no redundancy");
 }
 
@@ -258,9 +288,20 @@ fn s4_redundant_distance_is_over_constrained_but_consistent() {
 
     let v = verdict(b.build(), Some(p1.entity_id()));
 
-    assert!(v.consistent(), "S4 must stay consistent — redundancy is not conflict (D-Cubed: SUCCEEDED)");
-    assert!(v.over_constrained(), "S4 must show rank deficiency (D-Cubed: dof_result=UNKNOWN); rank_deficiency={}", v.rank_deficiency);
-    assert!(v.redundant >= 1, "S4 must flag >=1 redundant constraint; got {}", v.redundant);
+    assert!(
+        v.consistent(),
+        "S4 must stay consistent — redundancy is not conflict (D-Cubed: SUCCEEDED)"
+    );
+    assert!(
+        v.over_constrained(),
+        "S4 must show rank deficiency (D-Cubed: dof_result=UNKNOWN); rank_deficiency={}",
+        v.rank_deficiency
+    );
+    assert!(
+        v.redundant >= 1,
+        "S4 must flag >=1 redundant constraint; got {}",
+        v.redundant
+    );
     assert_eq!(v.conflicts, 0, "S4 is redundant, not conflicting");
 }
 
@@ -284,12 +325,26 @@ fn s5_conflict_distance_is_inconsistent() {
 
     let v = verdict(b.build(), Some(p1.entity_id()));
 
-    assert!(!v.consistent(), "S5 must be inconsistent (D-Cubed: NOT_SATISFIED)");
-    assert!(v.conflicts >= 1, "S5 must flag a conflicting constraint group; got {}", v.conflicts);
-    assert!(v.over_constrained(), "S5 must show rank deficiency (D-Cubed: dof_result=UNKNOWN)");
+    assert!(
+        !v.consistent(),
+        "S5 must be inconsistent (D-Cubed: NOT_SATISFIED)"
+    );
+    assert!(
+        v.conflicts >= 1,
+        "S5 must flag a conflicting constraint group; got {}",
+        v.conflicts
+    );
+    assert!(
+        v.over_constrained(),
+        "S5 must show rank deficiency (D-Cubed: dof_result=UNKNOWN)"
+    );
     // The residual left after solving is large (~1.5): the two radii cannot both
     // be met. This is what makes `consistent()` false.
-    assert!(v.max_residual > 1.0, "S5 solved state must still violate a constraint; max_residual={}", v.max_residual);
+    assert!(
+        v.max_residual > 1.0,
+        "S5 solved state must still violate a constraint; max_residual={}",
+        v.max_residual
+    );
 }
 
 // ---------------------------------------------------------------------------

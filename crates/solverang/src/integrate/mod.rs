@@ -285,7 +285,15 @@ pub fn integrate_dae<D: DaeResidual<f64> + Sync>(
                     opts.newton_rtol,
                 ),
                 Method::GeneralizedAlpha { rho_inf } => gen_alpha_step(
-                    dae, ctx, t_prev, h_try, rho_inf, &x_prev, &xdot_prev, &x_pred, &newton_cfg,
+                    dae,
+                    ctx,
+                    t_prev,
+                    h_try,
+                    rho_inf,
+                    &x_prev,
+                    &xdot_prev,
+                    &x_pred,
+                    &newton_cfg,
                     opts.newton_rtol,
                 ),
             };
@@ -425,11 +433,7 @@ fn charge_at<D: DaeResidual<f64> + Sync>(
     Ok(q)
 }
 
-fn failed(
-    times: Vec<f64>,
-    states: Vec<Vec<f64>>,
-    error: IntegrateError,
-) -> Trajectory {
+fn failed(times: Vec<f64>, states: Vec<Vec<f64>>, error: IntegrateError) -> Trajectory {
     Trajectory {
         times,
         states,

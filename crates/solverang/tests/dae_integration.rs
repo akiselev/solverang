@@ -12,7 +12,7 @@
 //! - typed, panic-free error reporting.
 
 use numeric_contracts::{
-    Ctx, CooMatrix, DaeIndex, DaeResidual, IntegratorCoeffs, Jacobian, NumericError, SparseMatrix,
+    CooMatrix, Ctx, DaeIndex, DaeResidual, IntegratorCoeffs, Jacobian, NumericError, SparseMatrix,
 };
 use solverang::integrate::{
     integrate_dae, IntegrateError, IntegrateStatus, IntegratorOptions, Method,
@@ -52,7 +52,13 @@ impl Jacobian<f64> for ScalarDecay {
 }
 
 impl DaeResidual<f64> for ScalarDecay {
-    fn residual_at(&self, _c: &Ctx, _t: f64, x: &[f64], out: &mut [f64]) -> Result<(), NumericError> {
+    fn residual_at(
+        &self,
+        _c: &Ctx,
+        _t: f64,
+        x: &[f64],
+        out: &mut [f64],
+    ) -> Result<(), NumericError> {
         out[0] = self.lambda * x[0];
         Ok(())
     }
@@ -119,7 +125,13 @@ impl Jacobian<f64> for StiffDiagonal {
 }
 
 impl DaeResidual<f64> for StiffDiagonal {
-    fn residual_at(&self, _c: &Ctx, _t: f64, x: &[f64], out: &mut [f64]) -> Result<(), NumericError> {
+    fn residual_at(
+        &self,
+        _c: &Ctx,
+        _t: f64,
+        x: &[f64],
+        out: &mut [f64],
+    ) -> Result<(), NumericError> {
         for (i, &l) in self.lambdas.iter().enumerate() {
             out[i] = l * x[i];
         }
@@ -192,7 +204,13 @@ impl Jacobian<f64> for Index1Dae {
 }
 
 impl DaeResidual<f64> for Index1Dae {
-    fn residual_at(&self, _c: &Ctx, _t: f64, x: &[f64], out: &mut [f64]) -> Result<(), NumericError> {
+    fn residual_at(
+        &self,
+        _c: &Ctx,
+        _t: f64,
+        x: &[f64],
+        out: &mut [f64],
+    ) -> Result<(), NumericError> {
         out[0] = x[0];
         out[1] = x[1] - x[0];
         Ok(())
@@ -296,11 +314,18 @@ fn stiff_system_is_a_stable() {
     // No blow-up: every recorded state stays within the initial magnitude.
     for st in &traj.states {
         assert!(st.iter().all(|v| v.is_finite()), "non-finite state");
-        assert!(st[0].abs() <= 1.0 + 1e-9 && st[1].abs() <= 1.0 + 1e-9, "state grew: {st:?}");
+        assert!(
+            st[0].abs() <= 1.0 + 1e-9 && st[1].abs() <= 1.0 + 1e-9,
+            "state grew: {st:?}"
+        );
     }
     let end = traj.last_state().unwrap();
     // Slow mode ~ e^{-1}; implicit Euler order 1 at h=0.1 -> a few % off, but bounded.
-    assert!((end[0] - (-1.0_f64).exp()).abs() < 0.05, "slow mode off: {}", end[0]);
+    assert!(
+        (end[0] - (-1.0_f64).exp()).abs() < 0.05,
+        "slow mode off: {}",
+        end[0]
+    );
     // Fast mode is annihilated (1/101^10 ≈ 1e-20).
     assert!(end[1].abs() < 1e-6, "fast mode not damped: {}", end[1]);
 }
@@ -331,7 +356,10 @@ fn convergence_ratio(method: Method, h: f64) -> f64 {
 fn implicit_euler_is_first_order() {
     // First order -> halving h halves the error (ratio ≈ 2).
     let r = convergence_ratio(Method::ImplicitEuler, 1.0 / 50.0);
-    assert!((1.7..2.4).contains(&r), "implicit-Euler order ratio {r} not ≈ 2");
+    assert!(
+        (1.7..2.4).contains(&r),
+        "implicit-Euler order ratio {r} not ≈ 2"
+    );
 }
 
 #[test]
@@ -368,12 +396,23 @@ fn index1_dae_integrates_correctly() {
 
     // Algebraic constraint x1 - x0 = 0 holds tightly at every accepted state.
     for st in &traj.states {
-        assert!((st[1] - st[0]).abs() < 1e-8, "algebraic row violated: {st:?}");
+        assert!(
+            (st[1] - st[0]).abs() < 1e-8,
+            "algebraic row violated: {st:?}"
+        );
     }
     let end = traj.last_state().unwrap();
     let exact = (-1.0_f64).exp();
-    assert!((end[0] - exact).abs() < 0.02, "x0 off: {} vs {exact}", end[0]);
-    assert!((end[1] - exact).abs() < 0.02, "x1 off: {} vs {exact}", end[1]);
+    assert!(
+        (end[0] - exact).abs() < 0.02,
+        "x0 off: {} vs {exact}",
+        end[0]
+    );
+    assert!(
+        (end[1] - exact).abs() < 0.02,
+        "x1 off: {} vs {exact}",
+        end[1]
+    );
 }
 
 #[test]
@@ -381,7 +420,11 @@ fn index1_dae_bdf2_is_accurate() {
     let prob = Index1Dae;
     let opts = IntegratorOptions::adaptive(Method::Bdf2, 1e-3).with_tolerances(1e-8, 1e-10);
     let traj = integrate_dae(&prob, &ctx(), (0.0, 1.0), &[1.0, 1.0], &opts);
-    assert!(traj.is_completed(), "index-1 BDF2 failed: {:?}", traj.status);
+    assert!(
+        traj.is_completed(),
+        "index-1 BDF2 failed: {:?}",
+        traj.status
+    );
     let end = traj.last_state().unwrap();
     let exact = (-1.0_f64).exp();
     assert!((end[0] - exact).abs() < 1e-5, "x0 off: {}", end[0]);
@@ -397,7 +440,11 @@ fn pi_controller_rejects_and_retries_overshoot() {
     let opts = IntegratorOptions::adaptive(Method::ImplicitEuler, 0.8).with_tolerances(1e-6, 1e-9);
     let traj = integrate_dae(&prob, &ctx(), (0.0, 2.0), &[1.0], &opts);
 
-    assert!(traj.is_completed(), "adaptive run failed: {:?}", traj.status);
+    assert!(
+        traj.is_completed(),
+        "adaptive run failed: {:?}",
+        traj.status
+    );
     assert!(
         traj.stats.rejected_steps >= 1,
         "expected at least one rejected step, got {}",
@@ -430,7 +477,10 @@ fn adaptive_takes_fewer_steps_than_naive_fine_fixed() {
         "adaptive used too many steps: {}",
         traj.stats.accepted_steps
     );
-    assert!(traj.stats.accepted_steps * 4 < 50_000, "not meaningfully adaptive");
+    assert!(
+        traj.stats.accepted_steps * 4 < 50_000,
+        "not meaningfully adaptive"
+    );
 }
 
 #[test]
