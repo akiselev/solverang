@@ -27,8 +27,8 @@
 //!
 //! Each forms its per-step nonlinear system from the seam and solves it by **reusing
 //! solverang's globalized Newton + line search** ([`Solver`](crate::solver::Solver))
-//! through the [`step`] module's [`Problem`](crate::problem::Problem) adapter — no
-//! bespoke Newton loop. A [PI (predictive) step-size controller](controller) provides
+//! through an internal [`Problem`](crate::problem::Problem) adapter — no
+//! bespoke Newton loop. A PI (predictive) step-size controller provides
 //! local-error accept/reject/adapt (see [`IntegratorOptions::adaptive`]).
 //!
 //! # The per-step system (getting the form right from the seam docs)
@@ -41,7 +41,7 @@
 //!
 //! where `(a0, a1, a2)` are the variable-step BDF coefficients (`a0 = 1/h`,
 //! `a1 = −1/h`, `a2 = 0` for implicit Euler). The Newton iteration matrix is
-//! `a0·M + K = iteration_matrix(bdf(a0))` — exactly [`IntegratorCoeffs::bdf`]. For a
+//! `a0·M + K = iteration_matrix(bdf(a0))` — exactly [`numeric_contracts::IntegratorCoeffs::bdf`]. For a
 //! *linear* charge `q = M·x` this reduces to the `mass_apply((a0)(x^{n+1} − x^n))`
 //! form; the charge-difference form above is the general (nonlinear-charge, singular-
 //! mass index-1) version.
@@ -54,14 +54,14 @@
 //!
 //! [`integrate_dae`] is panic-free. It always returns a [`Trajectory`] whose
 //! [`status`](Trajectory::status) is [`IntegrateStatus::Failed`] on any typed failure
-//! (Newton non-convergence, step underflow, a seam [`NumericError`], bad input); the
+//! (Newton non-convergence, step underflow, a seam [`numeric_contracts::NumericError`], bad input); the
 //! partial history up to the failure is preserved.
 //!
 //! # Deferred seams (documented follow-ups, not built here)
 //!
 //! - **Dense output** (a continuous interpolant per step) — only step endpoints are
 //!   recorded today.
-//! - **The event loop** ([`EventBearing`](numeric_contracts::EventBearing): crossing
+//! - **The event loop** (crossing
 //!   eval → root isolation → consistent reinit → restart). [`IntegrateStatus::Terminated`]
 //!   is reserved for it.
 //! - **Higher-order / order control**, Radau IIA / ESDIRK stage-Newton, the full DymNL
@@ -74,9 +74,9 @@
 //!
 //! ```ignore
 //! use solverang::integrate::{integrate_dae, IntegratorOptions, Method};
-//! use numeric_contracts::Ctx;
+//! use solverang_contracts::Ctx;
 //!
-//! // `decay` implements numeric_contracts::DaeResidual<f64> for u' = -λu.
+//! // `decay` implements solverang_contracts::DaeResidual<f64> for u' = -λu.
 //! let ctx = Ctx::real_os_default();
 //! let opts = IntegratorOptions::adaptive(Method::Bdf2, 1e-3);
 //! let traj = integrate_dae(&decay, &ctx, (0.0, 1.0), &[1.0], &opts);
