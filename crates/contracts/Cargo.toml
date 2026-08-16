@@ -1,0 +1,12 @@
+[package]
+name = "solverang-contracts"
+version = "0.1.0"
+edition = "2021"
+description = "Portable numerical operator and DAE contracts shared by Solverang and scientific compilers"
+license = "Apache-2.0"
+repository = "https://github.com/akiselev/solverang"
+rust-version = "1.85"
+
+[dependencies]
+serde = { version = "1", features = ["derive", "rc"] }
+thiserror = "2"

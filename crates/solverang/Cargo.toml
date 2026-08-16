@@ -20,40 +20,26 @@ parallel = ["rayon"]
 sparse = ["faer"]
 macros = ["solverang_macros"]
 jit = ["dep:anvil"]
-nist = []                                                                    # NIST StRD nonlinear regression test problems
+nist = []
 
 [dependencies]
-# Linear algebra - version 0.34 is required for levenberg-marquardt compatibility
 nalgebra = "0.34"
-
-# Levenberg-Marquardt solver
 levenberg-marquardt = "0.15"
-
-# Error handling
 thiserror = "2.0"
 
-# DAE/ODE time-integration seam (federation numeric contracts). Mirrors the anvil
-# path-dep: solverang consumes the `DaeResidual` / `IntegratorCoeffs` contracts to
-# drive its BDF / generalized-alpha integrator (`integrate` module) WITHOUT importing
-# the physics-assembly crate (`residua`). Types + traits only; no algorithm crosses
-# the seam. Its `nalgebra`/`num-complex` transitive deps compile alongside solverang's
-# own (only `f64` slices cross the boundary, so the version skew is harmless).
-numeric-contracts = { package = "sinbad-numeric-contracts", path = "/home/dev/sinbad/crates/numeric-contracts" }
+# Solverang owns the domain-neutral numerical seam. Keep the historical dependency key so
+# existing integration code continues to import `numeric_contracts`, but the package is now
+# portable and lives in this repository rather than at an absolute Sinbad checkout path.
+numeric-contracts = { package = "solverang-contracts", path = "../contracts" }
 
-# Optional: parallel solving
 rayon = { version = "1.10", optional = true }
-
-# Optional: sparse matrices
 faer = { version = "0.22", optional = true }
-
-# Optional: automatic Jacobian generation via symbolic differentiation
 solverang_macros = { version = "0.1.0", path = "../macros", optional = true }
 
-# Optional: JIT compilation. The JIT (scalar opcode IR + Cranelift codegen) was
-# re-homed into the standalone `sinbad-anvil` crate (M1). solverang now depends on
-# anvil behind its `jit` feature and reaches the cranelift stack transitively via
-# anvil's own (default-on) `jit` feature — no direct cranelift deps here anymore.
-anvil = { package = "sinbad-anvil", path = "/home/dev/sinbad/crates/anvil", optional = true }
+# Legacy JIT compatibility remains optional. The dependency is portable rather than an
+# absolute checkout path; solver algorithms themselves depend only on solverang-contracts'
+# target-neutral ExecutableResidual seam. Anvil should ultimately become its own package/repo.
+anvil = { package = "sinbad-anvil", git = "https://github.com/akiselev/sinbad.git", rev = "f2ca939b6a9de16d8c0f5f4a7fada582f60a9af7", optional = true }
 
 [dev-dependencies]
 proptest = "1.4"
