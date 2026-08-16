@@ -19,10 +19,9 @@ std = []
 parallel = ["rayon"]
 sparse = ["faer"]
 macros = ["solverang_macros"]
-# Preserves the historical API without a reverse dependency on Sinbad/Anvil. The local
-# compatibility runtime interprets the stable opcode IR; production native compilation is
-# supplied through solverang-contracts::ExecutableResidual at the scientific-stack boundary.
-jit = []
+# Keep the historical JIT portable and self-contained during the R9 migration. Anvil may become
+# an execution backend later, but Solverang must not acquire a reverse/path dependency on Sinbad.
+jit = ["cranelift", "cranelift-jit", "cranelift-module", "cranelift-native"]
 nist = []
 
 [dependencies]
@@ -38,6 +37,12 @@ numeric-contracts = { package = "solverang-contracts", path = "../contracts" }
 rayon = { version = "1.10", optional = true }
 faer = { version = "0.22", optional = true }
 solverang_macros = { version = "0.1.0", path = "../macros", optional = true }
+
+# Portable historical JIT. Retained until an Anvil replacement has independent behavioral parity.
+cranelift = { version = "0.116", optional = true }
+cranelift-jit = { version = "0.116", optional = true }
+cranelift-module = { version = "0.116", optional = true }
+cranelift-native = { version = "0.116", optional = true }
 
 [dev-dependencies]
 proptest = "1.4"
