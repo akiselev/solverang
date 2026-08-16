@@ -1,66 +1,135 @@
-//! Optional symbolic export seam for constraint systems.
+//! Optional symbolic export for high-level constraints.
 //!
-//! Solverang remains a batteries-included geometric/general constraint solver. This module
-//! does not make Resolvent a required dependency and does not replace the numeric
-//! [`super::Constraint`] contract. Instead, algebraic constraints may additionally expose
-//! their residuals through a generic expression builder. A Resolvent adapter can implement
-//! the builder without Solverang owning or cloning Resolvent's expression IR.
+//! Solverang remains a batteries-included numerical/geometric solver and does not depend on
+//! a particular CAS. Constraints may describe their residuals through the small object-safe
+//! [`SymbolicSink`] protocol. A consumer such as Resolvent implements the sink and receives
+//! opaque expression handles back. Constraints with no useful symbolic representation simply
+//! use the default `None` implementation on [`super::Constraint::symbolic_residuals`].
 
-use crate::id::ParamId;
+use crate::id::{ConstraintId, ParamId};
 
-use super::Constraint;
+/// Opaque handle allocated by a [`SymbolicSink`]. It has meaning only to the sink instance
+/// that returned it.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SymbolicNode(pub u32);
 
-/// Minimal construction vocabulary needed by Solverang's algebraic constraint residuals.
+/// Minimal, dependency-neutral mathematical construction vocabulary used by Solverang
+/// constraints.
 ///
-/// The trait is intentionally consumer-owned at the expression level: `Expr` may be a
-/// Resolvent handle, a test AST, or another symbolic backend. `constant_f64_exact` must
-/// preserve the exact IEEE-754 value (normally as a dyadic rational) or return `None`; it
-/// must never guess a "nice" rational.
-pub trait SymbolicExpressionBuilder {
-    type Expr: Clone;
+/// `constant_f64_exact` means the exact finite IEEE-754 value (normally lifted as a dyadic
+/// rational), never a guessed "nice" rational. The sink owns canonicalization,
+/// differentiation, exact coefficient domains and all richer algebra.
+pub trait SymbolicSink {
+    fn parameter(&mut self, parameter: ParamId) -> SymbolicNode;
+    fn constant_f64_exact(&mut self, value: f64) -> Option<SymbolicNode>;
 
-    fn parameter(&mut self, id: ParamId) -> Self::Expr;
-    fn constant_f64_exact(&mut self, value: f64) -> Option<Self::Expr>;
+    fn add(&mut self, left: SymbolicNode, right: SymbolicNode) -> SymbolicNode;
+    fn sub(&mut self, left: SymbolicNode, right: SymbolicNode) -> SymbolicNode;
+    fn mul(&mut self, left: SymbolicNode, right: SymbolicNode) -> SymbolicNode;
+    fn div(&mut self, numerator: SymbolicNode, denominator: SymbolicNode) -> SymbolicNode;
+    fn pow_i(&mut self, base: SymbolicNode, exponent: i32) -> SymbolicNode;
+    fn apply(&mut self, function: &str, args: &[SymbolicNode]) -> SymbolicNode;
 
-    fn add(&mut self, lhs: Self::Expr, rhs: Self::Expr) -> Self::Expr;
-    fn sub(&mut self, lhs: Self::Expr, rhs: Self::Expr) -> Self::Expr;
-    fn mul(&mut self, lhs: Self::Expr, rhs: Self::Expr) -> Self::Expr;
-    fn neg(&mut self, value: Self::Expr) -> Self::Expr;
+    fn neg(&mut self, value: SymbolicNode) -> Option<SymbolicNode> {
+        let minus_one = self.constant_f64_exact(-1.0)?;
+        Some(self.mul(minus_one, value))
+    }
 
-    fn square(&mut self, value: Self::Expr) -> Self::Expr {
-        self.mul(value.clone(), value)
+    fn square(&mut self, value: SymbolicNode) -> SymbolicNode {
+        self.pow_i(value, 2)
     }
 }
 
-/// Optional capability implemented only by constraints whose residual semantics can be
-/// exported without approximation or probing.
-///
-/// The generic builder makes this trait intentionally non-object-safe. Runtime collections
-/// continue to use `dyn Constraint`; symbolic analysis is an explicit side path over known
-/// concrete constraint types/adapters rather than a tax on every interactive solve.
-pub trait SymbolicConstraint: Constraint {
-    fn symbolic_residuals<B: SymbolicExpressionBuilder>(
-        &self,
-        builder: &mut B,
-    ) -> Option<Vec<B::Expr>>;
-}
-
-/// Why a concrete constraint does not expose exact symbolic residuals.
+/// Why a concrete constraint cannot provide an exact symbolic representation through the
+/// current protocol. This is diagnostic metadata only; unsupported constraints continue down
+/// the existing numeric path.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SymbolicUnavailable {
-    /// No symbolic implementation has been written yet.
     NotImplemented,
-    /// The constraint contains a genuinely non-algebraic or piecewise operation that the
-    /// current exact export policy deliberately excludes.
     UnsupportedOperation,
-    /// A stored floating-point constant was non-finite and therefore cannot be lifted to an
-    /// exact dyadic rational.
     NonFiniteConstant,
 }
 
-/// Helper for adapters that want to advertise capability without downcasting by name.
-pub trait SymbolicConstraintInfo: Constraint {
-    fn symbolic_availability(&self) -> Result<(), SymbolicUnavailable> {
-        Err(SymbolicUnavailable::NotImplemented)
+/// Exact/structural diagnostics supplied by an optional symbolic backend.
+///
+/// This augments rather than replaces Solverang's native diagnostics. A Resolvent-backed
+/// analyzer can fill implication support from generic finite-field rank or attach checkable
+/// algebraic conflict certificates while every user retains the standard numeric analysis.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct DiagnosticSupplement {
+    pub redundant_implied_by: Vec<(ConstraintId, Vec<ConstraintId>)>,
+    pub certificates: Vec<(String, String)>,
+}
+
+impl DiagnosticSupplement {
+    pub fn implied_by(&self, id: ConstraintId) -> Option<&[ConstraintId]> {
+        self.redundant_implied_by
+            .iter()
+            .find_map(|(candidate, support)| (*candidate == id).then_some(support.as_slice()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct RecordingSink {
+        next: u32,
+        params: Vec<ParamId>,
+    }
+
+    impl RecordingSink {
+        fn node(&mut self) -> SymbolicNode {
+            let node = SymbolicNode(self.next);
+            self.next += 1;
+            node
+        }
+    }
+
+    impl SymbolicSink for RecordingSink {
+        fn parameter(&mut self, parameter: ParamId) -> SymbolicNode {
+            self.params.push(parameter);
+            self.node()
+        }
+
+        fn constant_f64_exact(&mut self, value: f64) -> Option<SymbolicNode> {
+            value.is_finite().then(|| self.node())
+        }
+
+        fn add(&mut self, _: SymbolicNode, _: SymbolicNode) -> SymbolicNode {
+            self.node()
+        }
+        fn sub(&mut self, _: SymbolicNode, _: SymbolicNode) -> SymbolicNode {
+            self.node()
+        }
+        fn mul(&mut self, _: SymbolicNode, _: SymbolicNode) -> SymbolicNode {
+            self.node()
+        }
+        fn div(&mut self, _: SymbolicNode, _: SymbolicNode) -> SymbolicNode {
+            self.node()
+        }
+        fn pow_i(&mut self, _: SymbolicNode, _: i32) -> SymbolicNode {
+            self.node()
+        }
+        fn apply(&mut self, _: &str, _: &[SymbolicNode]) -> SymbolicNode {
+            self.node()
+        }
+    }
+
+    #[test]
+    fn sink_is_object_safe_and_exact_f64_policy_is_explicit() {
+        fn consume(sink: &mut dyn SymbolicSink, p: ParamId) -> Option<SymbolicNode> {
+            let x = sink.parameter(p);
+            let two = sink.constant_f64_exact(2.0)?;
+            let x2 = sink.square(x);
+            Some(sink.sub(x2, two))
+        }
+
+        let mut sink = RecordingSink::default();
+        let p = ParamId::new(2, 7);
+        assert!(consume(&mut sink, p).is_some());
+        assert_eq!(sink.params, vec![p]);
+        assert!(sink.constant_f64_exact(f64::NAN).is_none());
     }
 }
