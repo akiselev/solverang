@@ -19,7 +19,10 @@ std = []
 parallel = ["rayon"]
 sparse = ["faer"]
 macros = ["solverang_macros"]
-jit = ["dep:anvil"]
+# Preserves the historical API without a reverse dependency on Sinbad/Anvil. The local
+# compatibility runtime interprets the stable opcode IR; production native compilation is
+# supplied through solverang-contracts::ExecutableResidual at the scientific-stack boundary.
+jit = []
 nist = []
 
 [dependencies]
@@ -35,11 +38,6 @@ numeric-contracts = { package = "solverang-contracts", path = "../contracts" }
 rayon = { version = "1.10", optional = true }
 faer = { version = "0.22", optional = true }
 solverang_macros = { version = "0.1.0", path = "../macros", optional = true }
-
-# Legacy JIT compatibility remains optional. The dependency is portable rather than an
-# absolute checkout path; solver algorithms themselves depend only on solverang-contracts'
-# target-neutral ExecutableResidual seam. Anvil should ultimately become its own package/repo.
-anvil = { package = "sinbad-anvil", git = "https://github.com/akiselev/sinbad.git", rev = "f2ca939b6a9de16d8c0f5f4a7fada582f60a9af7", optional = true }
 
 [dev-dependencies]
 proptest = "1.4"
