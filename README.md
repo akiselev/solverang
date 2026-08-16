@@ -1,10 +1,8 @@
 # solverang
 
-A silly solver for serious systems.
+> **Experimental.** Solver APIs, constraint modules, and optional execution backends may change while the library is still being validated.
 
-Solverang is a vibe-coded, domain-agnostic numerical solver for nonlinear equations and least-squares problems, written in Rust. It will find the zeros of your functions or die trying (gracefully, with diagnostics). The core library knows nothing about geometry, CAD, or any other domain -- it operates purely on parameter IDs and trait objects, which means you can bolt it onto whatever problem you have and it will dutifully attempt to make your residuals vanish.
-
-It ships with batteries-included 2D sketch, 3D sketch, and rigid-body assembly constraint modules, because what is a solver without something to solve.
+Solverang is a domain-agnostic Rust solver for nonlinear equations and least-squares problems. The core library operates on parameter IDs and problem traits rather than geometry-specific types, and the workspace includes 2D sketch, 3D sketch, and rigid-body assembly constraint modules.
 
 ## Installation
 
@@ -13,20 +11,19 @@ It ships with batteries-included 2D sketch, 3D sketch, and rigid-body assembly c
 solverang = "0.1"
 ```
 
-The default build is lean: `std` plus the `macros` feature for `#[auto_jacobian]`.
-The heavier subsystems — Cranelift JIT, sparse algebra, parallel solving, and the
-NIST test problems — are opt-in:
+The default build includes `std` and the `macros` feature for `#[auto_jacobian]`.
+Optional subsystems include Cranelift JIT compilation, sparse algebra, parallel solving, and the NIST test problems:
 
 ```toml
 [dependencies]
 solverang = { version = "0.1", features = ["jit", "sparse", "parallel"] }
 ```
 
-## A Tour of the Silly Solver
+## Examples
 
-### The Low Road: Problem Trait
+### Problem trait
 
-If you have a system of equations and know what a Jacobian is, implement the `Problem` trait and hand it to a solver. Here we find the square root of two, which humanity has needed since at least 1800 BC:
+Implement `Problem` directly when you have a system of equations and can provide its Jacobian. This example solves for the square root of two:
 
 ```rust
 use solverang::{Problem, Solver, SolverConfig, SolveResult};
@@ -59,18 +56,18 @@ if let SolveResult::Converged { solution, .. } = result {
 }
 ```
 
-### The High Road: Sketch2DBuilder
+### Sketch2DBuilder
 
-If you would rather describe constraints between geometric entities and let the solver figure out the rest, use the builder API. Here we define a triangle by its three side lengths and ask the solver where the vertices go:
+The builder API describes constraints between geometric entities and constructs the corresponding system. This example defines a triangle by its side lengths:
 
 ```rust
 use solverang::sketch2d::Sketch2DBuilder;
 use solverang::system::SystemStatus;
 
 let mut b = Sketch2DBuilder::new();
-let p0 = b.add_fixed_point(0.0, 0.0);  // nail this one down
-let p1 = b.add_fixed_point(10.0, 0.0); // and this one
-let p2 = b.add_point(5.0, 1.0);        // this one has to figure itself out
+let p0 = b.add_fixed_point(0.0, 0.0);
+let p1 = b.add_fixed_point(10.0, 0.0);
+let p2 = b.add_point(5.0, 1.0);
 
 b.constrain_distance(p0, p1, 10.0).unwrap();
 b.constrain_distance(p1, p2, 8.0).unwrap();
@@ -81,40 +78,38 @@ let result = system.solve();
 assert!(matches!(result.status, SystemStatus::Solved));
 ```
 
-### The Middle Road: ConstraintSystem
+### ConstraintSystem
 
-For 3D sketches and assemblies, or when you want finer control, construct a `ConstraintSystem` directly with entities and constraints from the `sketch3d` and `assembly` modules.
+For 3D sketches and assemblies, or when finer control is required, construct a `ConstraintSystem` directly with entities and constraints from the `sketch3d` and `assembly` modules.
 
 ## Solvers
 
-Six solvers walk into a function space:
+| Solver | Best for | Behavior |
+|--------|----------|----------|
+| `Solver` (Newton-Raphson) | Square systems, good initial guesses | Newton-Raphson with quadratic local convergence when the Jacobian and initial point are suitable. |
+| `LMSolver` (Levenberg-Marquardt) | Over-determined systems, poor starting points | Interpolates between gradient descent and Gauss-Newton. |
+| `AutoSolver` | Automatic solver selection | Inspects problem structure and selects a solver. |
+| `RobustSolver` | Problems that may need fallback behavior | Tries Newton-Raphson first and falls back to Levenberg-Marquardt. |
+| `ParallelSolver` | Independent sub-problems | Decomposes the system and solves independent components in parallel. Requires the `parallel` feature. |
+| `SparseSolver` | Large systems | Uses sparse factorization. |
 
-| Solver | Best for | Personality |
-|--------|----------|-------------|
-| `Solver` (Newton-Raphson) | Square systems, good initial guesses | Fast and fragile. Quadratic convergence when it works, spectacular failure when it doesn't. |
-| `LMSolver` (Levenberg-Marquardt) | Over-determined systems, poor starting points | The reliable one. Interpolates between gradient descent and Gauss-Newton so you don't have to. |
-| `AutoSolver` | When you don't want to think about it | Inspects your problem and picks a solver. Usually right. |
-| `RobustSolver` | Unknown territory | Tries Newton-Raphson first, then falls back to LM. Belt and suspenders. |
-| `ParallelSolver` | Independent sub-problems | Decomposes your system and solves the pieces in parallel. Requires the `parallel` feature. |
-| `SparseSolver` | Large systems (1000+ variables) | Uses sparse factorization. The difference between "runs" and "runs before the heat death of the universe." |
-
-## Constraint Modules
+## Constraint modules
 
 ### sketch2d
 
-2D parametric sketch constraints, the kind you find in any CAD sketcher. Points, lines, circles, arcs, and 15 constraint types including distance, horizontal, vertical, parallel, perpendicular, tangent, point-on-circle, equal length, angle, midpoint, and symmetric. The `Sketch2DBuilder` provides an ergonomic API for constructing these systems.
+2D parametric sketch constraints for points, lines, circles, and arcs. The module includes distance, horizontal, vertical, parallel, perpendicular, tangent, point-on-circle, equal-length, angle, midpoint, symmetric, and related constraints. `Sketch2DBuilder` provides the high-level construction API.
 
 ### sketch3d
 
-3D sketch primitives: points, line segments, planes, and axes. Constraints include 3D distance, coincident, fixed position, point-on-plane, coplanar, parallel, perpendicular, and coaxial.
+3D sketch primitives include points, line segments, planes, and axes. Constraints include 3D distance, coincident, fixed position, point-on-plane, coplanar, parallel, perpendicular, and coaxial.
 
 ### assembly
 
-Rigid-body assembly constraints using quaternion orientation. Entities are rigid bodies with 7 parameters (translation + unit quaternion). Constraints include mate (point coincidence), coaxial alignment, insert (coaxial + flush), and gear ratio.
+Rigid-body assembly constraints use quaternion orientation. Entities are rigid bodies with seven parameters (translation plus unit quaternion). Constraints include mate, coaxial alignment, insert, and gear ratio.
 
 ## Automatic Jacobians
 
-Writing Jacobians by hand is tedious and error-prone. The `#[auto_jacobian]` procedural macro generates them via symbolic differentiation:
+The `#[auto_jacobian]` procedural macro generates Jacobians through symbolic differentiation:
 
 ```rust
 use solverang::{auto_jacobian, residual, Problem};
@@ -137,7 +132,7 @@ fn line(x: &[f64]) -> f64 {
 }
 ```
 
-If you don't trust it (reasonable), verify against finite differences:
+Generated Jacobians can be checked against finite differences:
 
 ```rust
 use solverang::verify_jacobian;
@@ -146,7 +141,7 @@ let result = verify_jacobian(&my_problem, &x, 1e-7, 1e-5);
 assert!(result.passed);
 ```
 
-## Feature Flags
+## Feature flags
 
 | Flag | Default | What it does |
 |------|---------|--------------|
@@ -159,11 +154,11 @@ assert!(result.passed);
 
 ## Architecture
 
-The design follows a principle that could be called "solver-first": the core library is a general-purpose nonlinear solver that knows nothing about the domain it serves. The constraint modules (sketch2d, sketch3d, assembly) implement extension traits, making them plugins rather than core dependencies.
+The core library is a general-purpose nonlinear solver that does not depend on a particular application domain. The constraint modules (`sketch2d`, `sketch3d`, and `assembly`) implement extension traits rather than introducing domain types into the solver core.
 
-The solve pipeline is pluggable, with five phases: Decompose, Analyze, Reduce, Solve, PostProcess. The reduce phase performs symbolic elimination (substituting fixed parameters, merging coincident parameters, eliminating trivial constraints) before handing the reduced system to the numerical solver. An incremental dataflow tracker and solution cache enable warm-starting when constraints change.
+The solve pipeline has five phases: Decompose, Analyze, Reduce, Solve, and PostProcess. The reduce phase performs symbolic elimination, including substituting fixed parameters, merging coincident parameters, and eliminating trivial constraints, before passing the reduced system to the numerical solver. An incremental dataflow tracker and solution cache support warm starts when constraints change.
 
-For the gory details, see `docs/plans/solver-first-v3.md`.
+See `docs/plans/solver-first-v3.md` for the detailed design.
 
 ## Testing
 
@@ -181,9 +176,9 @@ The test suite includes unit tests across all modules, a solver megatest, proper
 cargo bench -p solverang
 ```
 
-Three benchmark suites: scaling behavior across problem sizes, solver algorithm comparison (NR vs LM vs AutoSolver), and NIST problem performance.
+Three benchmark suites cover scaling across problem sizes, solver algorithm comparison (NR vs LM vs AutoSolver), and NIST problem performance.
 
-## Project Status
+## Project status
 
 See [STATUS.md](STATUS.md) for detailed implementation status, known issues, and architecture notes.
 
@@ -193,4 +188,4 @@ Apache-2.0
 
 ## Contributing
 
-Contributions are welcome. Please ensure all tests pass and add tests for new functionality. If you are adding a new constraint type, include finite-difference Jacobian verification in your tests -- the solver is only as good as its derivatives.
+Contributions are welcome. Please ensure all tests pass and add tests for new functionality. New constraint types should include finite-difference Jacobian verification.
