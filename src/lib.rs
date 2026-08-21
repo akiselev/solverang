@@ -1,40 +1,21 @@
-//! Physics-neutral numerical contracts and algorithms.
+//! Domain-neutral constraint graphs, solve orchestration, and diagnostics.
 //!
-//! Solverang consumes vectors and operator actions. It does not own meshes,
-//! fields, units, constitutive laws, compiled kernels, or simulation state.
+//! Consumers own entity meaning and authoritative acceptance. Solverang owns
+//! variables, residual relations, graph evaluation, candidate solving, and
+//! diagnostics. Numerical algorithms are supplied by Methodus.
 
 #![forbid(unsafe_code)]
 
-mod bdf;
-mod block;
-mod context;
 mod error;
-mod linear;
-mod nonlinear;
-mod operator;
-mod preconditioner;
-mod sparse;
+mod model;
+mod solve;
 
-pub use bdf::{
-    AcceptedStep, BdfConfig, BdfOrder, BdfState, LocatedEvent, RejectedStep, StepOutcome, bdf_step,
+pub use error::ConstraintError;
+pub use model::{
+    Constraint, ConstraintId, ConstraintModel, ConstraintOutput, ModelEvaluation, Relation,
+    VariableId, VariableValues,
 };
-pub use block::{
-    Block, BlockLayout, BlockLinearOperator, BlockNonlinearOperator, BlockPreconditioner, BlockSpec,
+pub use solve::{
+    ConstraintSolveConfig, ConstraintSolveReport, ConstraintStatus, solve_constraints,
+    verify_constraint_jacobian,
 };
-pub use context::EvaluationContext;
-pub use error::{NumericError, SolveError};
-pub use linear::{
-    ConjugateGradientConfig, ConjugateGradientSymmetryPolicy, LinearIteration, LinearSolveReport,
-    solve_conjugate_gradient,
-};
-pub use nonlinear::{
-    BlockStrategy, IterationTrace, NewtonConfig, SolveReport, solve_blocks, solve_newton,
-};
-pub use operator::{
-    DaeOperator, LinearOperator, NonlinearOperator, OperatorSymmetry, Preconditioner,
-    verify_dae_jvp, verify_jvp,
-};
-pub use preconditioner::{
-    BlockDiagonalPreconditioner, BlockLowerTriangularPreconditioner, LowerBlock,
-};
-pub use sparse::CsrMatrix;

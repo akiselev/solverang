@@ -1,13 +1,21 @@
 # Agent instructions
 
-Read `STATUS.md` before substantial work and update it before every handoff or pull request.
+Read `STATUS.md` before substantial work and update it before every handoff.
 
-## STATUS.md policy
+Solverang owns domain-neutral constraint variables, residual relations, graph
+analysis, solve orchestration, diagnostics, and reusable 2-D/3-D geometric
+constraint vocabulary. Methodus owns the numerical operator contracts and
+algorithms beneath it.
 
-`STATUS.md` is a compact current-state ledger, not an append-only journal.
+Do not add CAD topology or certification, vector-document models, PCB board or
+manufacturing semantics, scientific fields, meshes, simulation time/state, or
+product policy. Consumers retain identity, units, persistence, and authoritative
+acceptance. A converged candidate is never domain certification.
 
-- Keep it under 300 lines; target under 200 and compact stale sections aggressively.
-- Record current milestone, implemented numerical contracts/algorithms, exact validation results, blockers, dependency constraints, and next concrete work.
-- Never say a solver or contract is verified unless the corresponding tests actually ran.
-- Move historical detail to Git history, PRs, ADRs, or dedicated design documents.
-- Keep Solverang physics-neutral: no RSL, materials, function-space, field-name, or physics-specific branching belongs here.
+Keep 2-D and 3-D geometric vocabulary in their dedicated crates and prove new
+generic machinery with dissimilar consumers. Do not restore the historical
+mixed solver/JIT/scientific/optimization pipeline wholesale; Git history is the
+donor archive.
+
+Before handoff run formatting, locked workspace checks, warnings-denied Clippy,
+all tests, warnings-denied rustdoc, doctests, and `git diff --check`.

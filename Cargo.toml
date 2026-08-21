@@ -4,13 +4,18 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "Apache-2.0"
-description = "Physics-neutral numerical operator contracts and algorithms"
+description = "Domain-neutral constraint modeling, solving, and diagnostics"
 repository = "https://github.com/akiselev/solverang"
 readme = "README.md"
-keywords = ["solver", "nonlinear", "dae", "numerical"]
+keywords = ["constraints", "geometry", "solver", "parametric"]
 categories = ["mathematics", "science", "algorithms"]
 
+[workspace]
+resolver = "2"
+members = [".", "crates/geometry-2d", "crates/geometry-3d"]
+
 [dependencies]
+methodus = { path = "../methodus" }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 

@@ -2,64 +2,60 @@
 
 Updated: 2026-08-21
 Branch: `master`
-Milestone: FC6 linear operator solve
+Milestone: generalized constraint-engine restoration
 
 ## Current role
 
-Solverang owns physics-neutral numerical contracts and algorithms. It operates on flat `f64` slices and explicit operator actions. It must not understand `.res`, dimensions or units, fields, materials, function spaces, meshes, element kernels, or product/runtime policy.
+Solverang owns domain-neutral constraint graphs, candidate solve orchestration,
+and constraint diagnostics. It depends on Methodus for numerical algorithms.
+It contains no simulation solver algorithms, CAD topology or certification,
+vector-document model, PCB topology/manufacturing rules, scientific semantics,
+mesh, or product policy.
 
-The repository is one root package named `solverang`. There are no subordinate contracts, scientific, or macro packages.
+The extraction dependency validated here is Methodus
+`d5354abb4dfd197ba5fd66f3742f9820701e4c43`.
 
 ## Implemented surface
 
-- In-place `LinearOperator`, `Preconditioner`, `NonlinearOperator`, and `DaeOperator` traits, with
-  explicit symmetric/nonsymmetric/unknown metadata on linear actions.
-- `EvaluationContext` for explicit reproducibility policy.
-- Validated contiguous `BlockLayout` and block-aware operator/preconditioner traits.
-- Canonical sorted `CsrMatrix` with input-order-independent duplicate summation and matrix-vector action.
-- Deterministic preconditioned conjugate gradient over `LinearOperator` and `Preconditioner`, with
-  residual traces, dimension/configuration validation, finite-value checks, and non-positive
-  curvature refusal. CG always refuses declared-nonsymmetric actions and requires either declared
-  symmetry or an explicit caller assumption for unknown actions.
-- Invariant-validated deserialization for CSR matrices, block layouts, preconditioners, and BDF history.
-- Dense Newton correctness baseline with backtracking and residual traces.
-- Monolithic, block Gauss-Seidel, and block Jacobi nonlinear strategies.
-- Block-diagonal and block-lower-triangular preconditioners.
-- BDF1 and variable-step BDF2 implicit stepping with error-based rejection, consistent initialization, serializable step-size history, restart identity, and zero-crossing events.
-- Checked dimension, capacity, time, and accepted-step arithmetic on fallible solver paths.
-- Centered-difference checks for nonlinear and DAE Jacobian-vector products.
+- stable `VariableId` and `ConstraintId` handles;
+- extensible object-safe residual-block `Constraint` interface;
+- equality, less-than-or-equal, and greater-than-or-equal relations;
+- rectangular model evaluation with row provenance and analytic Jacobians;
+- Methodus damped least-squares candidate solving;
+- centered-difference derivative verification;
+- rank, remaining-degree-of-freedom, and conflicting-constraint diagnostics;
+- `solverang-geometry-2d` with shared CAD/vector/PCB-oriented primitives;
+- `solverang-geometry-3d` with point/segment/plane primitives.
 
-## Repository cleanup
+Acceptance cases exercise one CAD/vector profile, a generic PCB-clearance
+inequality, and a 3-D point-on-plane candidate. These demonstrate dissimilar
+consumers at the vocabulary boundary; they do not claim integration with an
+external vector editor, AutoPCB, or CADabra yet.
 
-- Removed the historical contracts alias and scientific facade.
-- Removed the Malleus/JIT dependency and solver facade.
-- Removed procedural macros and opcode generation.
-- Removed CAD/sketch/entity/assembly, constraint-graph, pipeline/reduction, optimization, dataflow, benchmark, and bundled test-problem concerns.
-- Removed stale migration, review, and implementation-plan documents. Git history is the archive.
+## Extraction
 
-This is an intentional API break. No compatibility types, feature aliases, or forwarding packages remain.
-
-## Dependency contract
-
-- Krasis implements `NonlinearOperator`, `DaeOperator`, and `BlockNonlinearOperator` for coupled state.
-- Finitum may implement `LinearOperator` for realized discrete operators.
-- Solverang has no dependencies on any scientific-stack repository.
+The former numerical implementation moved into Methodus from shared Solverang
+history. Solverang no longer exports Methodus traits or algorithms and no
+compatibility facade remains. Historical broad sketch/assembly/pipeline code
+was not restored wholesale; Git history remains the donor archive.
 
 ## Validation
 
 Validated locally on 2026-08-21:
 
-- `cargo fmt --all -- --check`: passed.
-- `cargo check --all-targets`: passed.
-- `cargo clippy --all-targets -- -D warnings`: passed.
-- `cargo test --all-targets`: passed, 23 tests total (14 unit, 9 integration), 0 failed.
+- formatting and locked workspace/all-target checks passed;
+- warnings-denied Clippy passed;
+- 3 geometry acceptance tests passed, 0 failed;
+- warnings-denied rustdoc and all workspace doctests passed;
+- `git diff --check` passed.
 
 ## Next concrete work
 
-Krasis now exercises the nonlinear, block, and DAE contracts with generated Finitum actions in
-the FC7 transient-diffusion and nonlinear-heat acceptance gates, including rejection and restart.
-
-1. Add additional Krylov methods only when representative realized systems require them.
-2. Replace the dense Newton baseline only after representative form-compiler systems define scaling and performance requirements.
+1. Add consumer-owned identity adapters only with the first live CADabra,
+   vector-editor, and AutoPCB integrations.
+2. Add graph decomposition and incremental solving from representative editing
+   sessions, preserving deterministic diagnostics.
+3. Add curves, tangency, angle, rigid-frame, and assembly constraints only with
+   independent derivative checks and dissimilar consumers.
 
 Blockers: none.

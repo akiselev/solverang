@@ -1,0 +1,11 @@
+[package]
+name = "solverang-geometry-2d"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+description = "Consumer-neutral two-dimensional geometric constraints for Solverang"
+repository = "https://github.com/akiselev/solverang"
+
+[dependencies]
+solverang = { path = "../.." }

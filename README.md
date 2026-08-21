@@ -1,84 +1,68 @@
 # Solverang
 
-Solverang is the physics-neutral numerical core of the Sinbad ecosystem. It accepts flat vectors and in-place operator actions; it has no knowledge of source languages, units, fields, materials, meshes, finite elements, compiled kernels, or product orchestration.
+Solverang is a domain-neutral constraint engine. It owns variable and
+constraint graphs, equality/inequality activation, candidate solving, rank and
+degree-of-freedom analysis, conflict diagnostics, and reusable geometric
+constraint vocabulary. Methodus supplies its numerical algorithms.
 
-The repository contains exactly one Rust package and one public API. There are no contract facades or scientific companion crates.
+Consumers retain semantic authority:
 
-## Owned interfaces
+- CADabra maps CAD entities and dimensional values into Solverang, then
+  independently certifies candidates before committing geometry or topology.
+- A vector editor maps document nodes, handles, and guides into the same 2-D
+  primitives while retaining document and interaction policy.
+- AutoPCB maps route control points, keep-outs, and clearance rules into the
+  same 2-D primitives while retaining board topology and manufacturing rules.
 
-- `LinearOperator` and `Preconditioner` for matrix-free linear actions, with explicit
-  symmetric/nonsymmetric/unknown metadata.
-- `NonlinearOperator` for residuals and Jacobian-vector products.
-- `DaeOperator` for `F(t, y, ydot) = 0`, consistent initialization, and event values.
-- `BlockLayout` plus block-aware operator and preconditioner traits.
-- Canonical `CsrMatrix` storage with input-order-independent duplicate summation for small assembled baselines and interchange.
+Solverang does not contain CAD topology, document models, PCB rules, meshes,
+scientific fields, or simulation algorithms.
 
-All operator outputs are written into caller-provided slices. `EvaluationContext` carries explicit numerical execution policy without importing runtime state.
+## Packages
 
-## Implemented algorithms
+- `solverang`: consumer-neutral constraint graph, relations, solve
+  orchestration, derivative checking, and diagnostics.
+- `solverang-geometry-2d`: points, segments, circles, fixed/coincident,
+  distance/clearance, horizontal/vertical, parallel/perpendicular, and
+  point-on-curve constraints.
+- `solverang-geometry-3d`: points, segments, planes, fixed/coincident,
+  distance/clearance, point-on-plane, and parallel/perpendicular constraints.
 
-- Dense correctness-baseline Newton solves with backtracking.
-- Monolithic, block Gauss-Seidel, and block Jacobi coupling policies.
-- Block-diagonal and block-lower-triangular preconditioner actions.
-- BDF1 and variable-step BDF2 stepping, adaptive rejection, checkpointable step-size history, consistent initialization, and zero-crossing events.
-- Centered-difference verification for nonlinear and DAE Jacobian-vector products.
-
-The dense Newton factorization is deliberately a correctness baseline, not the intended large-system backend. A deterministic preconditioned conjugate-gradient reference solver consumes `LinearOperator` actions for the first Finitum realization. It refuses declared-nonsymmetric actions and requires an explicit caller assumption when symmetry is unknown. Additional Krylov methods and scalable sparse solvers can be added behind the same contracts as concrete systems require them.
+The geometry crates carry only Solverang variable IDs and numeric targets.
+Consumer entity identity, units, persistence, and authoritative acceptance stay
+outside the crates.
 
 ## Example
 
 ```rust
-use solverang::{
-    EvaluationContext, NewtonConfig, NonlinearOperator, NumericError, solve_newton,
-};
+use solverang::{ConstraintSolveConfig, ConstraintStatus, solve_constraints};
+use solverang_geometry_2d::{Distance, FixedPoint, Geometry2d};
 
-struct SquareRootOfTwo;
+let mut geometry = Geometry2d::new();
+let left = geometry.add_point(0.0, 0.0)?;
+let right = geometry.add_point(2.5, 0.0)?;
+geometry.constrain(FixedPoint { point: left, value: [0.0, 0.0] })?;
+geometry.constrain(FixedPoint { point: right, value: [3.0, 0.0] })?;
+geometry.constrain(Distance { left, right, distance: 3.0 })?;
 
-impl NonlinearOperator for SquareRootOfTwo {
-    fn dimension(&self) -> usize { 1 }
-
-    fn residual(
-        &self,
-        _context: &EvaluationContext,
-        state: &[f64],
-        output: &mut [f64],
-    ) -> Result<(), NumericError> {
-        output[0] = state[0] * state[0] - 2.0;
-        Ok(())
-    }
-
-    fn jacobian_vector_product(
-        &self,
-        _context: &EvaluationContext,
-        state: &[f64],
-        direction: &[f64],
-        output: &mut [f64],
-    ) -> Result<(), NumericError> {
-        output[0] = 2.0 * state[0] * direction[0];
-        Ok(())
-    }
-}
-
-let report = solve_newton(
-    &SquareRootOfTwo,
-    &EvaluationContext::reproducible(),
-    &[1.5],
-    &NewtonConfig::default(),
-)?;
-assert!(report.converged);
-assert!((report.state[0] - std::f64::consts::SQRT_2).abs() < 1.0e-10);
-# Ok::<(), solverang::SolveError>(())
+let report = solve_constraints(geometry.model(), &ConstraintSolveConfig::default())?;
+assert_eq!(report.status, ConstraintStatus::Solved);
+# Ok::<(), solverang::ConstraintError>(())
 ```
 
-Krasis implements the nonlinear, DAE, and block traits for coupled simulation state. Finitum may implement linear actions for realized discrete operators. Solverang must remain independent of both repositories.
+## Authority boundary
+
+A converged Solverang report is a finite-precision candidate, not proof of CAD
+incidence, collision-free routing, manufacturability, or document validity.
+Each consumer re-evaluates its own semantics and either accepts, repairs,
+escalates, or refuses the candidate.
 
 ## Validation
 
 ```text
 cargo fmt --all -- --check
-cargo check --all-targets
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
+cargo check --locked --workspace --all-targets
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace --all-targets
+RUSTDOCFLAGS='-D warnings' cargo doc --locked --workspace --no-deps
+cargo test --locked --workspace --doc
 ```
-
-See `STATUS.md` for the current verified surface and next work.
