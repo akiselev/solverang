@@ -13,12 +13,25 @@ jobs:
   rust:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: solverang
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: solverang
+      - name: Check out the pinned Methodus sibling
+        uses: actions/checkout@v4
+        with:
+          repository: akiselev/methodus
+          ref: d29dae4a59752063cff24a006bbe9a74e2214e8a
+          path: methodus
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: solverang -> target
       - run: cargo fmt --all -- --check
       - run: cargo check --all-targets
       - run: cargo clippy --all-targets -- -D warnings

@@ -41,7 +41,10 @@ was not restored wholesale; Git history remains the donor archive.
 
 ## Validation
 
-Validated locally on 2026-08-21:
+Validated locally on 2026-08-21. Standalone CI now recreates the declared
+sibling layout by checking out pinned Methodus `d29dae4` next to Solverang;
+the previous workflow failed before formatting because `../methodus` was
+absent from the isolated runner checkout.
 
 - formatting and locked workspace/all-target checks passed;
 - warnings-denied Clippy passed;
